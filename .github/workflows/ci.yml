@@ -1,0 +1,102 @@
+name: ClaimBridge CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test-go:
+    name: Go API (Gate & Orchestrator)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: services/api/go.sum
+
+      - name: Go Vet
+        run: go vet ./...
+
+      - name: Run Go Unit Tests
+        run: go test -v -race ./...
+
+      - name: Compile Binaries
+        run: |
+          go build -v -o bin/server ./cmd/server
+          go build -v -o bin/paypal-smoke ./cmd/paypal-smoke
+
+  test-rust:
+    name: Rust Deterministic Policy Engine
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/policy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Check Formatting
+        run: cargo fmt --check
+
+      - name: Clippy Linter
+        run: cargo clippy -- -D warnings
+
+      - name: Run Deterministic Unit Tests
+        run: cargo test --verbose
+
+      - name: Compile Release Binary
+        run: cargo build --release
+
+  test-web:
+    name: Next.js Web Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Lint Next.js
+        run: npm run lint
+
+      - name: Build Next.js Production Bundle
+        run: npm run build
+
+  security-checks:
+    name: Security & Secret Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Uncommitted Secrets or Untracked Env
+        run: |
+          echo "Verifying no private keys or active secrets are tracked..."
+          ! git ls-files | grep -E '(\.env$|\.key$|\.pem$|credentials\.json)'
+          echo "Secret check passed."
+
+      - name: Verify Sandbox Enforcement
+        run: |
+          echo "Verifying PAYPAL_ENV defaults strictly to sandbox..."
+          grep "PAYPAL_ENV=sandbox" .env.example

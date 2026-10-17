@@ -1,0 +1,53 @@
+# Environment variables & secrets (CRITICAL)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.staging
+.env.production
+!.env.example
+*.pem
+*.key
+*.token
+*.secret
+credentials.json
+id_rsa*
+
+# Go artifacts
+services/api/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+cover.out
+
+# Rust artifacts
+target/
+**/*.rs.bk
+
+# Node & Next.js artifacts
+node_modules/
+.next/
+out/
+build/
+dist/
+.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Database & infra local volumes
+infra/data/
+postgres-data/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

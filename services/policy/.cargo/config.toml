@@ -1,0 +1,5 @@
+[build]
+rustflags = [
+    "-C", "linker=rust-lld",
+    "-C", "link-arg=-lsynchronization",
+]
