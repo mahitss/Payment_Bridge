@@ -240,3 +240,113 @@ func TestClient_CreatePayout_AmbiguousTimeoutSafety(t *testing.T) {
 		t.Errorf("expected ErrAmbiguousNetworkTimeout, got: %v", err)
 	}
 }
+
+func TestClient_CancelPayoutItem(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(OAuthTokenResponse{
+				AccessToken: "TEST_TOKEN",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+			})
+			return
+		}
+
+		if r.URL.Path == "/v1/payments/payouts-item/ITEM-123/cancel" {
+			if r.Method != http.MethodPost {
+				http.Error(w, "invalid method", http.StatusMethodNotAllowed)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(PayoutItemResponse{
+				PayoutItemID:      "ITEM-123",
+				TransactionStatus: "CANCELED",
+				PayoutBatchID:     "BATCH-123",
+				Amount: CurrencyAmount{
+					Currency: "USD",
+					Value:    "10.00",
+				},
+				Receiver: "recipient@example.com",
+			})
+			return
+		}
+
+		if r.URL.Path == "/v1/payments/payouts-item/ITEM-404/cancel" {
+			http.NotFound(w, r)
+			return
+		}
+
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	client, err := NewClient(cfg, ts.Client())
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// 1. Success cancel
+	res, err := client.CancelPayoutItem(ctx, "ITEM-123")
+	if err != nil {
+		t.Fatalf("expected cancel to succeed, got: %v", err)
+	}
+	if res.TransactionStatus != "CANCELED" {
+		t.Errorf("expected transaction_status CANCELED, got: %s", res.TransactionStatus)
+	}
+
+	// 2. 404 cancel
+	_, err404 := client.CancelPayoutItem(ctx, "ITEM-404")
+	if !errors.Is(err404, ErrPayoutNotFound) {
+		t.Errorf("expected ErrPayoutNotFound, got: %v", err404)
+	}
+}
+
+func TestClient_CheckConnection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(OAuthTokenResponse{
+				AccessToken: "VERIFIED_SANDBOX_TOKEN",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	client, err := NewClient(cfg, ts.Client())
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	status := client.CheckConnection(context.Background())
+	if !status.Connected {
+		t.Errorf("expected Connected true, got false with error: %s", status.Error)
+	}
+	if status.Environment != "sandbox" {
+		t.Errorf("expected Environment sandbox, got: %s", status.Environment)
+	}
+}
+

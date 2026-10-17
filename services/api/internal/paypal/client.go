@@ -400,3 +400,94 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 
 	return &payoutResp, nil
 }
+
+// CancelPayoutItem cancels an unclaimed payout item via POST /v1/payments/payouts-item/{id}/cancel.
+func (c *Client) CancelPayoutItem(ctx context.Context, payoutItemID string) (*PayoutItemResponse, error) {
+	if strings.TrimSpace(payoutItemID) == "" {
+		return nil, errors.New("payout_item_id cannot be empty")
+	}
+
+	token, err := c.GetAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	cancelURL := fmt.Sprintf("%s/v1/payments/payouts-item/%s/cancel", c.baseURL, url.PathEscape(payoutItemID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cancelURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct cancel payout request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cancel payout item request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cancel payout item response: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%w: item id %s", ErrPayoutNotFound, payoutItemID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		sanitizedBody := logger.SanitizeText(string(bodyBytes))
+		return nil, fmt.Errorf("paypal cancel payout item failed with status %d: %s", resp.StatusCode, sanitizedBody)
+	}
+
+	var itemResp PayoutItemResponse
+	if err := json.Unmarshal(bodyBytes, &itemResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cancel item response: %w", err)
+	}
+
+	return &itemResp, nil
+}
+
+// ConnectionStatus represents the live verified status of the PayPal Sandbox connection.
+type ConnectionStatus struct {
+	Connected      bool      `json:"connected"`
+	Environment    string    `json:"environment"`
+	BaseURL        string    `json:"base_url"`
+	AppID          string    `json:"app_id,omitempty"`
+	TokenExpiresIn int       `json:"token_expires_in,omitempty"`
+	CheckedAt      time.Time `json:"checked_at"`
+	Error          string    `json:"error,omitempty"`
+}
+
+// CheckConnection probes PayPal Sandbox by acquiring an actual OAuth2 token.
+func (c *Client) CheckConnection(ctx context.Context) *ConnectionStatus {
+	now := time.Now().UTC()
+	status := &ConnectionStatus{
+		Environment: "sandbox",
+		BaseURL:     c.baseURL,
+		CheckedAt:   now,
+	}
+
+	if c.clientID == "" || c.clientSecret == "" {
+		status.Connected = false
+		status.Error = "PayPal credentials missing: PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are not configured"
+		return status
+	}
+
+	// Force fresh token check if needed or probe sandbox
+	token, err := c.GetAccessToken(ctx)
+	if err != nil {
+		status.Connected = false
+		status.Error = err.Error()
+		return status
+	}
+
+	status.Connected = token != ""
+	c.tokenMu.RLock()
+	if c.tokenExpiry.After(now) {
+		status.TokenExpiresIn = int(time.Until(c.tokenExpiry).Seconds())
+	}
+	c.tokenMu.RUnlock()
+
+	return status
+}
