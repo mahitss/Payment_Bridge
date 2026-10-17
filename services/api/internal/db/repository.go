@@ -10,9 +10,13 @@ var (
 	ErrUserAlreadyExists     = errors.New("user with this email already exists")
 	ErrSessionNotFound       = errors.New("session not found or expired")
 	ErrTokenNotFoundOrUsed   = errors.New("token is invalid, expired, or already consumed")
-	ErrOrganizationNotFound  = errors.New("organization not found")
-	ErrAccessDenied          = errors.New("access denied: user does not have membership in organization")
-	ErrMembershipConflict    = errors.New("user already has membership in this organization")
+	ErrOrganizationNotFound       = errors.New("organization not found")
+	ErrAccessDenied               = errors.New("access denied: user does not have membership in organization")
+	ErrMembershipConflict         = errors.New("user already has membership in this organization")
+	ErrPayoutCaseNotFound         = errors.New("payout case not found")
+	ErrPayoutOperationNotFound     = errors.New("payout operation not found")
+	ErrSelfApprovalForbidden      = errors.New("self-approval forbidden: dual-custody requires a distinct authorized approver")
+	ErrInvalidOperationTransition = errors.New("invalid payout operation state transition")
 )
 
 // Repository encapsulates data access operations for ClaimBridge.
@@ -43,6 +47,24 @@ type Repository interface {
 	GetOrganizationMemberships(ctx context.Context, userID string) ([]OrganizationMembershipWithOrg, error)
 	GetOrganizationByID(ctx context.Context, orgID string) (*Organization, error)
 	VerifyUserOrgAccess(ctx context.Context, userID, orgID string) (bool, string, error)
+
+	// Payout Cases
+	CreatePayoutCase(ctx context.Context, c *PayoutCase) error
+	GetPayoutCaseByID(ctx context.Context, orgID, caseID string) (*PayoutCase, error)
+	ListPayoutCasesByOrg(ctx context.Context, orgID string, limit, offset int) ([]PayoutCase, int, error)
+	UpdatePayoutCaseStatus(ctx context.Context, orgID, caseID, status string) error
+
+	// Payout Operations
+	CreatePayoutOperation(ctx context.Context, op *PayoutOperation) error
+	GetPayoutOperationByID(ctx context.Context, orgID, opID string) (*PayoutOperation, error)
+	GetPayoutOperationBySenderBatchID(ctx context.Context, senderBatchID string) (*PayoutOperation, error)
+	ListPayoutOperationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutOperation, error)
+	UpdatePayoutOperation(ctx context.Context, op *PayoutOperation) error
+	ApprovePayoutOperation(ctx context.Context, orgID, opID, approvedByUserID string) error
+
+	// Status Snapshots
+	CreatePayoutStatusSnapshot(ctx context.Context, snapshot *PayoutStatusSnapshot) error
+	ListPayoutStatusSnapshots(ctx context.Context, orgID, opID string) ([]PayoutStatusSnapshot, error)
 
 	// Audit Logging
 	RecordAuditEvent(ctx context.Context, event *AuditEvent) error

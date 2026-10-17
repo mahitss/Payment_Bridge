@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -11,28 +12,36 @@ import (
 
 // MockRepository provides an in-memory implementation of Repository for automated tests.
 type MockRepository struct {
-	mu            sync.RWMutex
-	Users         map[string]*User                   // id -> User
-	UsersByEmail  map[string]*User                   // lowercase email -> User
-	Orgs          map[string]*Organization           // id -> Org
-	Memberships   map[string]*OrganizationMembership // id -> Membership
-	Sessions      map[string]*Session                // token_hash -> Session
-	VerifyTokens  map[string]*EmailVerificationToken // token_hash -> Token
-	ResetTokens   map[string]*PasswordResetToken     // token_hash -> Token
-	AuditEvents   []*AuditEvent
-	FailNextOp    bool
+	mu                  sync.RWMutex
+	Users               map[string]*User                   // id -> User
+	UsersByEmail        map[string]*User                   // lowercase email -> User
+	Orgs                map[string]*Organization           // id -> Org
+	Memberships         map[string]*OrganizationMembership // id -> Membership
+	Sessions            map[string]*Session                // token_hash -> Session
+	VerifyTokens        map[string]*EmailVerificationToken // token_hash -> Token
+	ResetTokens         map[string]*PasswordResetToken     // token_hash -> Token
+	Cases               map[string]*PayoutCase             // id -> Case
+	Operations          map[string]*PayoutOperation        // id -> Operation
+	OperationsByBatchID map[string]*PayoutOperation        // sender_batch_id -> Operation
+	Snapshots           []*PayoutStatusSnapshot
+	AuditEvents         []*AuditEvent
+	FailNextOp          bool
 }
 
 func NewMockRepository() *MockRepository {
 	return &MockRepository{
-		Users:        make(map[string]*User),
-		UsersByEmail: make(map[string]*User),
-		Orgs:         make(map[string]*Organization),
-		Memberships:  make(map[string]*OrganizationMembership),
-		Sessions:     make(map[string]*Session),
-		VerifyTokens: make(map[string]*EmailVerificationToken),
-		ResetTokens:  make(map[string]*PasswordResetToken),
-		AuditEvents:  make([]*AuditEvent, 0),
+		Users:               make(map[string]*User),
+		UsersByEmail:        make(map[string]*User),
+		Orgs:                make(map[string]*Organization),
+		Memberships:         make(map[string]*OrganizationMembership),
+		Sessions:            make(map[string]*Session),
+		VerifyTokens:        make(map[string]*EmailVerificationToken),
+		ResetTokens:         make(map[string]*PasswordResetToken),
+		Cases:               make(map[string]*PayoutCase),
+		Operations:          make(map[string]*PayoutOperation),
+		OperationsByBatchID: make(map[string]*PayoutOperation),
+		Snapshots:           make([]*PayoutStatusSnapshot, 0),
+		AuditEvents:         make([]*AuditEvent, 0),
 	}
 }
 
@@ -317,4 +326,220 @@ func (m *MockRepository) RecordAuditEvent(ctx context.Context, event *AuditEvent
 	event.CreatedAt = time.Now().UTC()
 	m.AuditEvents = append(m.AuditEvents, event)
 	return nil
+}
+
+// Payout Cases
+
+func (m *MockRepository) CreatePayoutCase(ctx context.Context, c *PayoutCase) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check reference uniqueness within the organization
+	for _, existing := range m.Cases {
+		if existing.OrganizationID == c.OrganizationID && strings.EqualFold(existing.Reference, c.Reference) {
+			return errors.New("a payout case with this reference already exists in your organization")
+		}
+	}
+
+	if c.ID == "" {
+		c.ID = crypto.GenerateUUID()
+	}
+	now := time.Now().UTC()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+
+	copied := *c
+	m.Cases[c.ID] = &copied
+	return nil
+}
+
+func (m *MockRepository) GetPayoutCaseByID(ctx context.Context, orgID, caseID string) (*PayoutCase, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	c, ok := m.Cases[caseID]
+	if !ok || c.OrganizationID != orgID {
+		return nil, ErrPayoutCaseNotFound
+	}
+	copied := *c
+	return &copied, nil
+}
+
+func (m *MockRepository) ListPayoutCasesByOrg(ctx context.Context, orgID string, limit, offset int) ([]PayoutCase, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var matched []PayoutCase
+	for _, c := range m.Cases {
+		if c.OrganizationID == orgID {
+			matched = append(matched, *c)
+		}
+	}
+
+	// Sort descending by CreatedAt
+	for i := 0; i < len(matched)-1; i++ {
+		for j := i + 1; j < len(matched); j++ {
+			if matched[j].CreatedAt.After(matched[i].CreatedAt) {
+				matched[i], matched[j] = matched[j], matched[i]
+			}
+		}
+	}
+
+	total := len(matched)
+	if offset >= total {
+		return []PayoutCase{}, total, nil
+	}
+	end := offset + limit
+	if limit <= 0 || end > total {
+		end = total
+	}
+
+	return matched[offset:end], total, nil
+}
+
+func (m *MockRepository) UpdatePayoutCaseStatus(ctx context.Context, orgID, caseID, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	c, ok := m.Cases[caseID]
+	if !ok || c.OrganizationID != orgID {
+		return ErrPayoutCaseNotFound
+	}
+	c.Status = status
+	c.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+// Payout Operations
+
+func (m *MockRepository) CreatePayoutOperation(ctx context.Context, op *PayoutOperation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.OperationsByBatchID[op.SenderBatchID]; exists {
+		return errors.New("duplicate sender_batch_id")
+	}
+
+	if op.ID == "" {
+		op.ID = crypto.GenerateUUID()
+	}
+	now := time.Now().UTC()
+	op.CreatedAt = now
+	op.UpdatedAt = now
+
+	copied := *op
+	m.Operations[op.ID] = &copied
+	m.OperationsByBatchID[op.SenderBatchID] = &copied
+	return nil
+}
+
+func (m *MockRepository) GetPayoutOperationByID(ctx context.Context, orgID, opID string) (*PayoutOperation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	op, ok := m.Operations[opID]
+	if !ok || op.OrganizationID != orgID {
+		return nil, ErrPayoutOperationNotFound
+	}
+	copied := *op
+	return &copied, nil
+}
+
+func (m *MockRepository) GetPayoutOperationBySenderBatchID(ctx context.Context, senderBatchID string) (*PayoutOperation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	op, ok := m.OperationsByBatchID[senderBatchID]
+	if !ok {
+		return nil, ErrPayoutOperationNotFound
+	}
+	copied := *op
+	return &copied, nil
+}
+
+func (m *MockRepository) ListPayoutOperationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutOperation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var res []PayoutOperation
+	for _, op := range m.Operations {
+		if op.PayoutCaseID == caseID && op.OrganizationID == orgID {
+			res = append(res, *op)
+		}
+	}
+
+	for i := 0; i < len(res)-1; i++ {
+		for j := i + 1; j < len(res); j++ {
+			if res[j].CreatedAt.After(res[i].CreatedAt) {
+				res[i], res[j] = res[j], res[i]
+			}
+		}
+	}
+
+	return res, nil
+}
+
+func (m *MockRepository) UpdatePayoutOperation(ctx context.Context, op *PayoutOperation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.Operations[op.ID]
+	if !ok || existing.OrganizationID != op.OrganizationID {
+		return ErrPayoutOperationNotFound
+	}
+
+	op.UpdatedAt = time.Now().UTC()
+	copied := *op
+	m.Operations[op.ID] = &copied
+	m.OperationsByBatchID[op.SenderBatchID] = &copied
+	return nil
+}
+
+func (m *MockRepository) ApprovePayoutOperation(ctx context.Context, orgID, opID, approvedByUserID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	op, ok := m.Operations[opID]
+	if !ok || op.OrganizationID != orgID {
+		return ErrPayoutOperationNotFound
+	}
+
+	if op.RequiresDualApproval && op.InitiatedByUserID == approvedByUserID {
+		return ErrSelfApprovalForbidden
+	}
+
+	now := time.Now().UTC()
+	op.Status = "APPROVED"
+	op.ApprovedByUserID = &approvedByUserID
+	op.ApprovedAt = &now
+	op.UpdatedAt = now
+	return nil
+}
+
+// Status Snapshots
+
+func (m *MockRepository) CreatePayoutStatusSnapshot(ctx context.Context, snapshot *PayoutStatusSnapshot) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if snapshot.ID == "" {
+		snapshot.ID = crypto.GenerateUUID()
+	}
+	snapshot.RecordedAt = time.Now().UTC()
+	copied := *snapshot
+	m.Snapshots = append(m.Snapshots, &copied)
+	return nil
+}
+
+func (m *MockRepository) ListPayoutStatusSnapshots(ctx context.Context, orgID, opID string) ([]PayoutStatusSnapshot, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var res []PayoutStatusSnapshot
+	for _, s := range m.Snapshots {
+		if s.PayoutOperationID == opID && s.OrganizationID == orgID {
+			res = append(res, *s)
+		}
+	}
+	return res, nil
 }

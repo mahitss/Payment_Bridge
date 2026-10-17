@@ -165,3 +165,126 @@ func TestMockRepository_MultiTenantIsolation(t *testing.T) {
 		t.Errorf("User B should be denied access to Org A, got: %v, %v", okCross, err)
 	}
 }
+
+func TestMockRepository_PayoutCasesAndOperations(t *testing.T) {
+	repo := NewMockRepository()
+	ctx := context.Background()
+
+	userA, orgA, _ := repo.CreateUserWithPersonalOrg(ctx, &User{Email: "a@claim.com", PasswordHash: "h", Name: "A"}, "Org A")
+	userB, orgB, _ := repo.CreateUserWithPersonalOrg(ctx, &User{Email: "b@claim.com", PasswordHash: "h", Name: "B"}, "Org B")
+
+	// 1. Create Payout Case
+	pCase := &PayoutCase{
+		OrganizationID:       orgA.ID,
+		CreatedByUserID:      userA.ID,
+		Reference:            "CASE-2026-001",
+		RecipientEmail:       "claimant@example.com",
+		RecipientName:        "Jane Claimant",
+		Title:                "Emergency Medical Reimbursement",
+		Description:          "Validated dental claim",
+		Currency:             "USD",
+		AmountCents:          35000, // $350.00
+		Status:               "DRAFT",
+		RiskScore:            25.5,
+		DualApprovalRequired: true,
+	}
+
+	err := repo.CreatePayoutCase(ctx, pCase)
+	if err != nil {
+		t.Fatalf("failed to create payout case: %v", err)
+	}
+
+	// Reference uniqueness within same org
+	errDup := repo.CreatePayoutCase(ctx, &PayoutCase{
+		OrganizationID:  orgA.ID,
+		CreatedByUserID: userA.ID,
+		Reference:       "CASE-2026-001",
+		RecipientEmail:  "other@example.com",
+		AmountCents:     1000,
+	})
+	if errDup == nil {
+		t.Errorf("expected duplicate reference error in same org")
+	}
+
+	// Same reference in different org is allowed
+	errOtherOrg := repo.CreatePayoutCase(ctx, &PayoutCase{
+		OrganizationID:  orgB.ID,
+		CreatedByUserID: userB.ID,
+		Reference:       "CASE-2026-001",
+		RecipientEmail:  "other@example.com",
+		AmountCents:     1000,
+	})
+	if errOtherOrg != nil {
+		t.Errorf("same reference in different org should succeed, got: %v", errOtherOrg)
+	}
+
+	// Retrieve case
+	retrievedCase, err := repo.GetPayoutCaseByID(ctx, orgA.ID, pCase.ID)
+	if err != nil {
+		t.Fatalf("failed to get payout case: %v", err)
+	}
+	if retrievedCase.AmountCents != 35000 {
+		t.Errorf("expected 35000 cents, got %d", retrievedCase.AmountCents)
+	}
+
+	// Cross-tenant access denial
+	_, errCross := repo.GetPayoutCaseByID(ctx, orgB.ID, pCase.ID)
+	if !errors.Is(errCross, ErrPayoutCaseNotFound) {
+		t.Errorf("expected ErrPayoutCaseNotFound for cross-org lookup, got: %v", errCross)
+	}
+
+	// 2. Create Payout Operation
+	op := &PayoutOperation{
+		PayoutCaseID:         pCase.ID,
+		OrganizationID:       orgA.ID,
+		InitiatedByUserID:    userA.ID,
+		SenderBatchID:        "BATCH-CLAIM-001",
+		SenderItemID:         "ITEM-CLAIM-001",
+		AmountCents:          35000,
+		Currency:             "USD",
+		Status:               "AWAITING_APPROVAL",
+		RequiresDualApproval: true,
+	}
+
+	err = repo.CreatePayoutOperation(ctx, op)
+	if err != nil {
+		t.Fatalf("failed to create payout operation: %v", err)
+	}
+
+	// 3. Test Self-Approval Rejection
+	errSelfApprove := repo.ApprovePayoutOperation(ctx, orgA.ID, op.ID, userA.ID)
+	if !errors.Is(errSelfApprove, ErrSelfApprovalForbidden) {
+		t.Errorf("expected ErrSelfApprovalForbidden on self-approval, got: %v", errSelfApprove)
+	}
+
+	// Dual approval by distinct user in same org
+	userApprover := &User{ID: "approver-user-id", Email: "auditor2@claim.com", Name: "Auditor 2"}
+	repo.Users[userApprover.ID] = userApprover
+	errApprove := repo.ApprovePayoutOperation(ctx, orgA.ID, op.ID, userApprover.ID)
+	if errApprove != nil {
+		t.Fatalf("expected approval by distinct user to succeed, got: %v", errApprove)
+	}
+
+	approvedOp, _ := repo.GetPayoutOperationByID(ctx, orgA.ID, op.ID)
+	if approvedOp.Status != "APPROVED" || approvedOp.ApprovedByUserID == nil || *approvedOp.ApprovedByUserID != userApprover.ID {
+		t.Errorf("expected operation to be APPROVED by %s, got %+v", userApprover.ID, approvedOp)
+	}
+
+	// 4. Status Snapshot
+	errSnap := repo.CreatePayoutStatusSnapshot(ctx, &PayoutStatusSnapshot{
+		PayoutOperationID: op.ID,
+		OrganizationID:    orgA.ID,
+		Provider:          "PAYPAL",
+		BatchStatus:       "SUCCESS",
+		RawResponse:       map[string]interface{}{"batch_id": "PAYPAL-123"},
+	})
+	if errSnap != nil {
+		t.Fatalf("failed to create status snapshot: %v", errSnap)
+	}
+
+	snaps, err := repo.ListPayoutStatusSnapshots(ctx, orgA.ID, op.ID)
+	if err != nil || len(snaps) != 1 {
+		t.Errorf("expected 1 snapshot, got %d, err: %v", len(snaps), err)
+	}
+}
+

@@ -472,3 +472,380 @@ func generateSlug(name, suffixID string) string {
 	}
 	return fmt.Sprintf("%s-%s", clean, suffixID)
 }
+
+// Payout Cases
+
+func (r *PostgresRepository) CreatePayoutCase(ctx context.Context, c *PayoutCase) error {
+	query := `
+		INSERT INTO payout_cases (
+			organization_id, created_by_user_id, reference, recipient_email, recipient_name,
+			title, description, currency, amount_cents, status, risk_score, dual_approval_required,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+		RETURNING id, created_at, updated_at
+	`
+	err := r.pool.QueryRow(ctx, query,
+		c.OrganizationID,
+		c.CreatedByUserID,
+		c.Reference,
+		strings.ToLower(strings.TrimSpace(c.RecipientEmail)),
+		c.RecipientName,
+		c.Title,
+		c.Description,
+		strings.ToUpper(c.Currency),
+		c.AmountCents,
+		c.Status,
+		c.RiskScore,
+		c.DualApprovalRequired,
+	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
+
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return errors.New("a payout case with this reference already exists in your organization")
+		}
+		return fmt.Errorf("failed to create payout case: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) GetPayoutCaseByID(ctx context.Context, orgID, caseID string) (*PayoutCase, error) {
+	query := `
+		SELECT id, organization_id, created_by_user_id, reference, recipient_email, recipient_name,
+		       title, description, currency, amount_cents, status, risk_score, dual_approval_required,
+		       created_at, updated_at
+		FROM payout_cases
+		WHERE id = $1 AND organization_id = $2
+	`
+	var c PayoutCase
+	err := r.pool.QueryRow(ctx, query, caseID, orgID).Scan(
+		&c.ID, &c.OrganizationID, &c.CreatedByUserID, &c.Reference, &c.RecipientEmail, &c.RecipientName,
+		&c.Title, &c.Description, &c.Currency, &c.AmountCents, &c.Status, &c.RiskScore, &c.DualApprovalRequired,
+		&c.CreatedAt, &c.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPayoutCaseNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get payout case: %w", err)
+	}
+	return &c, nil
+}
+
+func (r *PostgresRepository) ListPayoutCasesByOrg(ctx context.Context, orgID string, limit, offset int) ([]PayoutCase, int, error) {
+	countQuery := `SELECT COUNT(*) FROM payout_cases WHERE organization_id = $1`
+	var total int
+	if err := r.pool.QueryRow(ctx, countQuery, orgID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count payout cases: %w", err)
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := `
+		SELECT id, organization_id, created_by_user_id, reference, recipient_email, recipient_name,
+		       title, description, currency, amount_cents, status, risk_score, dual_approval_required,
+		       created_at, updated_at
+		FROM payout_cases
+		WHERE organization_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := r.pool.Query(ctx, query, orgID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query payout cases: %w", err)
+	}
+	defer rows.Close()
+
+	cases := make([]PayoutCase, 0)
+	for rows.Next() {
+		var c PayoutCase
+		err := rows.Scan(
+			&c.ID, &c.OrganizationID, &c.CreatedByUserID, &c.Reference, &c.RecipientEmail, &c.RecipientName,
+			&c.Title, &c.Description, &c.Currency, &c.AmountCents, &c.Status, &c.RiskScore, &c.DualApprovalRequired,
+			&c.CreatedAt, &c.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan payout case: %w", err)
+		}
+		cases = append(cases, c)
+	}
+	return cases, total, nil
+}
+
+func (r *PostgresRepository) UpdatePayoutCaseStatus(ctx context.Context, orgID, caseID, status string) error {
+	query := `
+		UPDATE payout_cases
+		SET status = $1, updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`
+	res, err := r.pool.Exec(ctx, query, status, caseID, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to update payout case status: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return ErrPayoutCaseNotFound
+	}
+	return nil
+}
+
+// Payout Operations
+
+func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *PayoutOperation) error {
+	var rawJSON []byte
+	if op.RawProviderResponse != nil {
+		rawJSON, _ = json.Marshal(op.RawProviderResponse)
+	}
+
+	query := `
+		INSERT INTO payout_operations (
+			payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
+			amount_cents, currency, status, requires_dual_approval, raw_provider_response,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+		RETURNING id, created_at, updated_at
+	`
+	err := r.pool.QueryRow(ctx, query,
+		op.PayoutCaseID,
+		op.OrganizationID,
+		op.InitiatedByUserID,
+		op.SenderBatchID,
+		op.SenderItemID,
+		op.AmountCents,
+		op.Currency,
+		op.Status,
+		op.RequiresDualApproval,
+		rawJSON,
+	).Scan(&op.ID, &op.CreatedAt, &op.UpdatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create payout operation: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) GetPayoutOperationByID(ctx context.Context, orgID, opID string) (*PayoutOperation, error) {
+	query := `
+		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
+		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
+		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
+		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
+		       cancelled_at, created_at, updated_at
+		FROM payout_operations
+		WHERE id = $1 AND organization_id = $2
+	`
+	var op PayoutOperation
+	var rawJSON []byte
+	err := r.pool.QueryRow(ctx, query, opID, orgID).Scan(
+		&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
+		&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
+		&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
+		&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
+		&op.CancelledAt, &op.CreatedAt, &op.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPayoutOperationNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get payout operation: %w", err)
+	}
+	if len(rawJSON) > 0 {
+		_ = json.Unmarshal(rawJSON, &op.RawProviderResponse)
+	}
+	return &op, nil
+}
+
+func (r *PostgresRepository) GetPayoutOperationBySenderBatchID(ctx context.Context, senderBatchID string) (*PayoutOperation, error) {
+	query := `
+		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
+		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
+		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
+		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
+		       cancelled_at, created_at, updated_at
+		FROM payout_operations
+		WHERE sender_batch_id = $1
+	`
+	var op PayoutOperation
+	var rawJSON []byte
+	err := r.pool.QueryRow(ctx, query, senderBatchID).Scan(
+		&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
+		&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
+		&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
+		&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
+		&op.CancelledAt, &op.CreatedAt, &op.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPayoutOperationNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get payout operation by batch id: %w", err)
+	}
+	if len(rawJSON) > 0 {
+		_ = json.Unmarshal(rawJSON, &op.RawProviderResponse)
+	}
+	return &op, nil
+}
+
+func (r *PostgresRepository) ListPayoutOperationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutOperation, error) {
+	query := `
+		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
+		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
+		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
+		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
+		       cancelled_at, created_at, updated_at
+		FROM payout_operations
+		WHERE payout_case_id = $1 AND organization_id = $2
+		ORDER BY created_at DESC
+	`
+	rows, err := r.pool.Query(ctx, query, caseID, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list payout operations: %w", err)
+	}
+	defer rows.Close()
+
+	var ops []PayoutOperation
+	for rows.Next() {
+		var op PayoutOperation
+		var rawJSON []byte
+		err := rows.Scan(
+			&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
+			&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
+			&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
+			&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
+			&op.CancelledAt, &op.CreatedAt, &op.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan payout operation: %w", err)
+		}
+		if len(rawJSON) > 0 {
+			_ = json.Unmarshal(rawJSON, &op.RawProviderResponse)
+		}
+		ops = append(ops, op)
+	}
+	return ops, nil
+}
+
+func (r *PostgresRepository) UpdatePayoutOperation(ctx context.Context, op *PayoutOperation) error {
+	var rawJSON []byte
+	if op.RawProviderResponse != nil {
+		rawJSON, _ = json.Marshal(op.RawProviderResponse)
+	}
+
+	query := `
+		UPDATE payout_operations
+		SET status = $1, paypal_payout_batch_id = $2, paypal_batch_status = $3,
+		    paypal_payout_item_id = $4, paypal_item_status = $5, error_message = $6,
+		    raw_provider_response = $7, submitted_at = $8, completed_at = $9,
+		    cancelled_at = $10, updated_at = NOW()
+		WHERE id = $11 AND organization_id = $12
+	`
+	res, err := r.pool.Exec(ctx, query,
+		op.Status,
+		op.PayPalPayoutBatchID,
+		op.PayPalBatchStatus,
+		op.PayPalPayoutItemID,
+		op.PayPalItemStatus,
+		op.ErrorMessage,
+		rawJSON,
+		op.SubmittedAt,
+		op.CompletedAt,
+		op.CancelledAt,
+		op.ID,
+		op.OrganizationID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update payout operation: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return ErrPayoutOperationNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) ApprovePayoutOperation(ctx context.Context, orgID, opID, approvedByUserID string) error {
+	// First fetch operation to verify initiator is different (no self-approval)
+	checkQuery := `SELECT initiated_by_user_id, requires_dual_approval FROM payout_operations WHERE id = $1 AND organization_id = $2`
+	var initiatorID string
+	var requiresDual bool
+	err := r.pool.QueryRow(ctx, checkQuery, opID, orgID).Scan(&initiatorID, &requiresDual)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrPayoutOperationNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("failed to verify operation for approval: %w", err)
+	}
+
+	if requiresDual && initiatorID == approvedByUserID {
+		return ErrSelfApprovalForbidden
+	}
+
+	updateQuery := `
+		UPDATE payout_operations
+		SET status = 'APPROVED', approved_by_user_id = $1, approved_at = NOW(), updated_at = NOW()
+		WHERE id = $2 AND organization_id = $3
+	`
+	res, err := r.pool.Exec(ctx, updateQuery, approvedByUserID, opID, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to approve payout operation: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return ErrPayoutOperationNotFound
+	}
+	return nil
+}
+
+// Status Snapshots
+
+func (r *PostgresRepository) CreatePayoutStatusSnapshot(ctx context.Context, snapshot *PayoutStatusSnapshot) error {
+	rawJSON, _ := json.Marshal(snapshot.RawResponse)
+	query := `
+		INSERT INTO payout_status_snapshots (
+			payout_operation_id, organization_id, provider, batch_status, item_status, raw_response, recorded_at
+		) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		RETURNING id, recorded_at
+	`
+	return r.pool.QueryRow(ctx, query,
+		snapshot.PayoutOperationID,
+		snapshot.OrganizationID,
+		snapshot.Provider,
+		snapshot.BatchStatus,
+		snapshot.ItemStatus,
+		rawJSON,
+	).Scan(&snapshot.ID, &snapshot.RecordedAt)
+}
+
+func (r *PostgresRepository) ListPayoutStatusSnapshots(ctx context.Context, orgID, opID string) ([]PayoutStatusSnapshot, error) {
+	query := `
+		SELECT id, payout_operation_id, organization_id, provider, batch_status, item_status, raw_response, recorded_at
+		FROM payout_status_snapshots
+		WHERE payout_operation_id = $1 AND organization_id = $2
+		ORDER BY recorded_at DESC
+	`
+	rows, err := r.pool.Query(ctx, query, opID, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list payout status snapshots: %w", err)
+	}
+	defer rows.Close()
+
+	var snapshots []PayoutStatusSnapshot
+	for rows.Next() {
+		var s PayoutStatusSnapshot
+		var rawJSON []byte
+		err := rows.Scan(
+			&s.ID, &s.PayoutOperationID, &s.OrganizationID, &s.Provider,
+			&s.BatchStatus, &s.ItemStatus, &rawJSON, &s.RecordedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan payout snapshot: %w", err)
+		}
+		if len(rawJSON) > 0 {
+			_ = json.Unmarshal(rawJSON, &s.RawResponse)
+		}
+		snapshots = append(snapshots, s)
+	}
+	return snapshots, nil
+}
