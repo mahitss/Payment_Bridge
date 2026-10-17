@@ -17,6 +17,8 @@ import (
 
 func main() {
 	batchIDFlag := flag.String("batch-id", "", "Optional PayPal Payout Batch ID to query status")
+	itemIDFlag := flag.String("item-id", "", "Optional PayPal Payout Item ID to query item status")
+	cancelItemFlag := flag.String("cancel-item", "", "Optional PayPal Payout Item ID to cancel (must be UNCLAIMED)")
 	createPayoutFlag := flag.Bool("create-test-payout", false, "Explicitly create a single test sandbox payout")
 	recipientFlag := flag.String("recipient", "", "Sandbox recipient email for test payout")
 	amountFlag := flag.String("amount", "1.00", "Amount for test payout (e.g. 1.00)")
@@ -130,6 +132,32 @@ func main() {
 				fmt.Printf("    - Total Amount: %s %s\n", batch.BatchHeader.Amount.Value, batch.BatchHeader.Amount.Currency)
 			}
 			fmt.Printf("    - Item Count  : %d\n", len(batch.Items))
+		}
+	} else if *itemIDFlag != "" {
+		fmt.Printf("\n[3/3] Querying Payout Item Status for: %s\n", *itemIDFlag)
+		item, err := client.GetPayoutItem(ctx, *itemIDFlag)
+		if err != nil {
+			if errors.Is(err, paypal.ErrPayoutNotFound) {
+				fmt.Printf("  • Item ID '%s' was not found in sandbox.\n", *itemIDFlag)
+			} else {
+				fmt.Printf("  • Error querying item: %v\n", err)
+			}
+		} else {
+			fmt.Println("  [SUCCESS] Payout Item Details Retrieved:")
+			fmt.Printf("    - Item ID       : %s\n", item.PayoutItemID)
+			fmt.Printf("    - Status        : %s\n", item.TransactionStatus)
+			fmt.Printf("    - Receiver      : %s\n", item.Receiver)
+			fmt.Printf("    - Amount        : %s %s\n", item.Amount.Value, item.Amount.Currency)
+		}
+	} else if *cancelItemFlag != "" {
+		fmt.Printf("\n[3/3] Requesting Cancellation for Payout Item: %s\n", *cancelItemFlag)
+		cancelled, err := client.CancelPayoutItem(ctx, *cancelItemFlag)
+		if err != nil {
+			fmt.Printf("  • Cancellation failed: %v\n", err)
+		} else {
+			fmt.Println("  [SUCCESS] Payout Item Cancelled Successfully:")
+			fmt.Printf("    - Item ID: %s\n", cancelled.PayoutItemID)
+			fmt.Printf("    - Status : %s\n", cancelled.TransactionStatus)
 		}
 	} else if *createPayoutFlag {
 		// 8. Explicit Test Payout Creation (Strictly Guarded)
