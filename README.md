@@ -1,56 +1,92 @@
 # ClaimBridge
 
-> **Autonomous AI Claims Triage with Deterministic Rust Safety Policy Enforcement and PayPal Payouts Settlement**
+> **AI-Augmented Payout Investigation Engine, Evidence-Grounded Recommendations, Deterministic Rust Safety Policy Enforcement, and PayPal Payouts Settlement**
 
-ClaimBridge is a security-conscious claims processing and instant payout orchestration platform built for the **PayPal AI Hackathon**.
+ClaimBridge is a security-conscious claims processing, instant payout orchestration, and forensic AI investigation platform built for the **PayPal AI Hackathon**.
 
-ClaimBridge decouples non-deterministic AI claim triage (damage scoring, document summarization, anomaly detection) from **deterministic, fail-closed financial safety policy enforcement** implemented in Rust, backed by a high-concurrency Go API gateway, persistent PostgreSQL storage, and Next.js frontend.
+ClaimBridge decouples non-deterministic AI claim triage and forensic investigations from **deterministic, fail-closed financial safety policy enforcement** implemented in Rust, backed by a high-concurrency Go API gateway, persistent PostgreSQL storage, and a modern Next.js App Router frontend.
 
 ---
 
 ## Architecture Overview
 
 ```
+                                  +------------------------------------+
+                                  |         Next.js Frontend           |
+                                  |     (TypeScript, Tailwind CSS)     |
+                                  +-----------------+------------------+
+                                                    |  HTTP / Cookies
+                                                    v
++---------------------------------------------------------------------------------------------------+
+|                                      Go API Orchestration Gateway                                  |
+|                                                                                                   |
+|   +-----------------------+     +-----------------------+     +-------------------------------+   |
+|   |  Argon2id Auth &      |     |  Payout Operations    |     |  AI Investigation Engine      |   |
+|   |  Session Management   |     |  & Case Lifecycle     |     |  (Replaceable Free-First)     |   |
+|   +-----------+-----------+     +-----------+-----------+     +---------------+---------------+   |
+|               |                             |                                 |                   |
++---------------|-----------------------------|---------------------------------|-------------------+
+                |                             |                                 |
+                v                             v                                 v
++-------------------------------+  +--------------------------+  +----------------------------------+
+|      PostgreSQL Database      |  |  Deterministic Rust     |  |   Server-Side AI Inference       |
+|  (ACID, Multi-Tenant Scoped,  |  |  Safety Policy Engine   |  |   Local Ollama (Llama 3.2)       |
+|  Integer Minor Units Cents)   |  |  (State Machine & Caps)  |  |   OpenAI-Compatible Endpoint     |
++-------------------------------+  +--------------------------+  +----------------------------------+
+                                              |
+                                              v
+                               +------------------------------+
+                               |   PayPal Payouts REST API    |
+                               |  (Sandbox-Only Enforcement)  |
+                               +------------------------------+
+```
+
+```text
 claim-bridge/
 ├── apps/
 │   └── web/                 # Next.js 14 (App Router), TypeScript, Tailwind CSS
+│       ├── Dockerfile       # Standalone multi-stage production runner
 │       └── src/
 │           ├── app/
-│           │   ├── app/     # Dashboard, Payouts List, Payout Detail, New Case
+│           │   ├── app/     # Dashboard, Payouts Registry, Payout Detail, New Case
 │           │   └── settings/# Account profile & PayPal Sandbox Integrations
 │           ├── components/  # Cybernetic shared navigation header
 │           └── lib/         # Auth provider & Payout domain models (minor units in cents)
 ├── services/
-│   ├── api/                 # Go 1.22+ HTTP API (auth, orchestration, PayPal REST client)
+│   ├── api/                 # Go 1.22+ HTTP API (auth, orchestration, PayPal client, AI engine)
+│   │   ├── Dockerfile       # Multi-stage Go production runner
 │   │   ├── cmd/
 │   │   │   ├── server/      # Production HTTP server entrypoint
-│   │   │   ├── acceptance/  # 24-scenario end-to-end acceptance verification suite
+│   │   │   ├── acceptance/  # 32-scenario end-to-end acceptance verification suite
 │   │   │   └── paypal-smoke/# Explicitly invoked PayPal sandbox smoke-test tool
 │   │   └── internal/
+│   │       ├── ai/          # Replaceable AI provider abstraction & grounding validator
 │   │       ├── auth/        # Argon2id, session lifecycle, CSRF/Origin check
 │   │       ├── config/      # Validated configuration & sandbox assertion
 │   │       ├── crypto/      # CSPRNG tokens, SHA-256 hashes, email normalization
 │   │       ├── db/          # PostgreSQL migrations & thread-safe mock repository
-│   │       │   └── migrations/ # 000001_auth, 000002_claims, 000003_payout_operations
+│   │       │   └── migrations/ # 000001_auth, 000002_claims, 000003_payouts, 000004_investigations
 │   │       ├── email/       # Mailpit SMTP & thread-safe mock mailer
+│   │       ├── investigations/ # AI snapshot aggregator, grounding check & audit persistence
 │   │       ├── logger/      # Structured JSON logging with stream redactions
 │   │       ├── paypal/      # Server-side PayPal sandbox REST client
 │   │       ├── payouts/     # Payout cases, operations, approval, sync, cancellation
 │   │       ├── policy/      # Go bridge to policy evaluation
-│   │       └── server/      # HTTP router, middleware, and handlers
+│   │       └── server/      # HTTP router, middleware (body limit, security headers)
 │   └── policy/              # Rust deterministic safety policy engine
+│       ├── Dockerfile       # Standalone multi-stage production binary
 │       ├── src/             # Mathematical rules, payout transitions, dual-approval engine
 │       └── tests/           # Deterministic unit & boundary test suite
 ├── docs/                    # PRD, Architecture, Threat Model, Acceptance Criteria, ADRs
-│   ├── architecture/        # Architecture specifications & Mission 003 designs
-│   ├── adr/                 # Architecture Decision Records (ADR-001 through ADR-005)
-│   ├── requirements.md
-│   ├── architecture.md
-│   ├── threat-model.md
-│   └── operational-instructions.md
-├── infra/                   # Local infrastructure (PostgreSQL 16 & Mailpit docker-compose)
+│   ├── release/             # Traceability, Acceptance Plan, Security Review, Runbooks
+│   ├── architecture/        # Deep-dive architecture specifications
+│   └── adr/                 # Architecture Decision Records (ADR-001 through ADR-006)
+├── infra/                   # Local infrastructure definitions
+│   ├── docker-compose.yml   # Lightweight Postgres 16 & Mailpit
+│   ├── docker-compose.full.yml # Full-stack containerized deployment
 │   └── postgres-init/       # Database bootstrap schema
-├── .github/workflows/       # CI pipelines for Go, Rust, Web, and security audits
+├── .github/workflows/       # CI pipelines for Go, Rust, Web, and 32-scenario acceptance suite
+├── LICENSE                  # MIT License
 └── .env.example             # Configuration template with placeholders only
 ```
 
@@ -58,170 +94,157 @@ claim-bridge/
 
 ## Core Security Invariants
 
-1. **AI Proposes, Policy Decides**: AI models provide risk advice, but have ZERO execution authority over payouts. Only the deterministic Rust policy engine can grant approval.
-2. **Fail-Closed by Default**: If any parameter is missing, out-of-bounds, unverified, or ambiguous, disbursement is strictly blocked. Hard ceiling of $500.00 USD is permanently enforced in code and policy.
-3. **Absolute Idempotency & Zero Blind Retries**: A single claim is bound to a single deterministic `sender_batch_id` and `sender_item_id` committed to PostgreSQL *before* calling PayPal. Network timeouts never generate replacement identifiers.
-4. **Separation of Duties (Dual-Custody)**: Payouts exceeding defined risk (> 20.0) or monetary limits (> $250.00 USD) require dual custody. The initiating officer is strictly forbidden from approving their own payout (`ERR_SELF_APPROVAL_FORBIDDEN`).
-5. **Reconciliation-Required Safety**: If a PayPal submission times out or returns an ambiguous response, the operation transitions to `RECONCILIATION_REQUIRED`. Automatic duplicate payouts are strictly prohibited.
-6. **Zero Browser Secret Exposure**: Client secrets, OAuth tokens, and server-side credentials are never transmitted to the browser or placed in public Next.js bundles.
-7. **Strict Sandbox Assertion**: The Go API gateway immediately terminates at startup if `api-m.paypal.com` or any production host is configured.
-8. **Integer Minor Unit Currency**: Money is calculated, compared, and persisted exclusively in integer minor units (cents) to avoid floating-point rounding hazards.
-9. **Multi-Tenant Data Isolation**: Every case, operation, and audit event is hard-isolated by organization ID across database indexes, foreign keys, and service boundaries.
+1. **AI Proposes, Policy Decides**: AI inference provides explanations and suggestions, but has **ZERO execution authority** over money movement. Only the deterministic Rust policy engine can grant approval.
+2. **Fail-Closed by Default**: If any parameter is missing, out-of-bounds, unverified, or ambiguous, disbursement is strictly blocked. A hard ceiling of $500.00 USD is permanently enforced in code and policy.
+3. **Evidence Grounding Verification**: The Go backend inspects every evidence identifier cited by the AI model. If an AI finding references an unknown or hallucinated ID, the investigation is rejected with HTTP 422 `INVALID_EVIDENCE_REFERENCE`.
+4. **Closed Action Whitelist**: AI recommendations are constrained to 6 pre-approved types (`REQUEST_RECIPIENT_INFORMATION`, `CHECK_PROVIDER_STATUS`, `REVIEW_RECIPIENT_DETAILS`, `REVIEW_CANCELLATION_ELIGIBILITY`, `ESCALATE_TO_OPERATOR`, `NO_ACTION_UNTIL_RECONCILED`).
+5. **Absolute Idempotency & Zero Blind Retries**: A single claim is bound to a single deterministic `sender_batch_id` committed to PostgreSQL *before* calling PayPal. Network timeouts never generate replacement identifiers.
+6. **Separation of Duties (Dual Custody)**: Payouts exceeding defined risk (> 20.0) or monetary limits (> $250.00 USD) require dual custody. The initiating officer is strictly forbidden from approving their own payout (`ERR_SELF_APPROVAL_FORBIDDEN`).
+7. **Reconciliation-Required Safety**: If a PayPal submission times out or returns an ambiguous response, the operation transitions to `RECONCILIATION_REQUIRED`. Automatic duplicate payouts are strictly prohibited.
+8. **Prompt Injection Defense**: Untrusted user text is bounded in length, sanitized, and isolated within `<UNTRUSTED_EVIDENCE>` tags. Adversarial instructions are ignored.
+9. **Zero Browser Secret Exposure**: Client secrets, OAuth tokens, and server-side credentials are never transmitted to the browser or placed in public Next.js bundles.
+10. **Strict Sandbox Assertion**: The Go API gateway immediately terminates at startup if `api-m.paypal.com` or any production host is configured.
+11. **Integer Minor Unit Currency**: Money is calculated, compared, and persisted exclusively in integer minor units (cents) to avoid floating-point rounding hazards.
+12. **Multi-Tenant Data Isolation**: Every case, operation, investigation, and audit event is hard-isolated by organization ID across database indexes, foreign keys, and service boundaries.
 
 ---
 
 ## Quick Start
 
-### 1. Prerequisites
-- **Go 1.22+** (`go version`)
-- **Rust 1.75+** (`cargo --version`)
-- **Node.js 20+** (`node -v`)
-- **Docker Compose** (for PostgreSQL 16 & Mailpit local email testing)
+### 1. Option A: Single-Command Full-Stack Docker Launch
+```bash
+# Clone repository
+git clone https://github.com/mahitss/Payment_Bridge.git
+cd Payment_Bridge
 
-### 2. Configure Environment
+# Configure environment
+cp .env.example .env
+
+# Launch complete stack (Postgres, Mailpit, API, Web)
+docker compose -f infra/docker-compose.full.yml up --build -d
+```
+- Web Application: [http://localhost:3000](http://localhost:3000)
+- API Health Probe: [http://localhost:8080/healthz](http://localhost:8080/healthz)
+- API Readiness Probe: [http://localhost:8080/readyz](http://localhost:8080/readyz)
+- Mailpit Web Inbox: [http://localhost:8025](http://localhost:8025)
+
+---
+
+### 2. Option B: Local Developer Launch
+
+#### Step 1: Start Backing Services
+```bash
+docker compose -f infra/docker-compose.yml up -d
+```
+
+#### Step 2: Configure Environment
 ```bash
 cp .env.example .env
 ```
-Ensure `PAYPAL_ENV=sandbox`. Configure your PayPal Sandbox credentials if live sandbox probing is desired:
+Ensure `PAYPAL_ENV=sandbox`. Configure your PayPal Sandbox credentials:
 ```env
 PAYPAL_CLIENT_ID=your_sandbox_client_id
 PAYPAL_CLIENT_SECRET=your_sandbox_client_secret
 PAYPAL_SANDBOX_BASE_URL=https://api-m.sandbox.paypal.com
 ```
 
-### 3. Launch Local Infrastructure (PostgreSQL & Mailpit)
-```bash
-docker compose -f infra/docker-compose.yml up -d
-```
-- **PostgreSQL**: `localhost:5432` (`claimbridge` / `claimbridge_dev_secret`)
-- **Mailpit SMTP**: `localhost:1025`
-- **Mailpit Web Inbox**: [http://localhost:8025](http://localhost:8025)
-
-*Note: If Docker is unavailable, the Go API server automatically initializes an in-memory repository with thread-safe mock mailer for seamless offline development and testing.*
-
-### 4. Database Migrations
-Migrations are located in `services/api/internal/db/migrations/`:
-- `000001_auth_schema.up.sql`: Users, Organizations, Memberships, Sessions, Verification Tokens, Reset Tokens, Audit Events.
-- `000002_claims_schema.up.sql`: Multi-tenant claims tied to organizations.
-- `000003_payout_operations.up.sql`: `payout_cases`, `payout_operations`, `payout_status_snapshots`.
-
-### 5. Run the 24-Scenario Acceptance Verification Suite
-Execute the end-to-end automated runner that verifies all 24 acceptance scenarios across Mission 001, 002, and 003:
-```bash
-cd services/api
-go run ./cmd/acceptance
-```
-
-This verifies:
-- **Scenarios 01-12 (Auth & Tenant Foundation)**: Account registration, email verification, single-use token replay rejection, HttpOnly session cookie, protected route access, session persistence, logout revocation, password reset dispatch & consumption, credential rotation, unauthenticated API blocking, cross-org isolation, server restart persistence.
-- **Scenarios 13-24 (Payout Operations & PayPal Integration)**:
-  - 13: Live PayPal Sandbox OAuth token probe (`GET /api/v1/paypal/connection-status`).
-  - 14: Single-officer payout case creation (`<= $250.00 USD`).
-  - 15: Dual-custody payout case creation (`> $250.00 USD`).
-  - 16: Fail-closed ceiling rejection (`> $500.00 USD`).
-  - 17: Initiate durable payout operation with pre-persisted `sender_batch_id`.
-  - 18: Dual-custody separation of duties: initiator self-approval strictly rejected (HTTP 403).
-  - 19: Dual-custody approval by distinct authorized officer succeeds (HTTP 200).
-  - 20: Explicit submission of approved operation to PayPal Sandbox REST API.
-  - 21: Status synchronization pulling latest provider batch and item statuses.
-  - 22: Cancellation of eligible `UNCLAIMED` payout with PayPal.
-  - 23: Cross-organization tenant isolation on payout cases.
-  - 24: Ambiguous network timeout transition to `RECONCILIATION_REQUIRED` without duplicate dispatch.
-
-### 6. Smoke-Test PayPal Sandbox
-```bash
-cd services/api
-# Check credentials and probe live sandbox OAuth2:
-go run ./cmd/paypal-smoke
-
-# Query existing batch details:
-go run ./cmd/paypal-smoke -batch-id <payout-batch-id>
-
-# Query item status:
-go run ./cmd/paypal-smoke -item-id <payout-item-id>
-
-# Cancel unclaimed item:
-go run ./cmd/paypal-smoke -cancel-item <payout-item-id>
-
-# Explicitly create single sandbox test payout (requires confirmation):
-go run ./cmd/paypal-smoke -create-test-payout -recipient test@business.example.com -confirm-sandbox-only
-```
-
-### 7. Run Policy Engine (Rust)
+#### Step 3: Run Policy Engine (Rust)
 ```bash
 cd services/policy
 cargo test
 cargo clippy -- -D warnings
 ```
 
-### 8. Run API Gateway (Go)
+#### Step 4: Run API Gateway (Go)
 ```bash
 cd services/api
-go test -v ./...
+go test ./...
 go run ./cmd/server
 ```
-The server listens on `http://localhost:8080`.
 
-### 9. Run Frontend Web Application (Next.js)
+#### Step 5: Run Web Application (Next.js)
 ```bash
 cd apps/web
 npm install
 npm run build
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) to access the application.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## Frontend Screens & Navigation
+## Local Free-Tier AI Inference (Ollama)
 
-| Route | Description |
-|---|---|
-| `/register` | User signup with name, email, password, and automatic workspace creation |
-| `/login` | Secure login with HttpOnly session cookie and unverified-email alerts |
-| `/verify-email` | Consumes single-use verification token from email link |
-| `/forgot-password` | Enumeration-safe reset link request |
-| `/reset-password` | New password selection and invalidation of all prior sessions |
-| `/app` | Authenticated tenant dashboard with real case counts, settled amounts, and live PayPal connection status |
-| `/app/payouts` | Searchable, paginated registry of organization payout cases |
-| `/app/payouts/new` | Payout intake form with real-time Rust policy evaluation preview and minor unit calculation |
-| `/app/payouts/[id]` | Case investigation view, provider status snapshot, dual-custody approval, PayPal sandbox submission, sync, and cancellation |
-| `/app/settings/integrations` | PayPal Sandbox connection inspector with live OAuth verification and developer setup instructions |
-| `/settings/account` | User profile, active organization details, and session security |
+To run the AI investigation engine locally with zero API fees:
 
----
-
-## API Contracts & Permission Requirements
-
-All endpoints enforce strict server-side authentication, origin/CSRF protection, and organization scoping:
-
-| Method | Endpoint | Permission / Role | Description |
-|---|---|---|---|
-| `GET` | `/api/v1/paypal/connection-status` | Authenticated User | Probes live PayPal Sandbox OAuth status |
-| `GET` | `/api/v1/payout-cases` | Authenticated Org Member | List paginated payout cases for organization |
-| `POST` | `/api/v1/payout-cases` | Authenticated Org Member | Create new payout case with server-side validation |
-| `GET` | `/api/v1/payout-cases/{case_id}` | Authenticated Org Member | Retrieve case details and operation history |
-| `POST` | `/api/v1/payout-cases/{case_id}/sync` | Authenticated Org Member | Synchronize status with PayPal Sandbox REST API |
-| `POST` | `/api/v1/payout-cases/{case_id}/payout-operations` | Authenticated Org Member | Initiate durable operation and generate `sender_batch_id` |
-| `GET` | `/api/v1/payout-cases/{case_id}/operations` | Authenticated Org Member | List operations for a case |
-| `POST` | `/api/v1/payout-operations/{op_id}/approve` | Distinct Authorized Officer | Authorize payout (Self-approval strictly forbidden) |
-| `POST` | `/api/v1/payout-operations/{op_id}/submit` | Authenticated Org Member | Execute payout submission to PayPal Sandbox |
-| `POST` | `/api/v1/payout-operations/{op_id}/cancel` | Authenticated Org Member | Cancel eligible unclaimed operation |
-| `POST` | `/api/v1/auth/register` | Public | Account registration |
-| `POST` | `/api/v1/auth/verify-email` | Public | Single-use email verification |
-| `POST` | `/api/v1/auth/login` | Public | Authenticate user and issue HttpOnly cookie |
-| `POST` | `/api/v1/auth/logout` | Authenticated User | Revoke server-side session |
-| `GET` | `/api/v1/auth/me` | Authenticated User | Return session user and organization |
+1. Install Ollama: [https://ollama.ai](https://ollama.ai)
+2. Pull and start Llama 3.2:
+   ```bash
+   ollama pull llama3.2
+   ollama serve
+   ```
+3. Set environment variables in `.env`:
+   ```env
+   AI_ENABLED=true
+   AI_PROVIDER=ollama
+   AI_BASE_URL=http://localhost:11434
+   AI_MODEL=llama3.2
+   ```
+4. Restart the Go API server.
 
 ---
 
-## Testing Verification Matrix
+## Automated Acceptance Test Suite (32 Scenarios)
 
-| Test Suite | Scope | Result |
-|---|---|---|
-| `cargo test` (`services/policy`) | 17 deterministic policy tests | **PASS** (17/17) |
-| `cargo clippy` (`services/policy`) | Zero compiler or lint warnings | **PASS** (0 warnings) |
-| `go test ./...` (`services/api`) | 10 Go packages with mock/unit tests | **PASS** (10/10 packages) |
-| `go run ./cmd/acceptance` | Full 24-scenario end-to-end integration | **PASS** (24/24 scenarios) |
-| `npm run build` (`apps/web`) | Production bundle, TypeScript check, 15 static/dynamic routes | **PASS** (0 errors) |
-| `go run ./cmd/paypal-smoke` | Live PayPal credentials assertion | **GUARDED** (Explicit block reported when credentials unset) |
+Execute the end-to-end automated runner that verifies all 32 acceptance scenarios across Missions 001 through 005:
+
+```bash
+cd services/api
+go run ./cmd/acceptance
+```
+
+### Verified Acceptance Scenarios Summary:
+- **Scenarios 01–12 (Auth & Multi-Tenancy):** Registration, single-use email verification, HttpOnly session cookies, protected routes, session persistence, logout revocation, password reset with replay rejection, unauthenticated route blocking, tenant isolation, reboot persistence.
+- **Scenarios 13–24 (Payouts & PayPal Integration):** Live sandbox OAuth probe, single-officer case creation, dual-custody case creation, fail-closed $500 ceiling rejection, durable operation initiation, self-approval prevention (HTTP 403), dual approval by distinct officer, PayPal REST submission, live status synchronization, unclaimed cancellation, cross-tenant case blocking, ambiguous network timeout quarantine (`RECONCILIATION_REQUIRED`).
+- **Scenarios 25–32 (AI Investigations & Security):** Grounded investigation with evidence linking, insufficient evidence handling, fabricated evidence ID rejection (HTTP 422), policy precedence over AI recommendations, AI downtime graceful degradation (HTTP 503), cross-tenant investigation blocking, investigation persistence across reboots, prompt injection text neutralization.
+
+---
+
+## Hackathon Demo Script (Under 3 Minutes)
+
+This script provides an exact walkthrough for recording the 3-minute hackathon submission video:
+
+### [00:00 - 00:30] Introduction & Problem Statement
+- **Visual:** Open ClaimBridge landing page (`/`).
+- **Narrative:** "Automated payout systems face critical risks: LLMs hallucinating fund transfers, duplicate disbursements during flaky network retries, and leaked credentials. ClaimBridge solves this by decoupling non-deterministic AI investigation from deterministic, fail-closed Rust policy enforcement."
+
+### [00:30 - 01:15] Dual-Custody Payout & PayPal Sandbox Execution
+- **Visual:** Log in to ClaimBridge (`/login`). Navigate to **New Payout** (`/app/payouts/new`).
+- **Action:** Enter a payout for $350.00 USD (exceeds $250.00 threshold). Point out the real-time Rust policy indicator: `Dual-Approval Required`.
+- **Action:** Submit case. Show the active operation in `AWAITING_APPROVAL`.
+- **Action:** Demonstrate self-approval attempt by the creator — show the system strictly blocking with `ERR_SELF_APPROVAL_FORBIDDEN`.
+- **Action:** Switch to a distinct authorized officer account. Approve the payout and click **Submit to PayPal Sandbox**.
+- **Result:** Show the assigned PayPal Batch ID and status synchronized live from PayPal Sandbox REST API.
+
+### [01:15 - 02:15] AI Investigation Engine with Grounded Evidence
+- **Visual:** Navigate to Case Details (`/app/payouts/[id]`).
+- **Action:** Click **Run AI Investigation** (with optional live PayPal sync).
+- **Highlight:**
+  1. **Forensic Summary:** Clear explanation grounded in real provider data.
+  2. **Immutable Facts vs AI Advisory Opinions:** Visual separation with amber warning badges indicating recommendations have zero direct financial execution power.
+  3. **Evidence Reference Chips:** Clickable references linking to persisted case IDs, operation IDs, and PayPal batch IDs.
+  4. **Grounding Safety:** Explain how fabricated IDs are rejected fail-closed with HTTP 422.
+  5. **Policy Precedence:** Show how the Rust policy engine validates recommendations (e.g. blocking cancellation on non-unclaimed items).
+
+### [02:15 - 03:00] Security Invariants, Tests & Release Gates
+- **Visual:** Terminal split screen showing:
+  - `cargo test` passing 17/17 deterministic policy tests.
+  - `go run ./cmd/acceptance` running all 32 end-to-end acceptance scenarios.
+  - Next.js production build with 15/15 standalone routes.
+- **Narrative:** "ClaimBridge enforces integer minor-unit math, multi-tenant isolation, 1MB request limits, and prompt injection defense. AI proposes, policy decides, and PayPal settles securely."
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
