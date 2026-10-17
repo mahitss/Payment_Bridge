@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: claimbridge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: claimbridge
+      POSTGRES_PASSWORD: claimbridge_local_dev_only
+      POSTGRES_DB: claimbridge_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U claimbridge -d claimbridge_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: claimbridge-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_DATABASE: ""
+
+  api:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    container_name: claimbridge-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: production
+      PORT: "8080"
+      DATABASE_URL: postgres://claimbridge:claimbridge_local_dev_only@postgres:5432/claimbridge_dev?sslmode=disable
+      DATABASE_AUTOMIGRATE: "true"
+      SESSION_COOKIE_NAME: claimbridge_session
+      SESSION_COOKIE_SECURE: "false"
+      ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      PAYPAL_ENV: sandbox
+      PAYPAL_SANDBOX_BASE_URL: https://api-m.sandbox.paypal.com
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM: no-reply@claimbridge.internal
+      SMTP_AUTH_REQUIRED: "false"
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_BASE_URL: ${AI_BASE_URL:-http://localhost:11434}
+      AI_MODEL: ${AI_MODEL:-llama3.2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    container_name: claimbridge-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      API_INTERNAL_URL: http://api:8080/api/:path*
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
