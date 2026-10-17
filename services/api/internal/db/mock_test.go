@@ -288,3 +288,83 @@ func TestMockRepository_PayoutCasesAndOperations(t *testing.T) {
 	}
 }
 
+func TestMockRepository_Investigations(t *testing.T) {
+	ctx := context.Background()
+	repo := NewMockRepository()
+
+	orgA := &Organization{ID: "org-ai-1", Name: "AI Org 1", Slug: "ai-org-1"}
+	orgB := &Organization{ID: "org-ai-2", Name: "AI Org 2", Slug: "ai-org-2"}
+	userA := &User{ID: "user-ai-1", Email: "investigator@claim.com", Name: "Investigator"}
+	repo.Orgs[orgA.ID] = orgA
+	repo.Orgs[orgB.ID] = orgB
+	repo.Users[userA.ID] = userA
+
+	pCase := &PayoutCase{
+		ID:              "case-ai-100",
+		OrganizationID:  orgA.ID,
+		CreatedByUserID: userA.ID,
+		Reference:       "CASE-AI-001",
+		RecipientEmail:  "dest@example.com",
+		AmountCents:     12500,
+		Status:          "SUBMITTED",
+	}
+	repo.Cases[pCase.ID] = pCase
+
+	inv := &PayoutInvestigation{
+		PayoutCaseID:        pCase.ID,
+		OrganizationID:      orgA.ID,
+		RequestedByUserID:   userA.ID,
+		Provider:            "ollama",
+		Model:               "llama3.2",
+		PromptVersion:       "v1.0",
+		Status:              "COMPLETED",
+		Summary:             "Payment submitted to PayPal and awaiting recipient claiming.",
+		Confidence:          "HIGH",
+		RequiresHumanReview: false,
+		ObservedFacts:       []string{"Case status is SUBMITTED"},
+		Findings: []InvestigationFinding{
+			{
+				Explanation:        "Batch dispatched to PayPal sandbox",
+				EvidenceReferences: []string{pCase.ID},
+			},
+		},
+		RecommendedNextSteps: []InvestigationRecommendation{
+			{
+				Action:                       "CHECK_PROVIDER_STATUS",
+				Reason:                       "Poll PayPal API for claim settlement",
+				RequiresHumanReview:          false,
+				DeterministicPolicyPermitted: true,
+			},
+		},
+	}
+
+	if err := repo.CreateInvestigation(ctx, inv); err != nil {
+		t.Fatalf("failed to create investigation: %v", err)
+	}
+	if inv.ID == "" {
+		t.Fatalf("expected generated ID for investigation")
+	}
+
+	// Retrieve by ID
+	fetched, err := repo.GetInvestigationByID(ctx, orgA.ID, inv.ID)
+	if err != nil {
+		t.Fatalf("failed to fetch investigation: %v", err)
+	}
+	if fetched.Summary != inv.Summary {
+		t.Errorf("expected summary %q, got %q", inv.Summary, fetched.Summary)
+	}
+
+	// Cross-tenant access
+	_, errCross := repo.GetInvestigationByID(ctx, orgB.ID, inv.ID)
+	if !errors.Is(errCross, ErrInvestigationNotFound) {
+		t.Errorf("expected ErrInvestigationNotFound on cross-tenant lookup, got %v", errCross)
+	}
+
+	// List by case
+	list, err := repo.ListInvestigationsByCaseID(ctx, orgA.ID, pCase.ID)
+	if err != nil || len(list) != 1 {
+		t.Errorf("expected 1 investigation in list, got %d, err: %v", len(list), err)
+	}
+}
+
+

@@ -11,10 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	"claimbridge/services/api/internal/ai"
 	"claimbridge/services/api/internal/auth"
 	"claimbridge/services/api/internal/config"
 	"claimbridge/services/api/internal/db"
 	"claimbridge/services/api/internal/email"
+	"claimbridge/services/api/internal/investigations"
 	"claimbridge/services/api/internal/logger"
 	"claimbridge/services/api/internal/paypal"
 	"claimbridge/services/api/internal/payouts"
@@ -91,8 +93,24 @@ func main() {
 	payoutsService := payouts.NewService(cfg, repo, policyEngine, paypalClient)
 	payoutsHandler := payouts.NewHandler(cfg, payoutsService)
 
-	// 9. Initialize Server & Routes
+	// 9. Initialize AI Provider & Investigations Handler
+	aiProvider, err := ai.NewProvider(cfg)
+	if err != nil {
+		slog.Error("Failed to initialize AI provider", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	slog.Info("Initialized AI inference provider",
+		slog.String("provider", aiProvider.Name()),
+		slog.String("model", aiProvider.Model()),
+		slog.Bool("enabled", cfg.AIEnabled),
+	)
+
+	investigationsService := investigations.NewService(cfg, repo, aiProvider, policyEngine, paypalClient)
+	investigationsHandler := investigations.NewHandler(cfg, investigationsService)
+
+	// 10. Initialize Server & Routes
 	srv := server.NewServer(cfg, policyEngine, paypalClient, authHandler, payoutsHandler)
+	srv.SetInvestigationsHandler(investigationsHandler)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),

@@ -60,6 +60,48 @@ export interface ConnectionStatus {
   error?: string;
 }
 
+export interface InvestigationFinding {
+  explanation: string;
+  evidence_references: string[];
+}
+
+export interface InvestigationRecommendation {
+  action:
+    | "REQUEST_RECIPIENT_INFORMATION"
+    | "CHECK_PROVIDER_STATUS"
+    | "REVIEW_RECIPIENT_DETAILS"
+    | "REVIEW_CANCELLATION_ELIGIBILITY"
+    | "ESCALATE_TO_OPERATOR"
+    | "NO_ACTION_UNTIL_RECONCILED";
+  reason: string;
+  requires_human_review: boolean;
+  deterministic_policy_permitted: boolean;
+  policy_rule_id?: string;
+}
+
+export interface PayoutInvestigation {
+  id: string;
+  payout_case_id: string;
+  organization_id: string;
+  requested_by_user_id: string;
+  provider: string;
+  model: string;
+  prompt_version: string;
+  status: "COMPLETED" | "FAILED" | "INVALID_EVIDENCE_REFERENCE";
+  summary: string;
+  confidence: "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT_EVIDENCE";
+  requires_human_review: boolean;
+  observed_facts: string[];
+  findings: InvestigationFinding[];
+  recommended_next_steps: InvestigationRecommendation[];
+  missing_information: string[];
+  risk_flags: string[];
+  limitations: string[];
+  raw_response?: Record<string, any>;
+  error_message?: string;
+  created_at: string;
+}
+
 /**
  * Format minor unit cents as standard USD currency string ($XX.XX).
  * Floating-point arithmetic is never used; string padding guarantees integer precision.

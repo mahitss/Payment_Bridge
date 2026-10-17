@@ -12,6 +12,7 @@ import (
 
 	"claimbridge/services/api/internal/auth"
 	"claimbridge/services/api/internal/config"
+	"claimbridge/services/api/internal/investigations"
 	"claimbridge/services/api/internal/paypal"
 	"claimbridge/services/api/internal/payouts"
 	"claimbridge/services/api/internal/policy"
@@ -19,12 +20,13 @@ import (
 
 // Server encapsulates the HTTP handler and service dependencies.
 type Server struct {
-	cfg            *config.Config
-	policyEngine   policy.PolicyEngine
-	paypalClient   *paypal.Client
-	authHandler    *auth.Handler
-	payoutsHandler *payouts.Handler
-	mux            *http.ServeMux
+	cfg                   *config.Config
+	policyEngine          policy.PolicyEngine
+	paypalClient          *paypal.Client
+	authHandler           *auth.Handler
+	payoutsHandler        *payouts.Handler
+	investigationsHandler *investigations.Handler
+	mux                   *http.ServeMux
 }
 
 // NewServer constructs the HTTP server with router, auth handlers, and middleware.
@@ -45,6 +47,14 @@ func NewServer(cfg *config.Config, policyEngine policy.PolicyEngine, paypalClien
 
 	s.registerRoutes()
 	return s
+}
+
+// SetInvestigationsHandler attaches the AI investigations handler and registers its routes.
+func (s *Server) SetInvestigationsHandler(ih *investigations.Handler) {
+	s.investigationsHandler = ih
+	if ih != nil {
+		ih.RegisterRoutes(s.mux)
+	}
 }
 
 // Handler returns the root HTTP handler wrapped in standard middleware.

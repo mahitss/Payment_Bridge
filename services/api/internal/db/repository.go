@@ -14,7 +14,8 @@ var (
 	ErrAccessDenied               = errors.New("access denied: user does not have membership in organization")
 	ErrMembershipConflict         = errors.New("user already has membership in this organization")
 	ErrPayoutCaseNotFound         = errors.New("payout case not found")
-	ErrPayoutOperationNotFound     = errors.New("payout operation not found")
+	ErrPayoutOperationNotFound    = errors.New("payout operation not found")
+	ErrInvestigationNotFound      = errors.New("payout investigation not found")
 	ErrSelfApprovalForbidden      = errors.New("self-approval forbidden: dual-custody requires a distinct authorized approver")
 	ErrInvalidOperationTransition = errors.New("invalid payout operation state transition")
 )
@@ -66,9 +67,15 @@ type Repository interface {
 	CreatePayoutStatusSnapshot(ctx context.Context, snapshot *PayoutStatusSnapshot) error
 	ListPayoutStatusSnapshots(ctx context.Context, orgID, opID string) ([]PayoutStatusSnapshot, error)
 
+	// Investigations
+	CreateInvestigation(ctx context.Context, inv *PayoutInvestigation) error
+	GetInvestigationByID(ctx context.Context, orgID, investigationID string) (*PayoutInvestigation, error)
+	ListInvestigationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutInvestigation, error)
+
 	// Audit Logging
 	RecordAuditEvent(ctx context.Context, event *AuditEvent) error
 
 	// Health
 	Ping(ctx context.Context) error
 }
+

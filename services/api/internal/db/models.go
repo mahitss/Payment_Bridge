@@ -133,3 +133,40 @@ type PayoutStatusSnapshot struct {
 	RawResponse       map[string]interface{} `json:"raw_response"`
 	RecordedAt        time.Time              `json:"recorded_at"`
 }
+
+type InvestigationFinding struct {
+	Explanation        string   `json:"explanation"`
+	EvidenceReferences []string `json:"evidence_references"`
+}
+
+type InvestigationRecommendation struct {
+	Action                       string `json:"action"` // REQUEST_RECIPIENT_INFORMATION, CHECK_PROVIDER_STATUS, REVIEW_RECIPIENT_DETAILS, REVIEW_CANCELLATION_ELIGIBILITY, ESCALATE_TO_OPERATOR, NO_ACTION_UNTIL_RECONCILED
+	Reason                       string `json:"reason"`
+	RequiresHumanReview          bool   `json:"requires_human_review"`
+	DeterministicPolicyPermitted bool   `json:"deterministic_policy_permitted"`
+	PolicyRuleID                 string `json:"policy_rule_id,omitempty"`
+}
+
+type PayoutInvestigation struct {
+	ID                   string                        `json:"id"`
+	PayoutCaseID         string                        `json:"payout_case_id"`
+	OrganizationID       string                        `json:"organization_id"`
+	RequestedByUserID    string                        `json:"requested_by_user_id"`
+	Provider             string                        `json:"provider"`
+	Model                string                        `json:"model"`
+	PromptVersion        string                        `json:"prompt_version"`
+	Status               string                        `json:"status"` // COMPLETED, FAILED, INVALID_EVIDENCE_REFERENCE
+	Summary              string                        `json:"summary"`
+	Confidence           string                        `json:"confidence"` // HIGH, MEDIUM, LOW, INSUFFICIENT_EVIDENCE
+	RequiresHumanReview  bool                          `json:"requires_human_review"`
+	ObservedFacts        []string                      `json:"observed_facts"`
+	Findings             []InvestigationFinding        `json:"findings"`
+	RecommendedNextSteps []InvestigationRecommendation `json:"recommended_next_steps"`
+	MissingInformation  []string                      `json:"missing_information"`
+	RiskFlags            []string                      `json:"risk_flags"`
+	Limitations          []string                      `json:"limitations"`
+	RawResponse          map[string]interface{}        `json:"raw_response,omitempty"`
+	ErrorMessage         *string                       `json:"error_message,omitempty"`
+	CreatedAt            time.Time                     `json:"created_at"`
+}
+

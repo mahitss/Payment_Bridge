@@ -23,6 +23,7 @@ type MockRepository struct {
 	Cases               map[string]*PayoutCase             // id -> Case
 	Operations          map[string]*PayoutOperation        // id -> Operation
 	OperationsByBatchID map[string]*PayoutOperation        // sender_batch_id -> Operation
+	Investigations      map[string]*PayoutInvestigation    // id -> Investigation
 	Snapshots           []*PayoutStatusSnapshot
 	AuditEvents         []*AuditEvent
 	FailNextOp          bool
@@ -40,6 +41,7 @@ func NewMockRepository() *MockRepository {
 		Cases:               make(map[string]*PayoutCase),
 		Operations:          make(map[string]*PayoutOperation),
 		OperationsByBatchID: make(map[string]*PayoutOperation),
+		Investigations:      make(map[string]*PayoutInvestigation),
 		Snapshots:           make([]*PayoutStatusSnapshot, 0),
 		AuditEvents:         make([]*AuditEvent, 0),
 	}
@@ -543,3 +545,46 @@ func (m *MockRepository) ListPayoutStatusSnapshots(ctx context.Context, orgID, o
 	}
 	return res, nil
 }
+
+// Investigations
+
+func (m *MockRepository) CreateInvestigation(ctx context.Context, inv *PayoutInvestigation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if inv.ID == "" {
+		inv.ID = crypto.GenerateUUID()
+	}
+	if inv.CreatedAt.IsZero() {
+		inv.CreatedAt = time.Now().UTC()
+	}
+	copied := *inv
+	m.Investigations[inv.ID] = &copied
+	return nil
+}
+
+func (m *MockRepository) GetInvestigationByID(ctx context.Context, orgID, investigationID string) (*PayoutInvestigation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	inv, ok := m.Investigations[investigationID]
+	if !ok || inv.OrganizationID != orgID {
+		return nil, ErrInvestigationNotFound
+	}
+	copied := *inv
+	return &copied, nil
+}
+
+func (m *MockRepository) ListInvestigationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutInvestigation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var res []PayoutInvestigation
+	for _, inv := range m.Investigations {
+		if inv.PayoutCaseID == caseID && inv.OrganizationID == orgID {
+			res = append(res, *inv)
+		}
+	}
+	return res, nil
+}
+

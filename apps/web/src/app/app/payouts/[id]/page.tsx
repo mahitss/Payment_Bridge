@@ -20,12 +20,19 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
+  Sparkles,
+  Bot,
+  Brain,
+  History,
+  ShieldAlert,
+  HelpCircle,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import Header from "@/components/Header";
 import {
   PayoutCase,
   PayoutOperation,
+  PayoutInvestigation,
   formatCentsToUSD,
   formatDate,
 } from "@/lib/payouts";
@@ -42,6 +49,14 @@ export default function PayoutCaseDetailPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // AI Investigation State
+  const [investigations, setInvestigations] = useState<PayoutInvestigation[]>([]);
+  const [selectedInvestigation, setSelectedInvestigation] = useState<PayoutInvestigation | null>(null);
+  const [investigating, setInvestigating] = useState<boolean>(false);
+  const [investigationError, setInvestigationError] = useState<string | null>(null);
+  const [investigationSuccess, setInvestigationSuccess] = useState<string | null>(null);
+  const [activeEvidenceRef, setActiveEvidenceRef] = useState<string | null>(null);
 
   // Modals confirmation state
   const [confirmSubmitModal, setConfirmSubmitModal] = useState<boolean>(false);
@@ -80,9 +95,69 @@ export default function PayoutCaseDetailPage() {
     }
   };
 
+  const fetchInvestigations = async () => {
+    if (!caseId) return;
+    try {
+      const res = await fetch(`/api/v1/payout-cases/${caseId}/investigations`, {
+        method: "GET",
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list: PayoutInvestigation[] = data.investigations || [];
+        setInvestigations(list);
+        if (list.length > 0) {
+          setSelectedInvestigation((current) => current || list[0]);
+        }
+      }
+    } catch {
+      // Non-blocking for investigations
+    }
+  };
+
+  const handleRunInvestigation = async (forceSync = false) => {
+    setInvestigating(true);
+    setInvestigationError(null);
+    setInvestigationSuccess(null);
+    try {
+      const res = await fetch(`/api/v1/payout-cases/${caseId}/investigations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ force_sync: forceSync }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.code === "AI_UNAVAILABLE") {
+          setInvestigationError(
+            "Investigation assistant is currently offline or unreachable. Core payout operations remain fully functional."
+          );
+        } else if (data.code === "INVALID_EVIDENCE_REFERENCE") {
+          setInvestigationError(
+            "AI safety validation triggered: Model output cited ungrounded or fabricated identifiers and was rejected."
+          );
+        } else {
+          setInvestigationError(data.error || "Failed to complete AI investigation.");
+        }
+      } else {
+        setInvestigationSuccess("Investigation completed with grounded evidence.");
+        setSelectedInvestigation(data);
+        setInvestigations((prev) => [data, ...prev.filter((item) => item.id !== data.id)]);
+        if (forceSync) {
+          fetchCaseDetails();
+        }
+      }
+    } catch {
+      setInvestigationError("Network error connecting to investigation service.");
+    } finally {
+      setInvestigating(false);
+    }
+  };
+
   useEffect(() => {
     if (user && caseId) {
       fetchCaseDetails();
+      fetchInvestigations();
     }
   }, [user, caseId]);
 
@@ -524,6 +599,380 @@ export default function PayoutCaseDetailPage() {
             )}
           </div>
         </div>
+
+        {/* ========================================================================= */}
+        {/* MISSION 004: AI PAYOUT INVESTIGATION ENGINE                              */}
+        {/* Evidence-Grounded Recommendations & Safety Verification                 */}
+        {/* ========================================================================= */}
+        <section className="p-6 rounded-2xl bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-indigo-950/20 border border-indigo-500/30 space-y-6 shadow-xl relative overflow-hidden">
+          {/* Subtle decorative glow */}
+          <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Section Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
+                  <Brain className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-white tracking-tight">
+                      AI Payout Investigation Engine
+                    </h2>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      Grounded Evidence
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Forensic root-cause analysis grounded in immutable case and provider records.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Investigation Actions */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleRunInvestigation(false)}
+                disabled={investigating}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-indigo-600/20"
+              >
+                {investigating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Investigating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Run Investigation</span>
+                  </>
+                )}
+              </button>
+
+              {canSync && (
+                <button
+                  onClick={() => handleRunInvestigation(true)}
+                  disabled={investigating}
+                  title="Query PayPal Sandbox status first, then analyze with fresh provider records"
+                  className="px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium transition flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${investigating ? "animate-spin" : ""}`} />
+                  <span>Sync &amp; Investigate</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Error / Offline Alert */}
+          {investigationError && (
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-3">
+              <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
+              <div className="space-y-1">
+                <span className="font-semibold text-rose-200">Investigation Unavailable</span>
+                <p className="text-rose-300/90 leading-relaxed">{investigationError}</p>
+                <div className="text-[11px] text-slate-400 pt-1">
+                  Note: Payout authorization, approval, and PayPal execution remain fully operable.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Success Banner */}
+          {investigationSuccess && (
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              <span>{investigationSuccess}</span>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!selectedInvestigation && !investigating && (
+            <div className="p-8 rounded-xl bg-slate-950/60 border border-dashed border-slate-800 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto">
+                <Bot className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-semibold text-white">No Investigations Run Yet</h3>
+              <p className="text-xs text-slate-400 max-w-lg mx-auto leading-relaxed">
+                Trigger a grounded investigation to analyze lifecycle anomalies, examine PayPal provider status, identify missing information, and review policy-checked next steps.
+              </p>
+              <button
+                onClick={() => handleRunInvestigation(false)}
+                className="mt-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition inline-flex items-center gap-2 shadow-lg shadow-indigo-600/20"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Run First Investigation</span>
+              </button>
+            </div>
+          )}
+
+          {/* Selected Investigation Results Display */}
+          {selectedInvestigation && (
+            <div className="space-y-6">
+              {/* History Bar (if multiple investigations exist) */}
+              {investigations.length > 1 && (
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/60">
+                  <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1.5 flex-shrink-0">
+                    <History className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Past Investigations:</span>
+                  </span>
+                  {investigations.map((inv, idx) => (
+                    <button
+                      key={inv.id}
+                      onClick={() => setSelectedInvestigation(inv)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition flex-shrink-0 flex items-center gap-1.5 ${
+                        selectedInvestigation.id === inv.id
+                          ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-semibold"
+                          : "bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800"
+                      }`}
+                    >
+                      <span>#{investigations.length - idx}</span>
+                      <span>{formatDate(inv.created_at)}</span>
+                      {inv.confidence === "HIGH" && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Top Summary Banner */}
+              <div className="p-5 rounded-xl bg-slate-950/80 border border-slate-800/90 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      Forensic Summary
+                    </span>
+                    {/* Confidence Badge */}
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide ${
+                        selectedInvestigation.confidence === "HIGH"
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                          : selectedInvestigation.confidence === "MEDIUM"
+                          ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                          : selectedInvestigation.confidence === "LOW"
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                          : "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                      }`}
+                    >
+                      Confidence: {selectedInvestigation.confidence}
+                    </span>
+
+                    {/* Human Review Status */}
+                    {selectedInvestigation.requires_human_review ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                        Human Review Mandatory
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                        Automated Consensus
+                      </span>
+                    )}
+                  </div>
+
+                  <span className="text-[11px] font-mono text-slate-500">
+                    Recorded {formatDate(selectedInvestigation.created_at)}
+                  </span>
+                </div>
+
+                <p className="text-sm text-slate-200 leading-relaxed font-sans">
+                  {selectedInvestigation.summary}
+                </p>
+
+                {/* Explicit Disclaimer */}
+                <div className="pt-2 border-t border-slate-900 flex items-center justify-between text-[11px] text-slate-500">
+                  <span className="flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-slate-500" />
+                    <span>AI ADVISORY OPINION: Advisory only. All payments require deterministic officer authorization.</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-500">
+                    Engine: {selectedInvestigation.provider} ({selectedInvestigation.model})
+                  </span>
+                </div>
+              </div>
+
+              {/* Two Column Grid: Evidence vs Recommendations */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Column 1: Grounded Findings & Facts */}
+                <div className="p-5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                        Observed Facts &amp; Grounded Findings
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-mono text-emerald-400">
+                      Validated References
+                    </span>
+                  </div>
+
+                  {/* Observed Facts */}
+                  {selectedInvestigation.observed_facts && selectedInvestigation.observed_facts.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">
+                        Immutable Snapshot Facts
+                      </span>
+                      <ul className="space-y-1 text-xs text-slate-300">
+                        {selectedInvestigation.observed_facts.map((fact, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-emerald-400 font-bold">•</span>
+                            <span>{fact}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Grounded Findings */}
+                  <div className="space-y-2.5 pt-2">
+                    <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">
+                      Diagnostic Findings
+                    </span>
+                    <div className="space-y-2.5">
+                      {selectedInvestigation.findings && selectedInvestigation.findings.length > 0 ? (
+                        selectedInvestigation.findings.map((f, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 space-y-2 text-xs"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-slate-200 leading-snug">{f.explanation}</span>
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                                VERIFIED
+                              </span>
+                            </div>
+                            {/* Evidence Reference Chips */}
+                            {f.evidence_references && f.evidence_references.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                <span className="text-[10px] text-slate-500">Evidence:</span>
+                                {f.evidence_references.map((refId, rIdx) => (
+                                  <button
+                                    key={rIdx}
+                                    onClick={() => setActiveEvidenceRef(refId)}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition border ${
+                                      activeEvidenceRef === refId
+                                        ? "bg-indigo-500/30 text-indigo-200 border-indigo-400"
+                                        : "bg-slate-950 text-slate-400 hover:text-white border-slate-800 hover:border-slate-700"
+                                    }`}
+                                    title="Click to view reference identifier"
+                                  >
+                                    {refId}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-500">No specific anomalies detected.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Missing Information Callout */}
+                  {selectedInvestigation.missing_information && selectedInvestigation.missing_information.length > 0 && (
+                    <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-amber-300 text-xs font-semibold">
+                        <HelpCircle className="w-3.5 h-3.5" />
+                        <span>Information Gaps (Missing Evidence)</span>
+                      </div>
+                      <ul className="text-xs text-amber-200/80 space-y-1 list-disc list-inside">
+                        {selectedInvestigation.missing_information.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Limitations */}
+                  {selectedInvestigation.limitations && selectedInvestigation.limitations.length > 0 && (
+                    <div className="text-[11px] text-slate-500 space-y-1 pt-1 border-t border-slate-900">
+                      <span className="font-semibold text-slate-400">Analysis Limitations:</span>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        {selectedInvestigation.limitations.map((lim, idx) => (
+                          <li key={idx}>{lim}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {/* Column 2: Recommended Next Steps & Deterministic Policy Check */}
+                <div className="p-5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-indigo-400" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                        Recommended Next Steps
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-mono text-indigo-400">
+                      Rust Policy Checked
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {selectedInvestigation.recommended_next_steps && selectedInvestigation.recommended_next_steps.length > 0 ? (
+                      selectedInvestigation.recommended_next_steps.map((rec, idx) => (
+                        <div
+                          key={idx}
+                          className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3 text-xs"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-mono text-xs font-bold text-white tracking-wide bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
+                              {rec.action}
+                            </span>
+                            {/* Deterministic Policy Badge */}
+                            {rec.deterministic_policy_permitted ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                <span>Permitted by Policy</span>
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                                <XCircle className="w-3 h-3 text-rose-400" />
+                                <span>Disallowed by Policy</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-slate-300 leading-relaxed font-sans">
+                            {rec.reason}
+                          </p>
+
+                          {/* Rule ID and Guard */}
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-800/60">
+                            <span>
+                              Rule: <code className="text-slate-400 font-mono">{rec.policy_rule_id || "POLICY-VERIFIED"}</code>
+                            </span>
+                            <span className="text-[10px] text-amber-400/90">
+                              Requires explicit officer approval
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500">No active next steps recommended.</p>
+                    )}
+                  </div>
+
+                  {/* Safety Notice Card */}
+                  <div className="p-3.5 rounded-lg bg-indigo-950/20 border border-indigo-500/20 text-[11px] text-indigo-300/80 leading-relaxed space-y-1">
+                    <span className="font-semibold text-indigo-300 flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Financial Execution Boundary
+                    </span>
+                    <p>
+                      Displaying an AI recommendation does not execute it. Any subsequent action must be initiated and approved through the dual-custody operation toolbar above.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
 
         {/* Durable Operation & Provider Status Section */}
         <section className="p-6 rounded-xl bg-slate-900/40 border border-slate-800 space-y-4">

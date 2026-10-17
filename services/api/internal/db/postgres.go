@@ -849,3 +849,123 @@ func (r *PostgresRepository) ListPayoutStatusSnapshots(ctx context.Context, orgI
 	}
 	return snapshots, nil
 }
+
+// Investigations
+
+func (r *PostgresRepository) CreateInvestigation(ctx context.Context, inv *PayoutInvestigation) error {
+	observedFactsJSON, _ := json.Marshal(inv.ObservedFacts)
+	findingsJSON, _ := json.Marshal(inv.Findings)
+	recommendedJSON, _ := json.Marshal(inv.RecommendedNextSteps)
+	missingInfoJSON, _ := json.Marshal(inv.MissingInformation)
+	riskFlagsJSON, _ := json.Marshal(inv.RiskFlags)
+	limitationsJSON, _ := json.Marshal(inv.Limitations)
+	rawRespJSON, _ := json.Marshal(inv.RawResponse)
+
+	query := `
+		INSERT INTO payout_investigations (
+			payout_case_id, organization_id, requested_by_user_id,
+			provider, model, prompt_version, status, summary,
+			confidence, requires_human_review, observed_facts, findings,
+			recommended_next_steps, missing_information, risk_flags, limitations,
+			raw_response, error_message, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+			$11, $12, $13, $14, $15, $16, $17, $18, NOW()
+		)
+		RETURNING id, created_at
+	`
+	return r.pool.QueryRow(ctx, query,
+		inv.PayoutCaseID, inv.OrganizationID, inv.RequestedByUserID,
+		inv.Provider, inv.Model, inv.PromptVersion, inv.Status, inv.Summary,
+		inv.Confidence, inv.RequiresHumanReview, observedFactsJSON, findingsJSON,
+		recommendedJSON, missingInfoJSON, riskFlagsJSON, limitationsJSON,
+		rawRespJSON, inv.ErrorMessage,
+	).Scan(&inv.ID, &inv.CreatedAt)
+}
+
+func (r *PostgresRepository) GetInvestigationByID(ctx context.Context, orgID, investigationID string) (*PayoutInvestigation, error) {
+	query := `
+		SELECT id, payout_case_id, organization_id, requested_by_user_id,
+		       provider, model, prompt_version, status, summary,
+		       confidence, requires_human_review, observed_facts, findings,
+		       recommended_next_steps, missing_information, risk_flags, limitations,
+		       raw_response, error_message, created_at
+		FROM payout_investigations
+		WHERE id = $1 AND organization_id = $2
+	`
+	var inv PayoutInvestigation
+	var observedFactsJSON, findingsJSON, recommendedJSON, missingInfoJSON, riskFlagsJSON, limitationsJSON, rawRespJSON []byte
+
+	err := r.pool.QueryRow(ctx, query, investigationID, orgID).Scan(
+		&inv.ID, &inv.PayoutCaseID, &inv.OrganizationID, &inv.RequestedByUserID,
+		&inv.Provider, &inv.Model, &inv.PromptVersion, &inv.Status, &inv.Summary,
+		&inv.Confidence, &inv.RequiresHumanReview, &observedFactsJSON, &findingsJSON,
+		&recommendedJSON, &missingInfoJSON, &riskFlagsJSON, &limitationsJSON,
+		&rawRespJSON, &inv.ErrorMessage, &inv.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrInvestigationNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get investigation: %w", err)
+	}
+
+	_ = json.Unmarshal(observedFactsJSON, &inv.ObservedFacts)
+	_ = json.Unmarshal(findingsJSON, &inv.Findings)
+	_ = json.Unmarshal(recommendedJSON, &inv.RecommendedNextSteps)
+	_ = json.Unmarshal(missingInfoJSON, &inv.MissingInformation)
+	_ = json.Unmarshal(riskFlagsJSON, &inv.RiskFlags)
+	_ = json.Unmarshal(limitationsJSON, &inv.Limitations)
+	if len(rawRespJSON) > 0 {
+		_ = json.Unmarshal(rawRespJSON, &inv.RawResponse)
+	}
+	return &inv, nil
+}
+
+func (r *PostgresRepository) ListInvestigationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutInvestigation, error) {
+	query := `
+		SELECT id, payout_case_id, organization_id, requested_by_user_id,
+		       provider, model, prompt_version, status, summary,
+		       confidence, requires_human_review, observed_facts, findings,
+		       recommended_next_steps, missing_information, risk_flags, limitations,
+		       raw_response, error_message, created_at
+		FROM payout_investigations
+		WHERE payout_case_id = $1 AND organization_id = $2
+		ORDER BY created_at DESC
+	`
+	rows, err := r.pool.Query(ctx, query, caseID, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list investigations: %w", err)
+	}
+	defer rows.Close()
+
+	var list []PayoutInvestigation
+	for rows.Next() {
+		var inv PayoutInvestigation
+		var observedFactsJSON, findingsJSON, recommendedJSON, missingInfoJSON, riskFlagsJSON, limitationsJSON, rawRespJSON []byte
+
+		err := rows.Scan(
+			&inv.ID, &inv.PayoutCaseID, &inv.OrganizationID, &inv.RequestedByUserID,
+			&inv.Provider, &inv.Model, &inv.PromptVersion, &inv.Status, &inv.Summary,
+			&inv.Confidence, &inv.RequiresHumanReview, &observedFactsJSON, &findingsJSON,
+			&recommendedJSON, &missingInfoJSON, &riskFlagsJSON, &limitationsJSON,
+			&rawRespJSON, &inv.ErrorMessage, &inv.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan investigation: %w", err)
+		}
+
+		_ = json.Unmarshal(observedFactsJSON, &inv.ObservedFacts)
+		_ = json.Unmarshal(findingsJSON, &inv.Findings)
+		_ = json.Unmarshal(recommendedJSON, &inv.RecommendedNextSteps)
+		_ = json.Unmarshal(missingInfoJSON, &inv.MissingInformation)
+		_ = json.Unmarshal(riskFlagsJSON, &inv.RiskFlags)
+		_ = json.Unmarshal(limitationsJSON, &inv.Limitations)
+		if len(rawRespJSON) > 0 {
+			_ = json.Unmarshal(rawRespJSON, &inv.RawResponse)
+		}
+		list = append(list, inv)
+	}
+	return list, nil
+}
+

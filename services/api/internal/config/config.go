@@ -43,6 +43,13 @@ type Config struct {
 	PayPalBaseURL          string
 	PayPalRequestTimeout   time.Duration
 	PolicyEngineBinaryPath string
+	AIEnabled              bool
+	AIProvider             string
+	AIBaseURL              string
+	AIModel                string
+	AIAPIKey               string
+	AIRequestTimeout       time.Duration
+	AIMaxOutputTokens      int
 }
 
 // LoadFromEnv loads configuration from environment variables with strict validation.
@@ -113,6 +120,21 @@ func LoadFromEnv() (*Config, error) {
 		PayPalBaseURL:          strings.TrimRight(payPalBaseURL, "/"),
 		PayPalRequestTimeout:   time.Duration(timeoutSec) * time.Second,
 		PolicyEngineBinaryPath: getEnv("POLICY_ENGINE_BIN", ""),
+		AIEnabled:              getEnvBool("AI_ENABLED", true),
+		AIProvider:             strings.ToLower(getEnv("AI_PROVIDER", "ollama")),
+		AIBaseURL:              strings.TrimRight(getEnv("AI_BASE_URL", "http://127.0.0.1:11434"), "/"),
+		AIModel:                getEnv("AI_MODEL", "llama3.2"),
+		AIAPIKey:               os.Getenv("AI_API_KEY"),
+		AIRequestTimeout:       time.Duration(getEnvInt("AI_REQUEST_TIMEOUT_SECONDS", 30)) * time.Second,
+		AIMaxOutputTokens:      getEnvInt("AI_MAX_OUTPUT_TOKENS", 2048),
+	}
+
+	// Validate AI Base URL
+	if cfg.AIEnabled {
+		u, err := url.Parse(cfg.AIBaseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return nil, fmt.Errorf("configuration error: AI_BASE_URL must be a valid http or https URL, got %q", cfg.AIBaseURL)
+		}
 	}
 
 	return cfg, nil
@@ -149,11 +171,16 @@ func (c *Config) String() string {
 		maskedClientID = "[REDACTED]"
 	}
 
+	maskedAIKey := "[NOT SET]"
+	if len(c.AIAPIKey) > 0 {
+		maskedAIKey = "[REDACTED]"
+	}
+
 	redactedDB := redactDatabaseURL(c.DatabaseURL)
 
 	return fmt.Sprintf(
-		"Config{AppEnv: %s, Port: %s, LogLevel: %s, DatabaseURL: %s, AppBaseURL: %s, AllowedOrigins: %v, SessionTTL: %s, SMTP: %s:%d, PayPalEnv: %s, PayPalClientID: %s, PayPalSecret: %s, PayPalBaseURL: %s, Timeout: %s}",
-		c.AppEnv, c.Port, c.LogLevel, redactedDB, c.AppBaseURL, c.AllowedOrigins, c.SessionTTL, c.SMTPHost, c.SMTPPort, c.PayPalEnv, maskedClientID, maskedSecret, c.PayPalBaseURL, c.PayPalRequestTimeout,
+		"Config{AppEnv: %s, Port: %s, LogLevel: %s, DatabaseURL: %s, AppBaseURL: %s, AllowedOrigins: %v, SessionTTL: %s, SMTP: %s:%d, PayPalEnv: %s, PayPalClientID: %s, PayPalSecret: %s, PayPalBaseURL: %s, Timeout: %s, AIEnabled: %t, AIProvider: %s, AIBaseURL: %s, AIModel: %s, AIKey: %s}",
+		c.AppEnv, c.Port, c.LogLevel, redactedDB, c.AppBaseURL, c.AllowedOrigins, c.SessionTTL, c.SMTPHost, c.SMTPPort, c.PayPalEnv, maskedClientID, maskedSecret, c.PayPalBaseURL, c.PayPalRequestTimeout, c.AIEnabled, c.AIProvider, c.AIBaseURL, c.AIModel, maskedAIKey,
 	)
 }
 
