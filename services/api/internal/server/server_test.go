@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"claimbridge/services/api/internal/config"
+	"claimbridge/services/api/internal/db"
 	"claimbridge/services/api/internal/policy"
 )
 
@@ -130,5 +131,108 @@ func TestServer_PolicyEvaluate(t *testing.T) {
 
 	if respBad.StatusCode != http.StatusForbidden {
 		t.Errorf("expected status 403 Forbidden for denied claim, got: %d", respBad.StatusCode)
+	}
+}
+
+func TestServer_SecurityHeaders(t *testing.T) {
+	cfg := &config.Config{
+		AppEnv:               "test",
+		Port:                 "8080",
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        "https://api-m.sandbox.paypal.com",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	srv := NewServer(cfg, policy.NewEngine(""), nil, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if h := resp.Header.Get("X-Content-Type-Options"); h != "nosniff" {
+		t.Errorf("expected nosniff, got: %s", h)
+	}
+	if h := resp.Header.Get("X-Frame-Options"); h != "DENY" {
+		t.Errorf("expected DENY, got: %s", h)
+	}
+	if h := resp.Header.Get("Referrer-Policy"); h != "strict-origin-when-cross-origin" {
+		t.Errorf("expected strict-origin-when-cross-origin, got: %s", h)
+	}
+	if h := resp.Header.Get("Content-Security-Policy"); !strings.Contains(h, "default-src 'self'") {
+		t.Errorf("expected CSP default-src 'self', got: %s", h)
+	}
+	if h := resp.Header.Get("Permissions-Policy"); !strings.Contains(h, "camera=()") {
+		t.Errorf("expected Permissions-Policy, got: %s", h)
+	}
+}
+
+func TestServer_Readyz_DatabaseHealth(t *testing.T) {
+	cfg := &config.Config{
+		AppEnv:               "test",
+		Port:                 "8080",
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        "https://api-m.sandbox.paypal.com",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	// 1. Healthy database
+	srv := NewServer(cfg, policy.NewEngine(""), nil, nil)
+	mockRepo := db.NewMockRepository()
+	srv.SetRepository(mockRepo)
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("readyz failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK for healthy db, got: %d", resp.StatusCode)
+	}
+
+	// 2. Unhealthy database
+	mockRepo.FailNextOp = true
+	respDown, err := http.Get(ts.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("readyz failed: %v", err)
+	}
+	defer respDown.Body.Close()
+
+	if respDown.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 Service Unavailable for failing db, got: %d", respDown.StatusCode)
+	}
+}
+
+func TestServer_BodyLimitExceeded(t *testing.T) {
+	cfg := &config.Config{
+		AppEnv:               "test",
+		Port:                 "8080",
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        "https://api-m.sandbox.paypal.com",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	srv := NewServer(cfg, policy.NewEngine(""), nil, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Create oversized payload > 1MB
+	oversized := make([]byte, 1024*1024+500)
+	resp, err := http.Post(ts.URL+"/api/v1/policy/evaluate", "application/json", bytes.NewReader(oversized))
+	if err != nil {
+		// Connection reset or bad request is expected
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 400 or 500 when body limit exceeded, got: %d", resp.StatusCode)
 	}
 }

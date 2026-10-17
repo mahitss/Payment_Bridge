@@ -110,6 +110,7 @@ func main() {
 
 	// 10. Initialize Server & Routes
 	srv := server.NewServer(cfg, policyEngine, paypalClient, authHandler, payoutsHandler)
+	srv.SetRepository(repo)
 	srv.SetInvestigationsHandler(investigationsHandler)
 
 	httpServer := &http.Server{

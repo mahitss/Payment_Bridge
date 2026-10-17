@@ -12,6 +12,7 @@ import (
 
 	"claimbridge/services/api/internal/auth"
 	"claimbridge/services/api/internal/config"
+	"claimbridge/services/api/internal/db"
 	"claimbridge/services/api/internal/investigations"
 	"claimbridge/services/api/internal/paypal"
 	"claimbridge/services/api/internal/payouts"
@@ -21,6 +22,7 @@ import (
 // Server encapsulates the HTTP handler and service dependencies.
 type Server struct {
 	cfg                   *config.Config
+	repo                  db.Repository
 	policyEngine          policy.PolicyEngine
 	paypalClient          *paypal.Client
 	authHandler           *auth.Handler
@@ -49,6 +51,11 @@ func NewServer(cfg *config.Config, policyEngine policy.PolicyEngine, paypalClien
 	return s
 }
 
+// SetRepository configures the database repository for readiness probes and storage health checks.
+func (s *Server) SetRepository(repo db.Repository) {
+	s.repo = repo
+}
+
 // SetInvestigationsHandler attaches the AI investigations handler and registers its routes.
 func (s *Server) SetInvestigationsHandler(ih *investigations.Handler) {
 	s.investigationsHandler = ih
@@ -69,8 +76,10 @@ func (s *Server) Handler() http.Handler {
 	return s.recoveryMiddleware(
 		s.securityHeadersMiddleware(
 			s.corsMiddleware(
-				s.loggingMiddleware(
-					s.timeoutMiddleware(handler),
+				s.bodyLimitMiddleware(
+					s.loggingMiddleware(
+						s.timeoutMiddleware(handler),
+					),
 				),
 			),
 		),
@@ -102,9 +111,27 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	hasPayPalCreds := s.cfg.PayPalClientID != "" && s.cfg.PayPalClientSecret != ""
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":                 "ready",
+	dbStatus := "connected"
+	isReady := true
+
+	if s.repo != nil {
+		if err := s.repo.Ping(r.Context()); err != nil {
+			dbStatus = "unavailable"
+			isReady = false
+		}
+	}
+
+	statusCode := http.StatusOK
+	statusStr := "ready"
+	if !isReady {
+		statusCode = http.StatusServiceUnavailable
+		statusStr = "degraded"
+	}
+
+	writeJSON(w, statusCode, map[string]interface{}{
+		"status":                 statusStr,
 		"service":                "claimbridge-api",
+		"database":               dbStatus,
 		"paypal_env":             s.cfg.PayPalEnv,
 		"paypal_creds_available": hasPayPalCreds,
 		"paypal_base_url":        s.cfg.PayPalBaseURL,
@@ -241,11 +268,22 @@ func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) bodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, 1024*1024) // 1MB maximum payload
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none';")
 		next.ServeHTTP(w, r)
 	})
 }
