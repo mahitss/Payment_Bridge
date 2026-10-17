@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -72,7 +72,7 @@ export default function PayoutCaseDetailPage() {
     }
   }, [user, loading, router, caseId]);
 
-  const fetchCaseDetails = async () => {
+  const fetchCaseDetails = useCallback(async () => {
     if (!caseId) return;
     setLoadingData(true);
     try {
@@ -93,9 +93,9 @@ export default function PayoutCaseDetailPage() {
     } finally {
       setLoadingData(false);
     }
-  };
+  }, [caseId]);
 
-  const fetchInvestigations = async () => {
+  const fetchInvestigations = useCallback(async () => {
     if (!caseId) return;
     try {
       const res = await fetch(`/api/v1/payout-cases/${caseId}/investigations`, {
@@ -113,7 +113,7 @@ export default function PayoutCaseDetailPage() {
     } catch {
       // Non-blocking for investigations
     }
-  };
+  }, [caseId]);
 
   const handleRunInvestigation = async (forceSync = false) => {
     setInvestigating(true);
@@ -159,7 +159,7 @@ export default function PayoutCaseDetailPage() {
       fetchCaseDetails();
       fetchInvestigations();
     }
-  }, [user, caseId]);
+  }, [user, caseId, fetchCaseDetails, fetchInvestigations]);
 
   // Latest operation is the active operation
   const latestOp = operations.length > 0 ? operations[0] : null;

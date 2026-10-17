@@ -275,7 +275,10 @@ fn test_payout_op_dual_approval_by_distinct_user_is_permitted() {
     let res = engine.evaluate_payout_operation(&req);
     assert!(res.allowed);
     assert_eq!(res.reason_code, "RULE_APPROVAL_GRANTED");
-    assert_eq!(res.target_state, Some(claimbridge_policy::PayoutOperationState::Approved));
+    assert_eq!(
+        res.target_state,
+        Some(claimbridge_policy::PayoutOperationState::Approved)
+    );
 }
 
 #[test]
@@ -320,7 +323,10 @@ fn test_payout_op_cancellation_eligibility() {
     assert!(res_unclaimed.allowed);
     assert!(res_unclaimed.is_cancellation_eligible);
     assert_eq!(res_unclaimed.reason_code, "RULE_CANCELLATION_PERMITTED");
-    assert_eq!(res_unclaimed.target_state, Some(claimbridge_policy::PayoutOperationState::Cancelled));
+    assert_eq!(
+        res_unclaimed.target_state,
+        Some(claimbridge_policy::PayoutOperationState::Cancelled)
+    );
 
     // 2. SUCCESS provider item CANNOT be cancelled
     let req_success = claimbridge_policy::PayoutOperationEvaluationRequest {
@@ -362,4 +368,3 @@ fn test_payout_op_terminal_state_mutation_rejected() {
     assert!(res.permitted_actions.is_empty());
     assert!(res.is_investigation_permitted);
 }
-

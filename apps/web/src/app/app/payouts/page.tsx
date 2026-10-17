@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -38,7 +38,7 @@ export default function PayoutsListPage() {
     }
   }, [user, loading, router]);
 
-  const fetchCases = async () => {
+  const fetchCases = useCallback(async () => {
     setLoadingCases(true);
     try {
       const offset = page * pageSize;
@@ -56,13 +56,13 @@ export default function PayoutsListPage() {
     } finally {
       setLoadingCases(false);
     }
-  };
+  }, [page, pageSize]);
 
   useEffect(() => {
     if (user) {
       fetchCases();
     }
-  }, [user, page]);
+  }, [user, fetchCases]);
 
   // Client-side filtering across current loaded page
   const filteredCases = useMemo(() => {

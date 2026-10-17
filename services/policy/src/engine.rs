@@ -324,9 +324,7 @@ impl PolicyEngine {
                     (false, "ERR_NOT_ELIGIBLE_FOR_CANCELLATION", None)
                 }
             }
-            PayoutAction::Prepare => {
-                (false, "ERR_CANNOT_PREPARE_EXISTING_OPERATION", None)
-            }
+            PayoutAction::Prepare => (false, "ERR_CANNOT_PREPARE_EXISTING_OPERATION", None),
         };
 
         PayoutOperationEvaluationResponse {
