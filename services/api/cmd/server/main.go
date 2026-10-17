@@ -11,7 +11,10 @@ import (
 	"syscall"
 	"time"
 
+	"claimbridge/services/api/internal/auth"
 	"claimbridge/services/api/internal/config"
+	"claimbridge/services/api/internal/db"
+	"claimbridge/services/api/internal/email"
 	"claimbridge/services/api/internal/logger"
 	"claimbridge/services/api/internal/paypal"
 	"claimbridge/services/api/internal/policy"
@@ -38,18 +41,53 @@ func main() {
 
 	slog.Info("Configuration loaded successfully", slog.String("details", cfg.String()))
 
-	// 3. Initialize Policy Engine
+	// 3. Initialize Database Repository (PostgreSQL with in-memory fallback)
+	initCtx, initCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer initCancel()
+
+	var repo db.Repository
+	pgRepo, err := db.NewPostgresRepository(initCtx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Warn("PostgreSQL unavailable at startup; using memory repository for development",
+			slog.String("error", err.Error()),
+		)
+		repo = db.NewMockRepository()
+	} else {
+		slog.Info("Connected to PostgreSQL successfully")
+		repo = pgRepo
+		defer pgRepo.Close()
+	}
+
+	// 4. Initialize Email Delivery (Mailpit / SMTP)
+	var mailer email.Mailer
+	if cfg.SMTPHost != "" {
+		slog.Info("Configured SMTP mailer",
+			slog.String("host", cfg.SMTPHost),
+			slog.Int("port", cfg.SMTPPort),
+			slog.String("from", cfg.SMTPFrom),
+		)
+		mailer = email.NewSMTPMailer(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPFrom, cfg.SMTPUser, cfg.SMTPPass)
+	} else {
+		slog.Info("No SMTP host configured; using mock mailer")
+		mailer = email.NewMockMailer()
+	}
+
+	// 5. Initialize Auth Service & Handler
+	authService := auth.NewService(cfg, repo, mailer)
+	authHandler := auth.NewHandler(cfg, authService)
+
+	// 6. Initialize Policy Engine
 	policyEngine := policy.NewEngine(cfg.PolicyEngineBinaryPath)
 
-	// 4. Initialize PayPal Sandbox Client
+	// 7. Initialize PayPal Sandbox Client
 	paypalClient, err := paypal.NewClient(cfg, nil)
 	if err != nil {
 		slog.Error("Failed to initialize PayPal client", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 
-	// 5. Initialize Server & Routes
-	srv := server.NewServer(cfg, policyEngine, paypalClient)
+	// 8. Initialize Server & Routes
+	srv := server.NewServer(cfg, policyEngine, paypalClient, authHandler)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),
@@ -60,7 +98,7 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// 6. Graceful Shutdown Handler
+	// 9. Graceful Shutdown Handler
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 

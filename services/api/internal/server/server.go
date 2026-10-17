@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
+	"claimbridge/services/api/internal/auth"
 	"claimbridge/services/api/internal/config"
 	"claimbridge/services/api/internal/paypal"
 	"claimbridge/services/api/internal/policy"
@@ -19,15 +21,17 @@ type Server struct {
 	cfg          *config.Config
 	policyEngine policy.PolicyEngine
 	paypalClient *paypal.Client
+	authHandler  *auth.Handler
 	mux          *http.ServeMux
 }
 
-// NewServer constructs the HTTP server with router and middleware.
-func NewServer(cfg *config.Config, policyEngine policy.PolicyEngine, paypalClient *paypal.Client) *Server {
+// NewServer constructs the HTTP server with router, auth handlers, and middleware.
+func NewServer(cfg *config.Config, policyEngine policy.PolicyEngine, paypalClient *paypal.Client, authHandler *auth.Handler) *Server {
 	s := &Server{
 		cfg:          cfg,
 		policyEngine: policyEngine,
 		paypalClient: paypalClient,
+		authHandler:  authHandler,
 		mux:          http.NewServeMux(),
 	}
 
@@ -37,7 +41,22 @@ func NewServer(cfg *config.Config, policyEngine policy.PolicyEngine, paypalClien
 
 // Handler returns the root HTTP handler wrapped in standard middleware.
 func (s *Server) Handler() http.Handler {
-	return s.recoveryMiddleware(s.securityHeadersMiddleware(s.loggingMiddleware(s.timeoutMiddleware(s.mux))))
+	var handler http.Handler = s.mux
+
+	if s.authHandler != nil {
+		handler = s.authHandler.Authenticate(handler)
+		handler = s.authHandler.OriginCheckMiddleware(handler)
+	}
+
+	return s.recoveryMiddleware(
+		s.securityHeadersMiddleware(
+			s.corsMiddleware(
+				s.loggingMiddleware(
+					s.timeoutMiddleware(handler),
+				),
+			),
+		),
+	)
 }
 
 func (s *Server) registerRoutes() {
@@ -45,6 +64,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /readyz", s.handleReadyz)
 	s.mux.HandleFunc("POST /api/v1/policy/evaluate", s.handlePolicyEvaluate)
 	s.mux.HandleFunc("GET /api/v1/sandbox/status", s.handleSandboxStatus)
+
+	if s.authHandler != nil {
+		s.authHandler.RegisterRoutes(s.mux)
+	}
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +124,6 @@ func (s *Server) handleSandboxStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify token retrieval safely
 	token, err := s.paypalClient.GetAccessToken(r.Context())
 	if err != nil {
 		slog.WarnContext(r.Context(), "PayPal sandbox status check failed", slog.String("error", err.Error()))
@@ -119,7 +141,6 @@ func (s *Server) handleSandboxStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SAFETY: We report success, token length, but NEVER return the raw token!
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":       "authenticated",
 		"token_valid":  len(token) > 0,
@@ -130,6 +151,30 @@ func (s *Server) handleSandboxStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // Middleware
+
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			for _, allowed := range s.cfg.AllowedOrigins {
+				if strings.EqualFold(origin, allowed) {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+					w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+					break
+				}
+			}
+		}
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) timeoutMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +241,5 @@ func (rw *responseWriterWrapper) WriteHeader(code int) {
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("Failed to write JSON response", slog.String("error", err.Error()))
-	}
+	_ = json.NewEncoder(w).Encode(v)
 }

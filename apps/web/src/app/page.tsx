@@ -1,11 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { ShieldCheck, Server, Lock, Cpu, CheckCircle2, AlertTriangle, ExternalLink, Terminal } from "lucide-react";
+import Link from "next/link";
+import { ShieldCheck, Server, Lock, Cpu, CheckCircle2, AlertTriangle, ExternalLink, Terminal, User, LogIn, UserPlus } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 export default function Home() {
   const [apiStatus, setApiStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { user, loading: authLoading } = useAuth();
 
   const checkGatewayHealth = async () => {
     setLoading(true);
@@ -37,23 +40,52 @@ export default function Home() {
               ClaimBridge
             </h1>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              Mission 001: Foundation & Feasibility
+              Mission 002: Auth & Data Foundation
             </span>
           </div>
           <p className="text-sm text-slate-400 max-w-2xl">
-            Autonomous AI claims triage coupled with deterministic Rust safety policy enforcement and PayPal Payouts settlement.
+            Autonomous AI claims triage coupled with deterministic Rust safety policy enforcement, Argon2id auth, and PayPal Payouts settlement.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={checkGatewayHealth}
             disabled={loading}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-2"
+            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-2"
           >
-            <Server className="w-4 h-4 text-emerald-400" />
-            {loading ? "Checking..." : "Probe Go API"}
+            <Server className="w-3.5 h-3.5 text-emerald-400" />
+            {loading ? "Checking..." : "Probe Gateway"}
           </button>
+
+          {!authLoading && user ? (
+            <div className="flex items-center gap-2">
+              <Link
+                href="/app"
+                className="px-3.5 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>Open App ({user.email.split("@")[0]})</span>
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Link
+                href="/login"
+                className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign In</span>
+              </Link>
+              <Link
+                href="/register"
+                className="px-3.5 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Register</span>
+              </Link>
+            </div>
+          )}
         </div>
       </header>
 

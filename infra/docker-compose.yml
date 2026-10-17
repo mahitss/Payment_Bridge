@@ -18,5 +18,16 @@ services:
       timeout: 5s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: claimbridge-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP port for email delivery
+      - "8025:8025" # Web UI to inspect test emails
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_DATABASE: ""
+
 volumes:
   postgres_data:

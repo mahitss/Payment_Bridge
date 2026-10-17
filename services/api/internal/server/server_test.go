@@ -22,7 +22,7 @@ func TestServer_Healthz(t *testing.T) {
 		PayPalRequestTimeout: 5 * time.Second,
 	}
 
-	srv := NewServer(cfg, policy.NewEngine(""), nil)
+	srv := NewServer(cfg, policy.NewEngine(""), nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -55,7 +55,7 @@ func TestServer_Readyz(t *testing.T) {
 		PayPalRequestTimeout: 5 * time.Second,
 	}
 
-	srv := NewServer(cfg, policy.NewEngine(""), nil)
+	srv := NewServer(cfg, policy.NewEngine(""), nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -79,7 +79,7 @@ func TestServer_PolicyEvaluate(t *testing.T) {
 		PayPalRequestTimeout: 5 * time.Second,
 	}
 
-	srv := NewServer(cfg, policy.NewEngine(""), nil)
+	srv := NewServer(cfg, policy.NewEngine(""), nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

@@ -32,6 +32,7 @@ jobs:
         run: |
           go build -v -o bin/server ./cmd/server
           go build -v -o bin/paypal-smoke ./cmd/paypal-smoke
+          go build -v -o bin/acceptance ./cmd/acceptance
 
   test-rust:
     name: Rust Deterministic Policy Engine
