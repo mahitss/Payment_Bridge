@@ -34,6 +34,9 @@ jobs:
           go build -v -o bin/paypal-smoke ./cmd/paypal-smoke
           go build -v -o bin/acceptance ./cmd/acceptance
 
+      - name: Run Full Acceptance Suite (32 Scenarios)
+        run: go run ./cmd/acceptance
+
   test-rust:
     name: Rust Deterministic Policy Engine
     runs-on: ubuntu-latest
