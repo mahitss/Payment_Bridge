@@ -1,6 +1,7 @@
 use crate::models::{
-    ClaimAction, ClaimState, PolicyConfig, PolicyDecision, PolicyEvaluationRequest,
-    PolicyEvaluationResponse, PolicyViolation,
+    ClaimAction, ClaimState, PayoutAction, PayoutOperationEvaluationRequest,
+    PayoutOperationEvaluationResponse, PayoutOperationState, PolicyConfig, PolicyDecision,
+    PolicyEvaluationRequest, PolicyEvaluationResponse, PolicyViolation,
 };
 
 pub struct PolicyEngine {
@@ -154,6 +155,188 @@ impl PolicyEngine {
                 Some(ClaimState::PayoutBlocked)
             }
             _ => None,
+        }
+    }
+
+    /// Evaluates permitted actions and deterministic state transitions for payout operations.
+    pub fn evaluate_payout_operation(
+        &self,
+        req: &PayoutOperationEvaluationRequest,
+    ) -> PayoutOperationEvaluationResponse {
+        let is_investigation_permitted = true; // All states permit read-only operator investigation
+
+        // Determine cancellation eligibility based on provider item status or local state
+        let is_cancellation_eligible = match req.current_state {
+            PayoutOperationState::Prepared | PayoutOperationState::AwaitingApproval => true,
+            PayoutOperationState::Submitted => {
+                if let Some(ref status) = req.provider_item_status {
+                    status.eq_ignore_ascii_case("UNCLAIMED")
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        };
+
+        // Determine permitted actions from current state
+        let mut permitted_actions = Vec::new();
+        match req.current_state {
+            PayoutOperationState::Prepared => {
+                if req.requires_dual_approval {
+                    permitted_actions.push(PayoutAction::RequestApproval);
+                } else {
+                    permitted_actions.push(PayoutAction::Submit);
+                }
+                permitted_actions.push(PayoutAction::Cancel);
+            }
+            PayoutOperationState::AwaitingApproval => {
+                permitted_actions.push(PayoutAction::Approve);
+                permitted_actions.push(PayoutAction::Cancel);
+            }
+            PayoutOperationState::Approved => {
+                permitted_actions.push(PayoutAction::Submit);
+                permitted_actions.push(PayoutAction::Cancel);
+            }
+            PayoutOperationState::Submitting => {
+                permitted_actions.push(PayoutAction::FlagReconciliation);
+            }
+            PayoutOperationState::Submitted => {
+                permitted_actions.push(PayoutAction::RecordSuccess);
+                permitted_actions.push(PayoutAction::RecordFailure);
+                permitted_actions.push(PayoutAction::FlagReconciliation);
+                if is_cancellation_eligible {
+                    permitted_actions.push(PayoutAction::Cancel);
+                }
+            }
+            PayoutOperationState::ReconciliationRequired => {
+                permitted_actions.push(PayoutAction::RecordSuccess);
+                permitted_actions.push(PayoutAction::RecordFailure);
+                if is_cancellation_eligible {
+                    permitted_actions.push(PayoutAction::Cancel);
+                }
+            }
+            PayoutOperationState::Succeeded
+            | PayoutOperationState::Failed
+            | PayoutOperationState::Cancelled => {
+                // Terminal states: zero money-moving actions permitted
+            }
+        }
+
+        // Evaluate requested action
+        let (allowed, reason_code, target_state) = match req.requested_action {
+            PayoutAction::RequestApproval => {
+                if req.current_state == PayoutOperationState::Prepared {
+                    (
+                        true,
+                        "RULE_APPROVAL_REQUESTED",
+                        Some(PayoutOperationState::AwaitingApproval),
+                    )
+                } else {
+                    (
+                        false,
+                        "ERR_CANNOT_REQUEST_APPROVAL_FROM_CURRENT_STATE",
+                        None,
+                    )
+                }
+            }
+            PayoutAction::Approve => {
+                if req.current_state != PayoutOperationState::AwaitingApproval {
+                    (false, "ERR_NOT_AWAITING_APPROVAL", None)
+                } else if req.requires_dual_approval && req.initiator_user_id == req.actor_user_id {
+                    (false, "ERR_SELF_APPROVAL_FORBIDDEN", None)
+                } else {
+                    (
+                        true,
+                        "RULE_APPROVAL_GRANTED",
+                        Some(PayoutOperationState::Approved),
+                    )
+                }
+            }
+            PayoutAction::Submit => {
+                if req.amount_cents > self.config.max_single_payout_cents {
+                    (false, "ERR_AMOUNT_EXCEEDS_CEILING", None)
+                } else if req.requires_dual_approval
+                    && req.current_state != PayoutOperationState::Approved
+                {
+                    (false, "ERR_MISSING_REQUIRED_APPROVAL", None)
+                } else if req.current_state == PayoutOperationState::Approved
+                    || (!req.requires_dual_approval
+                        && req.current_state == PayoutOperationState::Prepared)
+                {
+                    (
+                        true,
+                        "RULE_SUBMISSION_PERMITTED",
+                        Some(PayoutOperationState::Submitting),
+                    )
+                } else {
+                    (false, "ERR_INVALID_SUBMISSION_STATE", None)
+                }
+            }
+            PayoutAction::RecordSuccess => {
+                if req.current_state == PayoutOperationState::Submitting
+                    || req.current_state == PayoutOperationState::Submitted
+                    || req.current_state == PayoutOperationState::ReconciliationRequired
+                {
+                    (
+                        true,
+                        "RULE_SUCCESS_RECORDED",
+                        Some(PayoutOperationState::Succeeded),
+                    )
+                } else {
+                    (false, "ERR_CANNOT_TRANSITION_TO_SUCCEEDED", None)
+                }
+            }
+            PayoutAction::RecordFailure => {
+                if req.current_state == PayoutOperationState::Submitting
+                    || req.current_state == PayoutOperationState::Submitted
+                    || req.current_state == PayoutOperationState::ReconciliationRequired
+                {
+                    (
+                        true,
+                        "RULE_FAILURE_RECORDED",
+                        Some(PayoutOperationState::Failed),
+                    )
+                } else {
+                    (false, "ERR_CANNOT_TRANSITION_TO_FAILED", None)
+                }
+            }
+            PayoutAction::FlagReconciliation => {
+                if req.current_state == PayoutOperationState::Submitting
+                    || req.current_state == PayoutOperationState::Submitted
+                {
+                    (
+                        true,
+                        "RULE_RECONCILIATION_FLAGGED",
+                        Some(PayoutOperationState::ReconciliationRequired),
+                    )
+                } else {
+                    (false, "ERR_CANNOT_FLAG_RECONCILIATION", None)
+                }
+            }
+            PayoutAction::Cancel => {
+                if is_cancellation_eligible {
+                    (
+                        true,
+                        "RULE_CANCELLATION_PERMITTED",
+                        Some(PayoutOperationState::Cancelled),
+                    )
+                } else {
+                    (false, "ERR_NOT_ELIGIBLE_FOR_CANCELLATION", None)
+                }
+            }
+            PayoutAction::Prepare => {
+                (false, "ERR_CANNOT_PREPARE_EXISTING_OPERATION", None)
+            }
+        };
+
+        PayoutOperationEvaluationResponse {
+            operation_id: req.operation_id.clone(),
+            allowed,
+            reason_code: reason_code.to_string(),
+            target_state,
+            permitted_actions,
+            is_investigation_permitted,
+            is_cancellation_eligible,
         }
     }
 }

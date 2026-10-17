@@ -105,3 +105,59 @@ impl Default for PolicyConfig {
         }
     }
 }
+
+/// Explicit lifecycle states for Payout Operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PayoutOperationState {
+    Prepared,
+    AwaitingApproval,
+    Approved,
+    Submitting,
+    Submitted,
+    Succeeded,
+    Failed,
+    ReconciliationRequired,
+    Cancelled,
+}
+
+/// Permitted actions on a Payout Operation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PayoutAction {
+    Prepare,
+    RequestApproval,
+    Approve,
+    Submit,
+    RecordSuccess,
+    RecordFailure,
+    FlagReconciliation,
+    Cancel,
+}
+
+/// Payout operation policy evaluation request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayoutOperationEvaluationRequest {
+    pub operation_id: String,
+    pub case_id: String,
+    pub amount_cents: u64,
+    pub currency: String,
+    pub initiator_user_id: String,
+    pub actor_user_id: String,
+    pub current_state: PayoutOperationState,
+    pub requested_action: PayoutAction,
+    pub provider_item_status: Option<String>,
+    pub requires_dual_approval: bool,
+}
+
+/// Payout operation policy evaluation decision
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayoutOperationEvaluationResponse {
+    pub operation_id: String,
+    pub allowed: bool,
+    pub reason_code: String,
+    pub target_state: Option<PayoutOperationState>,
+    pub permitted_actions: Vec<PayoutAction>,
+    pub is_investigation_permitted: bool,
+    pub is_cancellation_eligible: bool,
+}

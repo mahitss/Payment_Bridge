@@ -233,3 +233,133 @@ fn test_illegal_state_jumps_rejected() {
         ClaimAction::ApproveLowRisk
     ));
 }
+
+#[test]
+fn test_payout_op_self_approval_is_denied() {
+    let engine = default_engine();
+    let req = claimbridge_policy::PayoutOperationEvaluationRequest {
+        operation_id: "op-101".to_string(),
+        case_id: "case-001".to_string(),
+        amount_cents: 35_000, // $350.00
+        currency: "USD".to_string(),
+        initiator_user_id: "user-initiator".to_string(),
+        actor_user_id: "user-initiator".to_string(), // Self-approval attempt!
+        current_state: claimbridge_policy::PayoutOperationState::AwaitingApproval,
+        requested_action: claimbridge_policy::PayoutAction::Approve,
+        provider_item_status: None,
+        requires_dual_approval: true,
+    };
+
+    let res = engine.evaluate_payout_operation(&req);
+    assert!(!res.allowed);
+    assert_eq!(res.reason_code, "ERR_SELF_APPROVAL_FORBIDDEN");
+    assert_eq!(res.target_state, None);
+}
+
+#[test]
+fn test_payout_op_dual_approval_by_distinct_user_is_permitted() {
+    let engine = default_engine();
+    let req = claimbridge_policy::PayoutOperationEvaluationRequest {
+        operation_id: "op-101".to_string(),
+        case_id: "case-001".to_string(),
+        amount_cents: 35_000,
+        currency: "USD".to_string(),
+        initiator_user_id: "user-initiator".to_string(),
+        actor_user_id: "user-distinct-auditor".to_string(), // Distinct auditor
+        current_state: claimbridge_policy::PayoutOperationState::AwaitingApproval,
+        requested_action: claimbridge_policy::PayoutAction::Approve,
+        provider_item_status: None,
+        requires_dual_approval: true,
+    };
+
+    let res = engine.evaluate_payout_operation(&req);
+    assert!(res.allowed);
+    assert_eq!(res.reason_code, "RULE_APPROVAL_GRANTED");
+    assert_eq!(res.target_state, Some(claimbridge_policy::PayoutOperationState::Approved));
+}
+
+#[test]
+fn test_payout_op_submit_without_required_approval_is_rejected() {
+    let engine = default_engine();
+    let req = claimbridge_policy::PayoutOperationEvaluationRequest {
+        operation_id: "op-102".to_string(),
+        case_id: "case-002".to_string(),
+        amount_cents: 30_000,
+        currency: "USD".to_string(),
+        initiator_user_id: "user-1".to_string(),
+        actor_user_id: "user-1".to_string(),
+        current_state: claimbridge_policy::PayoutOperationState::AwaitingApproval,
+        requested_action: claimbridge_policy::PayoutAction::Submit,
+        provider_item_status: None,
+        requires_dual_approval: true,
+    };
+
+    let res = engine.evaluate_payout_operation(&req);
+    assert!(!res.allowed);
+    assert_eq!(res.reason_code, "ERR_MISSING_REQUIRED_APPROVAL");
+}
+
+#[test]
+fn test_payout_op_cancellation_eligibility() {
+    let engine = default_engine();
+
+    // 1. UNCLAIMED provider item is eligible for cancellation
+    let req_unclaimed = claimbridge_policy::PayoutOperationEvaluationRequest {
+        operation_id: "op-103".to_string(),
+        case_id: "case-003".to_string(),
+        amount_cents: 10_000,
+        currency: "USD".to_string(),
+        initiator_user_id: "user-1".to_string(),
+        actor_user_id: "user-1".to_string(),
+        current_state: claimbridge_policy::PayoutOperationState::Submitted,
+        requested_action: claimbridge_policy::PayoutAction::Cancel,
+        provider_item_status: Some("UNCLAIMED".to_string()),
+        requires_dual_approval: false,
+    };
+    let res_unclaimed = engine.evaluate_payout_operation(&req_unclaimed);
+    assert!(res_unclaimed.allowed);
+    assert!(res_unclaimed.is_cancellation_eligible);
+    assert_eq!(res_unclaimed.reason_code, "RULE_CANCELLATION_PERMITTED");
+    assert_eq!(res_unclaimed.target_state, Some(claimbridge_policy::PayoutOperationState::Cancelled));
+
+    // 2. SUCCESS provider item CANNOT be cancelled
+    let req_success = claimbridge_policy::PayoutOperationEvaluationRequest {
+        operation_id: "op-103".to_string(),
+        case_id: "case-003".to_string(),
+        amount_cents: 10_000,
+        currency: "USD".to_string(),
+        initiator_user_id: "user-1".to_string(),
+        actor_user_id: "user-1".to_string(),
+        current_state: claimbridge_policy::PayoutOperationState::Submitted,
+        requested_action: claimbridge_policy::PayoutAction::Cancel,
+        provider_item_status: Some("SUCCESS".to_string()),
+        requires_dual_approval: false,
+    };
+    let res_success = engine.evaluate_payout_operation(&req_success);
+    assert!(!res_success.allowed);
+    assert!(!res_success.is_cancellation_eligible);
+    assert_eq!(res_success.reason_code, "ERR_NOT_ELIGIBLE_FOR_CANCELLATION");
+}
+
+#[test]
+fn test_payout_op_terminal_state_mutation_rejected() {
+    let engine = default_engine();
+    let req = claimbridge_policy::PayoutOperationEvaluationRequest {
+        operation_id: "op-104".to_string(),
+        case_id: "case-004".to_string(),
+        amount_cents: 5_000,
+        currency: "USD".to_string(),
+        initiator_user_id: "user-1".to_string(),
+        actor_user_id: "user-1".to_string(),
+        current_state: claimbridge_policy::PayoutOperationState::Succeeded,
+        requested_action: claimbridge_policy::PayoutAction::Submit,
+        provider_item_status: Some("SUCCESS".to_string()),
+        requires_dual_approval: false,
+    };
+
+    let res = engine.evaluate_payout_operation(&req);
+    assert!(!res.allowed);
+    assert!(res.permitted_actions.is_empty());
+    assert!(res.is_investigation_permitted);
+}
+
