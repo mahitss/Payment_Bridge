@@ -13,26 +13,34 @@ import (
 	"claimbridge/services/api/internal/auth"
 	"claimbridge/services/api/internal/config"
 	"claimbridge/services/api/internal/paypal"
+	"claimbridge/services/api/internal/payouts"
 	"claimbridge/services/api/internal/policy"
 )
 
 // Server encapsulates the HTTP handler and service dependencies.
 type Server struct {
-	cfg          *config.Config
-	policyEngine policy.PolicyEngine
-	paypalClient *paypal.Client
-	authHandler  *auth.Handler
-	mux          *http.ServeMux
+	cfg            *config.Config
+	policyEngine   policy.PolicyEngine
+	paypalClient   *paypal.Client
+	authHandler    *auth.Handler
+	payoutsHandler *payouts.Handler
+	mux            *http.ServeMux
 }
 
 // NewServer constructs the HTTP server with router, auth handlers, and middleware.
-func NewServer(cfg *config.Config, policyEngine policy.PolicyEngine, paypalClient *paypal.Client, authHandler *auth.Handler) *Server {
+func NewServer(cfg *config.Config, policyEngine policy.PolicyEngine, paypalClient *paypal.Client, authHandler *auth.Handler, payoutsHandlers ...*payouts.Handler) *Server {
+	var ph *payouts.Handler
+	if len(payoutsHandlers) > 0 {
+		ph = payoutsHandlers[0]
+	}
+
 	s := &Server{
-		cfg:          cfg,
-		policyEngine: policyEngine,
-		paypalClient: paypalClient,
-		authHandler:  authHandler,
-		mux:          http.NewServeMux(),
+		cfg:            cfg,
+		policyEngine:   policyEngine,
+		paypalClient:   paypalClient,
+		authHandler:    authHandler,
+		payoutsHandler: ph,
+		mux:            http.NewServeMux(),
 	}
 
 	s.registerRoutes()
@@ -67,6 +75,10 @@ func (s *Server) registerRoutes() {
 
 	if s.authHandler != nil {
 		s.authHandler.RegisterRoutes(s.mux)
+	}
+
+	if s.payoutsHandler != nil {
+		s.payoutsHandler.RegisterRoutes(s.mux)
 	}
 }
 

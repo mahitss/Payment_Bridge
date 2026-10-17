@@ -17,6 +17,7 @@ import (
 	"claimbridge/services/api/internal/email"
 	"claimbridge/services/api/internal/logger"
 	"claimbridge/services/api/internal/paypal"
+	"claimbridge/services/api/internal/payouts"
 	"claimbridge/services/api/internal/policy"
 	"claimbridge/services/api/internal/server"
 )
@@ -86,8 +87,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 8. Initialize Server & Routes
-	srv := server.NewServer(cfg, policyEngine, paypalClient, authHandler)
+	// 8. Initialize Payouts Service & Handler
+	payoutsService := payouts.NewService(cfg, repo, policyEngine, paypalClient)
+	payoutsHandler := payouts.NewHandler(cfg, payoutsService)
+
+	// 9. Initialize Server & Routes
+	srv := server.NewServer(cfg, policyEngine, paypalClient, authHandler, payoutsHandler)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),
