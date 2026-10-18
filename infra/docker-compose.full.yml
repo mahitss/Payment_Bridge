@@ -38,7 +38,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      APP_ENV: production
+      CLAIMBRIDGE_ENV: sandbox
       PORT: "8080"
       DATABASE_URL: postgres://claimbridge:claimbridge_local_dev_only@postgres:5432/claimbridge_dev?sslmode=disable
       DATABASE_AUTOMIGRATE: "true"
