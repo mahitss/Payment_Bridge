@@ -27,8 +27,7 @@ import (
 
 // TestMission003_PayoutAcceptanceScenarios runs end-to-end HTTP scenarios 13-24 for Mission 003.
 func TestMission003_PayoutAcceptanceScenarios(t *testing.T) {
-	// 1. Fake PayPal Sandbox REST Server
-	var simulateTimeout bool
+	// 1. Fake PayPal Sandbox REST Server (Stateless & Deterministic for Scenarios 13-23)
 	fakePayPalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -40,11 +39,6 @@ func TestMission003_PayoutAcceptanceScenarios(t *testing.T) {
 				"expires_in":   3600,
 			})
 		case r.URL.Path == "/v1/payments/payouts" && r.Method == http.MethodPost:
-			if simulateTimeout {
-				time.Sleep(150 * time.Millisecond)
-				w.WriteHeader(http.StatusOK)
-				return
-			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"batch_header": map[string]interface{}{
 					"payout_batch_id": "PAYPAL-BATCH-ACCEPTANCE-001",
@@ -394,23 +388,79 @@ func TestMission003_PayoutAcceptanceScenarios(t *testing.T) {
 	// Scenario 24: Ambiguous network timeout transitions to RECONCILIATION_REQUIRED
 	// =========================================================================
 	t.Run("Scenario 24: Ambiguous timeout safety transitions to RECONCILIATION_REQUIRED", func(t *testing.T) {
+		timeoutPayPalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case r.URL.Path == "/v1/oauth2/token":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"access_token": "fake-sandbox-access-token-999",
+					"token_type":   "Bearer",
+					"app_id":       "APP-SANDBOX-TEST",
+					"expires_in":   3600,
+				})
+			case r.URL.Path == "/v1/payments/payouts" && r.Method == http.MethodPost:
+				// Hold for 100ms to deterministically exceed the 30ms timeout, then exit cleanly
+				time.Sleep(100 * time.Millisecond)
+				w.WriteHeader(http.StatusOK)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer timeoutPayPalServer.Close()
+		defer timeoutPayPalServer.CloseClientConnections()
+
+		// Isolated, immutable configuration for the timeout scenario
+		timeoutCfg := *cfg
+		timeoutCfg.PayPalBaseURL = timeoutPayPalServer.URL
+		timeoutCfg.PayPalRequestTimeout = 30 * time.Millisecond
+
+		timeoutHTTPClient := &http.Client{
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+			},
+		}
+
+		timeoutPayPalClient, err := paypal.NewClient(&timeoutCfg, timeoutHTTPClient)
+		if err != nil {
+			t.Fatalf("failed to create timeout paypal client: %v", err)
+		}
+
+		timeoutPayoutsService := payouts.NewService(&timeoutCfg, repo, policyEngine, timeoutPayPalClient)
+		timeoutPayoutsHandler := payouts.NewHandler(&timeoutCfg, timeoutPayoutsService)
+		timeoutSrv := server.NewServer(&timeoutCfg, policyEngine, timeoutPayPalClient, authHandler, timeoutPayoutsHandler)
+		timeoutTS := httptest.NewServer(timeoutSrv.Handler())
+		defer timeoutTS.Close()
+		defer timeoutTS.CloseClientConnections()
+
+		postJSONTimeout := func(client *http.Client, endpoint string, body interface{}) (*http.Response, map[string]interface{}) {
+			var bodyReader io.Reader
+			if body != nil {
+				jsonBytes, _ := json.Marshal(body)
+				bodyReader = bytes.NewReader(jsonBytes)
+			}
+			req, _ := http.NewRequest(http.MethodPost, timeoutTS.URL+endpoint, bodyReader)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", "http://localhost:3000")
+			req.Close = true // Prevent keep-alive from holding connections open
+			res, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("POST %s failed: %v", endpoint, err)
+			}
+			defer res.Body.Close()
+			var data map[string]interface{}
+			_ = json.NewDecoder(res.Body).Decode(&data)
+			return res, data
+		}
+
 		// Initiate operation on caseSingle
-		_, outInit := postJSON(clientA, fmt.Sprintf("/api/v1/payout-cases/%s/payout-operations", caseSingleID), nil)
+		_, outInit := postJSONTimeout(clientA, fmt.Sprintf("/api/v1/payout-cases/%s/payout-operations", caseSingleID), nil)
 		opSingleMap, _ := outInit["operation"].(map[string]interface{})
 		opSingleID, _ := opSingleMap["id"].(string)
 
-		// Set client timeout very short and activate simulateTimeout on server
-		simulateTimeout = true
-		cfg.PayPalRequestTimeout = 20 * time.Millisecond
-		defer func() {
-			simulateTimeout = false
-			cfg.PayPalRequestTimeout = 5 * time.Second
-		}()
+		// Submit should time out deterministically after 50ms and transition operation to RECONCILIATION_REQUIRED
+		resSubmit, _ := postJSONTimeout(clientA, fmt.Sprintf("/api/v1/payout-operations/%s/submit", opSingleID), nil)
 
-		// Submit should time out
-		resSubmit, _ := postJSON(clientA, fmt.Sprintf("/api/v1/payout-operations/%s/submit", opSingleID), nil)
-
-		// Read case again
+		// Read case again via primary server or repository
 		_, outCase := getJSON(clientA, fmt.Sprintf("/api/v1/payout-cases/%s", caseSingleID))
 		opsList, _ := outCase["operations"].([]interface{})
 
@@ -423,3 +473,4 @@ func TestMission003_PayoutAcceptanceScenarios(t *testing.T) {
 		}
 	})
 }
+

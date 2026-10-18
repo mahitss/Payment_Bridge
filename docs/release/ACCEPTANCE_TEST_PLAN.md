@@ -1,14 +1,25 @@
 # ClaimBridge — Acceptance Test Plan & Execution Report
 
+**Document Version:** 1.2 (Mission 009.1 CI Repair & Acceptance Reconciliation)  
 **Suite Name:** Full System Acceptance Test Suite (32 Scenarios)  
 **Execution Command:** `go run ./cmd/acceptance`  
-**Execution Environment:** Local isolated harness with deterministic mock PayPal REST server and Mock AI inference engine  
-**Execution Timestamp:** 2026-10-18T00:28:39+05:30  
-**Overall Outcome:** 32 / 32 PASSED (100% Success Rate)  
+**Execution Environment:** Controlled test harness with in-memory repository, deterministic RFC-compliant mock PayPal REST server, and deterministic mock AI provider  
+**Execution Timestamp:** 2026-10-18T23:59:25+05:30  
+**Overall Outcome:** 32 / 32 PASSED (100% Contract & Policy Verification)  
 
 ---
 
-## 1. Scenario Inventory & Outcomes
+## 0. Testing Hierarchy & Scope Classification
+
+To ensure complete transparency and prevent exaggerated claims, ClaimBridge separates verification into five distinct tiers:
+
+| Tier | Category | Scope & Target Subsystem | Execution Command | Dependencies | Verification Evidence & Guarantee |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **A** | **Unit Tests** | Individual functions, structs, crypto primitives, policy invariants, and table-driven schemas | `cargo test`, `go test -race ./internal/...` | None (In-memory) | Proves isolated code logic, password hashing, and fail-closed rules. |
+| **B** | **Mock-Backed API Acceptance Tests** | End-to-end HTTP API journeys (32 scenarios), dual-custody enforcement, anti-IDOR, session lifecycles, and grounding schemas | `go run ./cmd/acceptance/main.go`, `acceptance_test.go` | In-memory mock DB, fake PayPal server, mock AI provider | Proves full HTTP contract, state transitions, and authorization logic using controlled substitutes. |
+| **C** | **PostgreSQL Integration Tests** | Real schema migrations, table constraints, transaction rollbacks, multi-tenant queries, and connection pool reboot persistence | `go test -v -race ./internal/db/...` | Real PostgreSQL 16 (`TEST_DATABASE_URL`) | Proves real SQL migrations, foreign-key cascades, and multi-tenant isolation against PostgreSQL. |
+| **D** | **Genuine PayPal Sandbox Smoke Tests** | Live OAuth 2.0 handshake, live batch payout creation, item polling, and real cancellation | `go run ./cmd/paypal-smoke/main.go` | Live PayPal Sandbox Developer API keys in `.env` | Proves live external network reachability and contract validity with `https://api-m.sandbox.paypal.com`. |
+| **E** | **Genuine Model-Backed Inference Tests** | Real local LLM prompt execution, streaming completions, and unconstrained token generation | `go run ./cmd/server/main.go` + Web UI | Local Ollama daemon running `llama3.2` on port 11434 | Proves live local open-weights neural inference and latency characteristics. |
 
 ### Domain 1: Authentication, Sessions & Credentials (Missions 001 & 002)
 

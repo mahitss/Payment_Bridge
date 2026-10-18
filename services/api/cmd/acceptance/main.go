@@ -34,15 +34,22 @@ type scenarioResult struct {
 	Detail string
 }
 
+// ClaimBridge Mock-Backed API Acceptance Verification Suite (32 Scenarios)
+// SCOPE NOTICE: This automated acceptance suite executes end-to-end API HTTP journeys using controlled
+// in-memory substitutes (mock repository, mock PayPal REST server, mock mailer, deterministic AI provider).
+// For real PostgreSQL verification, see `internal/db/postgres_integration_test.go`.
+// For real PayPal sandbox connectivity, see `cmd/paypal-smoke`.
+// For real AI inference, see `cmd/server` with local Ollama (`llama3.2`).
 func main() {
 	fmt.Println("======================================================================")
-	fmt.Println(" CLAIMBRIDGE ACCEPTANCE VERIFICATION RUNNER (MISSIONS 001 - 003)")
+	fmt.Println(" CLAIMBRIDGE MOCK-BACKED API ACCEPTANCE SUITE (32 SCENARIOS)")
+	fmt.Println(" Scope: Controlled Mock Substitutes (HTTP Contract & Policy Verification)")
+	fmt.Println(" Notice: External PayPal API & Ollama inference require live service endpoints")
 	fmt.Println("======================================================================")
 
 	results := []scenarioResult{}
 
 	// Fake PayPal Sandbox Server for Integration Testing
-	var simulateTimeout bool
 	fakePayPalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -54,11 +61,6 @@ func main() {
 				"expires_in":   3600,
 			})
 		case r.URL.Path == "/v1/payments/payouts" && r.Method == http.MethodPost:
-			if simulateTimeout {
-				time.Sleep(100 * time.Millisecond)
-				w.WriteHeader(http.StatusOK)
-				return
-			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"batch_header": map[string]interface{}{
 					"payout_batch_id": "PAYPAL-BATCH-ACCEPTANCE-001",
@@ -936,16 +938,79 @@ func main() {
 	// Scenario 24: Ambiguous network timeout transitions to RECONCILIATION_REQUIRED
 	// -------------------------------------------------------------------------
 	fmt.Println("\n[Scenario 24] Ambiguous network timeout safety...")
+	timeoutPayPalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/v1/oauth2/token":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-sandbox-token-acceptance",
+				"token_type":   "Bearer",
+				"app_id":       "APP-SANDBOX-ACCEPTANCE",
+				"expires_in":   3600,
+			})
+		case r.URL.Path == "/v1/payments/payouts" && r.Method == http.MethodPost:
+			time.Sleep(100 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer timeoutPayPalServer.Close()
+	defer timeoutPayPalServer.CloseClientConnections()
+
+	timeoutCfg := *cfg
+	timeoutCfg.PayPalBaseURL = timeoutPayPalServer.URL
+	timeoutCfg.PayPalRequestTimeout = 30 * time.Millisecond
+
+	timeoutHTTPClient := &http.Client{
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+		},
+	}
+	timeoutPayPalClient, err := paypal.NewClient(&timeoutCfg, timeoutHTTPClient)
+	if err != nil {
+		fmt.Printf("failed to create timeout paypal client: %v\n", err)
+	}
+
+	timeoutPayoutsService := payouts.NewService(&timeoutCfg, repo, policyEngine, timeoutPayPalClient)
+	timeoutPayoutsHandler := payouts.NewHandler(&timeoutCfg, timeoutPayoutsService)
+	timeoutSrv := server.NewServer(&timeoutCfg, policyEngine, timeoutPayPalClient, authHandler, timeoutPayoutsHandler)
+	timeoutTS := httptest.NewServer(timeoutSrv.Handler())
+	defer timeoutTS.Close()
+	defer timeoutTS.CloseClientConnections()
+
+	postJSONTimeout := func(endpoint string, body interface{}) (*http.Response, map[string]interface{}, error) {
+		var bodyReader io.Reader
+		if body != nil {
+			jsonBytes, err := json.Marshal(body)
+			if err != nil {
+				return nil, nil, err
+			}
+			bodyReader = bytes.NewReader(jsonBytes)
+		}
+		req, err := http.NewRequest(http.MethodPost, timeoutTS.URL+endpoint, bodyReader)
+		if err != nil {
+			return nil, nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", "http://localhost:3000")
+		req.Close = true
+		res, err := client.Do(req)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer res.Body.Close()
+		var data map[string]interface{}
+		_ = json.NewDecoder(res.Body).Decode(&data)
+		return res, data, nil
+	}
+
 	// Initiate operation on single case
-	_, dataInitSingle, _ := postJSON(fmt.Sprintf("/api/v1/payout-cases/%s/payout-operations", caseSingleID), nil, true)
+	_, dataInitSingle, _ := postJSONTimeout(fmt.Sprintf("/api/v1/payout-cases/%s/payout-operations", caseSingleID), nil)
 	opInitSingle, _ := dataInitSingle["operation"].(map[string]interface{})
 	opSingleID, _ := opInitSingle["id"].(string)
 
-	simulateTimeout = true
-	cfg.PayPalRequestTimeout = 20 * time.Millisecond
-	resTimeout, dataTimeout, _ := postJSON(fmt.Sprintf("/api/v1/payout-operations/%s/submit", opSingleID), nil, true)
-	simulateTimeout = false
-	cfg.PayPalRequestTimeout = 5 * time.Second
+	resTimeout, dataTimeout, _ := postJSONTimeout(fmt.Sprintf("/api/v1/payout-operations/%s/submit", opSingleID), nil)
 
 	_, dataCaseCheck, _ := getJSON(fmt.Sprintf("/api/v1/payout-cases/%s", caseSingleID))
 	opsCheck, _ := dataCaseCheck["operations"].([]interface{})

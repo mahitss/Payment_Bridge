@@ -10,16 +10,32 @@ jobs:
   test-go:
     name: Go API (Gate & Orchestrator)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: claimbridge
+          POSTGRES_PASSWORD: claimbridge_test_password
+          POSTGRES_DB: claimbridge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: services/api
+    env:
+      TEST_DATABASE_URL: postgres://claimbridge:claimbridge_test_password@localhost:5432/claimbridge_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
 
       - name: Go Vet

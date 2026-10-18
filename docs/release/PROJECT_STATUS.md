@@ -1,7 +1,7 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 1.2 (Mission 009 Full-System Integration & Release Readiness Baseline)  
+**Document Version:** 1.3 (Mission 009.1 CI Repair & Acceptance Reconciliation Baseline)  
 **Date of Audit:** October 18, 2026  
-**Auditor:** Technical Integration Lead  
+**Auditor:** Senior Security & Integration Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
 **Security & Reliability Standard:** Fail-Closed Deterministic Enforcement / OWASP ASVS v4.0.3 L2  
 
@@ -9,14 +9,15 @@
 
 ## 1. Executive Summary
 
-This audit establishes the full-system integration, end-to-end acceptance, and release readiness of the ClaimBridge platform across all connected subsystems: Go API Gateway, Rust Policy Engine, Next.js Web Frontend, PostgreSQL, PayPal Payouts REST API client, and pluggable AI Investigation Engine.
+This audit reconciles full-system integration, repairs CI race detection and Linux toolchain linking, and establishes an unambiguous 5-tier testing hierarchy separating mock-backed acceptance from live external integrations and PostgreSQL database persistence.
 
-### Key Audit & Integration Conclusions
-1. **Full-Stack Clean Startup & Zero-Budget Deployment Verified:** The multi-language monorepo (Go 1.22 API Gateway, Rust 1.80 deterministic policy engine, PostgreSQL schema with 4 up/down migrations, and Next.js 14 web application) compiles cleanly, passes 100% of uncached unit/integration checks, and is verified deployable locally via native toolchains or Docker Compose (`infra/docker-compose.full.yml`).
-2. **Deterministic Financial Safety Enforced End-to-End:** Integer minor units (`BIGINT` cents), dual-custody approval (> $250.00 USD), strict $500 ceiling, durable `sender_batch_id`, duplicate active operation prevention, and fail-closed network timeout quarantine (`RECONCILIATION_REQUIRED`) are completely verified across Go, Rust, and DB layers.
-3. **Mocks vs Live Boundary Verified:** Automated CI runs deterministically offline against an internal RFC-compliant mock PayPal HTTP server (`fakePayPalServer`) and deterministic AI test providers. Live PayPal Sandbox integration (`cmd/paypal-smoke`) and live local Ollama inference (`ollama.go`) are fully implemented but marked `IMPLEMENTED_NOT_VERIFIED` in offline environments due to sandbox developer key requirements (`.env` contains placeholders) and absent local Ollama daemon.
-4. **All 32 End-to-End Acceptance Scenarios Pass:** Authentication, multi-tenant isolation, payout lifecycle, duplicate prevention, ambiguous timeout reconciliation, grounded AI investigations, prompt injection containment, and application reboot persistence are all 100% verified.
-5. **No P0 or P1 Defects:** Zero critical security or data integrity vulnerabilities exist in the repository. All confirmed defects from Missions 001–008 are remediated and verified fixed. Only external credential/service provisioning (`DEF-001`, `DEF-002`) and manual recording of the completed demo script (`DEF-003`) remain pending before public demo presentation.
+### Key Audit & CI Repair Conclusions
+1. **Go Data Race Remediated:** Fixed data race in `services/api/internal/payouts/acceptance_test.go` Scenario 24 by eliminating unsynchronized mutation of shared flags (`simulateTimeout`) and global configuration fields (`cfg.PayPalRequestTimeout`). Isolated per-test dependencies with immutable configuration ensure deterministic timeout handling under `-race`.
+2. **Rust Linux Linker Overrides Repaired:** Removed inappropriate global `[build]` linker flags (`-C linker=rust-lld -C link-arg=-lsynchronization`) that broke Ubuntu Linux CI due to missing Windows SDK libraries. Scoped Windows-specific flags strictly to `[target.x86_64-pc-windows-gnu]`, restoring standard Linux toolchain compilation (`gcc` / `ld`).
+3. **CI Toolchain Reproducibility:** Aligned `.github/workflows/ci.yml` with `services/api/go.mod` using `go-version-file: services/api/go.mod` instead of hardcoded older versions.
+4. **PostgreSQL Integration Testing Path Established:** Added embedded migration runner (`RunMigrations` in `internal/db`) and dedicated PostgreSQL integration suite (`postgres_integration_test.go`) executing real migrations, transaction rollbacks, and multi-tenant isolation against live PostgreSQL 16 in CI.
+5. **Accurate Scope Claims (5-Tier Testing Hierarchy):** All release and acceptance documentation now strictly distinguishes between (A) Unit Tests, (B) Mock-Backed API Acceptance Tests, (C) PostgreSQL Integration Tests, (D) PayPal Sandbox Smoke Tests, and (E) Live Model Inference Tests. Mock-backed acceptance verifies contracts and logic using controlled substitutes; live external handshakes are transparently documented as requiring developer credentials or local daemons.
+6. **Zero P0/P1 Security Defects:** All core safety invariants (integer cents, dual-custody approval, duplicate active operation prevention, ambiguous timeout quarantine) remain 100% verified.
 
 ---
 

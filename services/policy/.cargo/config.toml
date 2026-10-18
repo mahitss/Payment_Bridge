@@ -1,4 +1,6 @@
-[build]
+# Target-specific configuration for Windows GNU environments without external MinGW gcc libraries.
+# Do NOT place these flags under global [build], which breaks Linux CI (x86_64-unknown-linux-gnu).
+[target.x86_64-pc-windows-gnu]
 rustflags = [
     "-C", "linker=rust-lld",
     "-C", "link-arg=-lsynchronization",
