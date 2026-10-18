@@ -27,6 +27,7 @@ func NewHandler(cfg *config.Config, service *Service) *Handler {
 
 // RegisterRoutes registers investigation routes to the ServeMux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/ai/status", h.handleAIStatus)
 	mux.HandleFunc("POST /api/v1/payout-cases/{case_id}/investigations", h.handleCreateInvestigation)
 	mux.HandleFunc("GET /api/v1/payout-cases/{case_id}/investigations", h.handleListInvestigations)
 	mux.HandleFunc("GET /api/v1/investigations/{investigation_id}", h.handleGetInvestigation)
@@ -147,6 +148,34 @@ func (h *Handler) handleGetInvestigation(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusOK, inv)
+}
+
+func (h *Handler) handleAIStatus(w http.ResponseWriter, r *http.Request) {
+	health := h.service.GetAIHealth(r.Context())
+	statusStr := "ready"
+	statusCode := http.StatusOK
+
+	if !health.Reachable {
+		statusStr = "unreachable"
+		statusCode = http.StatusServiceUnavailable
+	} else if !health.ModelAvailable {
+		statusStr = "model_missing"
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	providerName := "none"
+	modelName := "none"
+	if h.service.aiProvider != nil {
+		providerName = h.service.aiProvider.Name()
+		modelName = h.service.aiProvider.Model()
+	}
+
+	writeJSON(w, statusCode, map[string]interface{}{
+		"status":   statusStr,
+		"provider": providerName,
+		"model":    modelName,
+		"health":   health,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

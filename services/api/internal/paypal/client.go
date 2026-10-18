@@ -23,6 +23,7 @@ var (
 	ErrProductionHostBlocked     = errors.New("security violation: production PayPal host detected; only sandbox permitted")
 	ErrMissingCredentials        = errors.New("paypal credentials missing: client_id and client_secret are required")
 	ErrUnauthorized              = errors.New("paypal authentication failed: invalid client credentials")
+	ErrForbidden                 = errors.New("paypal operation forbidden: insufficient permissions or account restricted")
 	ErrPayoutNotFound            = errors.New("paypal payout batch or item not found")
 	ErrAmbiguousNetworkTimeout   = errors.New("ambiguous network timeout during payout mutation: DO NOT RETRY WITH NEW ID; run reconciliation")
 	ErrInvalidPayoutRequest      = errors.New("invalid payout request: missing sender_batch_id or items")
@@ -205,6 +206,9 @@ func (c *Client) GetAccessToken(ctx context.Context) (string, error) {
 	if resp.StatusCode == http.StatusUnauthorized {
 		return "", ErrUnauthorized
 	}
+	if resp.StatusCode == http.StatusForbidden {
+		return "", ErrForbidden
+	}
 	if resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))
 		return "", fmt.Errorf("oauth token endpoint returned status %d: %s", resp.StatusCode, sanitizedBody)
@@ -271,6 +275,12 @@ func (c *Client) GetPayoutBatch(ctx context.Context, payoutBatchID string) (*Pay
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("%w: batch id %s", ErrPayoutNotFound, payoutBatchID)
 	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, ErrForbidden
+	}
 	if resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))
 		return nil, fmt.Errorf("paypal get payout batch failed with status %d: %s", resp.StatusCode, sanitizedBody)
@@ -317,6 +327,12 @@ func (c *Client) GetPayoutItem(ctx context.Context, payoutItemID string) (*Payou
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("%w: item id %s", ErrPayoutNotFound, payoutItemID)
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, ErrForbidden
 	}
 	if resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))
@@ -388,6 +404,12 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 		return nil, fmt.Errorf("%w: response read failed: %v", ErrAmbiguousNetworkTimeout, err)
 	}
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, ErrForbidden
+	}
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))
 		return nil, fmt.Errorf("paypal create payout failed with status %d: %s", resp.StatusCode, sanitizedBody)
@@ -434,6 +456,12 @@ func (c *Client) CancelPayoutItem(ctx context.Context, payoutItemID string) (*Pa
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("%w: item id %s", ErrPayoutNotFound, payoutItemID)
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, ErrForbidden
 	}
 	if resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))

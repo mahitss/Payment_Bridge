@@ -50,35 +50,132 @@ func (c *OllamaClient) Model() string {
 }
 
 func (c *OllamaClient) IsAvailable(ctx context.Context) bool {
-	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	return c.CheckHealth(ctx).ModelAvailable
+}
+
+type ollamaTagsResponse struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
+}
+
+type openAIModelsResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+// CheckHealth probes provider liveness and verifies if the configured model is installed.
+func (c *OllamaClient) CheckHealth(ctx context.Context) AIHealthStatus {
+	status := AIHealthStatus{
+		ConfiguredModel: c.model,
+		ProviderURL:     c.baseURL,
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	// Try checking /v1/models or root endpoint
-	endpoint := c.baseURL + "/v1/models"
-	req, err := http.NewRequestWithContext(checkCtx, http.MethodGet, endpoint, nil)
+	// 1. Try Ollama native /api/tags endpoint
+	tagsURL := strings.TrimRight(c.baseURL, "/") + "/api/tags"
+	req, err := http.NewRequestWithContext(checkCtx, http.MethodGet, tagsURL, nil)
 	if err != nil {
-		return false
+		status.ErrorCategory = "REQUEST_CREATION_FAILED"
+		status.ErrorMessage = err.Error()
+		return status
 	}
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
 	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		// Fallback check to root baseURL
-		rootReq, rootErr := http.NewRequestWithContext(checkCtx, http.MethodGet, c.baseURL, nil)
-		if rootErr != nil {
-			return false
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return c.parseModelsFromOllama(resp.Body, status)
 		}
-		rootResp, rootDoErr := c.httpClient.Do(rootReq)
-		if rootDoErr != nil {
-			return false
-		}
-		_ = rootResp.Body.Close()
-		return rootResp.StatusCode < 500
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode < 500
+
+	// 2. Fallback to OpenAI-compatible /v1/models endpoint
+	modelsURL := strings.TrimRight(c.baseURL, "/") + "/v1/models"
+	modelsReq, fbErr := http.NewRequestWithContext(checkCtx, http.MethodGet, modelsURL, nil)
+	if fbErr == nil {
+		if c.apiKey != "" {
+			modelsReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+		}
+		modelsResp, fbDoErr := c.httpClient.Do(modelsReq)
+		if fbDoErr == nil {
+			defer modelsResp.Body.Close()
+			if modelsResp.StatusCode == http.StatusOK {
+				return c.parseModelsFromOpenAI(modelsResp.Body, status)
+			}
+		}
+	}
+
+	status.Reachable = false
+	status.ModelAvailable = false
+	status.ErrorCategory = "OLLAMA_UNREACHABLE"
+	status.ErrorMessage = fmt.Sprintf("Cannot connect to inference daemon at %s. Ensure daemon is running ('ollama serve').", c.baseURL)
+	return status
+}
+
+func (c *OllamaClient) parseModelsFromOllama(body io.Reader, status AIHealthStatus) AIHealthStatus {
+	status.Reachable = true
+	var tagsResp ollamaTagsResponse
+	if err := json.NewDecoder(body).Decode(&tagsResp); err != nil {
+		status.ErrorCategory = "MALFORMED_TAGS_RESPONSE"
+		status.ErrorMessage = "Failed to parse model list from Ollama /api/tags"
+		return status
+	}
+
+	targetModel := strings.ToLower(strings.TrimSpace(c.model))
+	var modelNames []string
+	found := false
+
+	for _, m := range tagsResp.Models {
+		mName := strings.ToLower(m.Name)
+		modelNames = append(modelNames, m.Name)
+		if mName == targetModel || strings.HasPrefix(mName, targetModel+":") {
+			found = true
+		}
+	}
+
+	status.AvailableModels = modelNames
+	status.ModelAvailable = found
+	if !found {
+		status.ErrorCategory = "MODEL_NOT_FOUND"
+		status.ErrorMessage = fmt.Sprintf("Configured model %q is not installed in Ollama. Operator action: run 'ollama pull %s'", c.model, c.model)
+	}
+	return status
+}
+
+func (c *OllamaClient) parseModelsFromOpenAI(body io.Reader, status AIHealthStatus) AIHealthStatus {
+	status.Reachable = true
+	var modelsResp openAIModelsResponse
+	if err := json.NewDecoder(body).Decode(&modelsResp); err != nil {
+		status.ErrorCategory = "MALFORMED_MODELS_RESPONSE"
+		status.ErrorMessage = "Failed to parse model list from /v1/models"
+		return status
+	}
+
+	targetModel := strings.ToLower(strings.TrimSpace(c.model))
+	var modelNames []string
+	found := false
+
+	for _, m := range modelsResp.Data {
+		mID := strings.ToLower(m.ID)
+		modelNames = append(modelNames, m.ID)
+		if mID == targetModel || strings.HasPrefix(mID, targetModel+":") {
+			found = true
+		}
+	}
+
+	status.AvailableModels = modelNames
+	status.ModelAvailable = found
+	if !found {
+		status.ErrorCategory = "MODEL_NOT_FOUND"
+		status.ErrorMessage = fmt.Sprintf("Configured model %q is not installed in inference provider. Operator action: run 'ollama pull %s'", c.model, c.model)
+	}
+	return status
 }
 
 type openAIChatMessage struct {
@@ -157,7 +254,10 @@ func (c *OllamaClient) Investigate(ctx context.Context, snapshot *InvestigationS
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, ErrAITimeout
 		}
-		slog.WarnContext(ctx, "AI provider connection failed", slog.String("error", err.Error()))
+		slog.WarnContext(ctx, "AI provider connection failed",
+			slog.String("error_class", "network_transport_failure"),
+			slog.String("case_id", snapshot.CaseID),
+		)
 		return nil, ErrAIUnavailable
 	}
 	defer resp.Body.Close()
@@ -167,14 +267,23 @@ func (c *OllamaClient) Investigate(ctx context.Context, snapshot *InvestigationS
 	}
 
 	if resp.StatusCode >= 500 {
-		slog.WarnContext(ctx, "AI provider returned server error", slog.Int("status", resp.StatusCode))
+		slog.WarnContext(ctx, "AI provider returned server error",
+			slog.String("error_class", "provider_server_error"),
+			slog.Int("status", resp.StatusCode),
+			slog.String("case_id", snapshot.CaseID),
+		)
 		return nil, ErrAIUnavailable
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		lr := io.LimitReader(resp.Body, 1024)
 		body, _ := io.ReadAll(lr)
-		slog.WarnContext(ctx, "AI provider returned non-200 status", slog.Int("status", resp.StatusCode), slog.String("body", string(body)))
+		slog.WarnContext(ctx, "AI provider returned non-200 status",
+			slog.String("error_class", "provider_http_error"),
+			slog.Int("status", resp.StatusCode),
+			slog.Int("response_bytes", len(body)),
+			slog.String("case_id", snapshot.CaseID),
+		)
 		return nil, fmt.Errorf("%w: http status %d", ErrAIUnavailable, resp.StatusCode)
 	}
 
@@ -206,7 +315,11 @@ func (c *OllamaClient) Investigate(ctx context.Context, snapshot *InvestigationS
 
 	var result InvestigationResult
 	if err := json.Unmarshal([]byte(cleanedJSON), &result); err != nil {
-		slog.WarnContext(ctx, "Failed to parse model output as JSON", slog.String("raw", rawContent))
+		slog.WarnContext(ctx, "Failed to parse model output as JSON",
+			slog.String("error_class", "malformed_model_json"),
+			slog.Int("raw_length", len(rawContent)),
+			slog.String("case_id", snapshot.CaseID),
+		)
 		return nil, fmt.Errorf("%w: %v", ErrInvalidSchema, err)
 	}
 

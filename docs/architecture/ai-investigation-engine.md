@@ -99,3 +99,49 @@ ClaimBridge is built to run 100% free with local model runtimes:
 - **Default**: Local Ollama running at `http://127.0.0.1:11434` with model `llama3.2`, `mistral`, or `qwen2.5`.
 - **OpenAI-Compatible Hosted Endpoints**: Any compatible free endpoint configured through `AI_BASE_URL` and `AI_API_KEY`.
 - **Fail-Closed Graceful Degradation**: If AI is offline, the API reports `503 Service Unavailable` with message `"Investigation assistant is currently unavailable. Core payout operations remain fully functional."`
+
+---
+
+## 6. Supported Deployment Configurations & Readiness Probing
+
+ClaimBridge supports two verified deployment configurations for model-backed AI investigation:
+
+### Configuration A: Native Go API + Native Host Ollama
+- **Go API**: Running natively on host (`go run ./cmd/server` in `services/api`)
+- **Ollama**: Running natively on host (`ollama serve`)
+- **Ollama Endpoint**: `http://localhost:11434` (or `http://127.0.0.1:11434`)
+- **Environment Settings**:
+  ```bash
+  AI_ENABLED=true
+  AI_PROVIDER=ollama
+  AI_BASE_URL=http://localhost:11434
+  AI_MODEL=llama3.2
+  ```
+
+### Configuration B: Containerized Go API + Host Ollama (Docker Desktop)
+- **Go API**: Running in Docker container (`infra/docker-compose.full.yml`)
+- **Ollama**: Running on host machine
+- **Networking**: Configured with `extra_hosts: ["host.docker.internal:host-gateway"]`
+- **Ollama Endpoint**: `http://host.docker.internal:11434`
+- **Environment Settings**:
+  ```bash
+  AI_ENABLED=true
+  AI_PROVIDER=ollama
+  AI_BASE_URL=http://host.docker.internal:11434
+  AI_MODEL=llama3.2
+  ```
+> [!NOTE]
+> Container `localhost` refers to the container itself, NOT the host machine. Always use `host.docker.internal` when the Go API is containerized.
+
+### Granular Readiness Diagnostics (`GET /api/v1/ai/status`)
+The system distinguishes four distinct inference states:
+1. **Ollama Reachable**: Verified via `/api/tags` or `/v1/models` socket probe.
+2. **Model Available**: Confirmed by matching the configured model against Ollama's local catalog.
+3. **Genuine Inference Succeeded**: Confirmed when a response satisfies JSON schema and evidence-grounding assertions.
+4. **Inference Failed / Timed Out**: Explicitly categorized (`provider_http_error`, `malformed_model_json`, `network_transport_failure`, `AI_TIMEOUT`).
+
+### Sensitive Logging Guarantees
+- Raw model outputs, prompts, recipient details, and provider error bodies are **never** logged to disk or console.
+- Log attributes record only sanitized classifications (`error_class`), payload size metadata (`response_bytes`, `raw_length`), and `case_id` correlation.
+- Model failures **never** modify financial state. Investigations are strictly advisory and read-only.
+

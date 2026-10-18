@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"net/url"
@@ -235,3 +236,61 @@ func getEnvBool(key string, defaultVal bool) bool {
 	}
 	return b
 }
+
+// ResolveEnvFile searches for a valid .env file starting with customPath,
+// then probing candidate paths (.env, ../../.env, ../.env).
+func ResolveEnvFile(customPath ...string) string {
+	if len(customPath) > 0 && strings.TrimSpace(customPath[0]) != "" {
+		p := strings.TrimSpace(customPath[0])
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+		return p // Return path even if missing so caller can report specific error if desired
+	}
+
+	candidates := []string{
+		".env",
+		"../../.env", // Relative to services/api
+		"../.env",    // Direct parent
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
+
+// LoadEnvFiles parses key=value pairs from the resolved .env file and sets them
+// in os.Setenv if they are not already set. Returns the resolved path or empty string.
+func LoadEnvFiles(customPath ...string) (string, error) {
+	resolved := ResolveEnvFile(customPath...)
+	if resolved == "" {
+		return "", nil
+	}
+
+	file, err := os.Open(resolved)
+	if err != nil {
+		return resolved, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			k := strings.TrimSpace(parts[0])
+			v := strings.TrimSpace(parts[1])
+			v = strings.Trim(v, `"'`)
+			if os.Getenv(k) == "" {
+				_ = os.Setenv(k, v)
+			}
+		}
+	}
+	return resolved, scanner.Err()
+}
+

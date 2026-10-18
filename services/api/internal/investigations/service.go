@@ -49,6 +49,26 @@ func NewService(
 	}
 }
 
+// AIProvider returns the configured AIProvider.
+func (s *Service) AIProvider() ai.AIProvider {
+	return s.aiProvider
+}
+
+// GetAIHealth queries the configured AI provider for liveness and model availability.
+func (s *Service) GetAIHealth(ctx context.Context) ai.AIHealthStatus {
+	if s.aiProvider == nil {
+		return ai.AIHealthStatus{
+			Reachable:       false,
+			ModelAvailable:  false,
+			ConfiguredModel: "none",
+			ProviderURL:     "none",
+			ErrorCategory:   "AI_DISABLED",
+			ErrorMessage:    "No AI provider initialized",
+		}
+	}
+	return s.aiProvider.CheckHealth(ctx)
+}
+
 // InvestigateRequest represents the parameters for running an investigation.
 type InvestigateRequest struct {
 	ForceSync bool `json:"force_sync"`

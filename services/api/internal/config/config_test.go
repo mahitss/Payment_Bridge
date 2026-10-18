@@ -6,8 +6,36 @@ import (
 	"testing"
 )
 
-func TestLoadFromEnv_DefaultSandbox(t *testing.T) {
+func cleanEnv(t *testing.T) {
+	orig := os.Environ()
+	tmp := os.Getenv("TMP")
+	temp := os.Getenv("TEMP")
+	sysRoot := os.Getenv("SystemRoot")
+
 	os.Clearenv()
+	if tmp != "" {
+		os.Setenv("TMP", tmp)
+	}
+	if temp != "" {
+		os.Setenv("TEMP", temp)
+	}
+	if sysRoot != "" {
+		os.Setenv("SystemRoot", sysRoot)
+	}
+
+	t.Cleanup(func() {
+		os.Clearenv()
+		for _, e := range orig {
+			parts := strings.SplitN(e, "=", 2)
+			if len(parts) == 2 {
+				os.Setenv(parts[0], parts[1])
+			}
+		}
+	})
+}
+
+func TestLoadFromEnv_DefaultSandbox(t *testing.T) {
+	cleanEnv(t)
 
 	cfg, err := LoadFromEnv()
 	if err != nil {
@@ -28,7 +56,7 @@ func TestLoadFromEnv_DefaultSandbox(t *testing.T) {
 }
 
 func TestLoadFromEnv_RejectProductionAppEnv(t *testing.T) {
-	os.Clearenv()
+	cleanEnv(t)
 	os.Setenv("CLAIMBRIDGE_ENV", "production")
 
 	_, err := LoadFromEnv()
@@ -42,7 +70,7 @@ func TestLoadFromEnv_RejectProductionAppEnv(t *testing.T) {
 }
 
 func TestLoadFromEnv_RejectProductionPayPalEnv(t *testing.T) {
-	os.Clearenv()
+	cleanEnv(t)
 	os.Setenv("PAYPAL_ENV", "production")
 
 	_, err := LoadFromEnv()
@@ -56,7 +84,7 @@ func TestLoadFromEnv_RejectProductionPayPalEnv(t *testing.T) {
 }
 
 func TestLoadFromEnv_RejectProductionPayPalHost(t *testing.T) {
-	os.Clearenv()
+	cleanEnv(t)
 	os.Setenv("PAYPAL_SANDBOX_BASE_URL", "https://api-m.paypal.com")
 
 	_, err := LoadFromEnv()
@@ -116,3 +144,38 @@ func TestConfig_ValidatePayPalCredentials(t *testing.T) {
 		t.Errorf("expected valid credentials to pass, got: %v", err)
 	}
 }
+
+func TestResolveAndLoadEnvFiles(t *testing.T) {
+	// Create temporary env file using t.TempDir()
+	tempDir := t.TempDir()
+	tmpFile, err := os.CreateTemp(tempDir, "claimbridge-test-*.env")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	content := "# Test Env\nTEST_ENV_VAR_1=hello\nTEST_ENV_VAR_2=\"world\"\n"
+	if _, err := tmpFile.WriteString(content); err != nil {
+		t.Fatalf("failed writing temp env file: %v", err)
+	}
+	tmpFile.Close()
+
+	os.Unsetenv("TEST_ENV_VAR_1")
+	os.Unsetenv("TEST_ENV_VAR_2")
+
+	resolved, err := LoadEnvFiles(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("LoadEnvFiles failed: %v", err)
+	}
+	if resolved != tmpFile.Name() {
+		t.Errorf("expected resolved path %q, got %q", tmpFile.Name(), resolved)
+	}
+
+	if val := os.Getenv("TEST_ENV_VAR_1"); val != "hello" {
+		t.Errorf("expected TEST_ENV_VAR_1 to be 'hello', got %q", val)
+	}
+	if val := os.Getenv("TEST_ENV_VAR_2"); val != "world" {
+		t.Errorf("expected TEST_ENV_VAR_2 to be 'world' (quotes stripped), got %q", val)
+	}
+}
+

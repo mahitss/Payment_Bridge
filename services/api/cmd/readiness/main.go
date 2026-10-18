@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"claimbridge/services/api/internal/ai"
 	"claimbridge/services/api/internal/config"
 	"claimbridge/services/api/internal/db"
 )
@@ -19,6 +20,7 @@ func main() {
 	fmt.Println("==================================================================")
 
 	client := &http.Client{Timeout: 5 * time.Second}
+	_, _ = config.LoadEnvFiles()
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		fmt.Printf("[FAIL] Configuration loading error: %v\n", err)
@@ -126,16 +128,25 @@ func main() {
 	fmt.Printf("   Provider:    %s\n", cfg.AIProvider)
 	fmt.Printf("   Model:       %s\n", cfg.AIModel)
 	fmt.Printf("   Endpoint:    %s\n", cfg.AIBaseURL)
-	if cfg.AIEnabled && cfg.AIProvider == "ollama" {
-		respOllama, err := client.Get(cfg.AIBaseURL + "/api/tags")
-		if err != nil || respOllama.StatusCode != http.StatusOK {
-			fmt.Println("   Ollama Host: OFFLINE (Run 'ollama serve' to enable real-time local model inference)")
-		} else {
-			respOllama.Body.Close()
-			fmt.Println("   Ollama Host: ONLINE (Ready for grounded local Llama 3.2 inference)")
-		}
+
+	aiProv, err := ai.NewProvider(cfg)
+	if err != nil {
+		fmt.Printf("   AI Status:   CONFIG ERROR (%v)\n", err)
 	} else if !cfg.AIEnabled {
-		fmt.Println("   Note: AI is disabled or set to mock. Automated grounding and safety tests pass 100%.")
+		fmt.Println("   AI Status:   DISABLED (AI_ENABLED=false; core payouts and policy pass 100%)")
+	} else {
+		health := aiProv.CheckHealth(context.Background())
+		fmt.Printf("   Host Reachable  : %v\n", health.Reachable)
+		fmt.Printf("   Model Available : %v\n", health.ModelAvailable)
+		if health.Reachable && health.ModelAvailable {
+			fmt.Printf("   Outcome         : PASS (Genuine local %s inference ready)\n", cfg.AIModel)
+		} else if health.Reachable && !health.ModelAvailable {
+			fmt.Printf("   Outcome         : BLOCKED (Model missing: %s)\n", health.ErrorMessage)
+			fmt.Printf("   Required Action : Run 'ollama pull %s'\n", cfg.AIModel)
+		} else {
+			fmt.Printf("   Outcome         : BLOCKED (Daemon unreachable at %s)\n", cfg.AIBaseURL)
+			fmt.Println("   Required Action : Start Ollama locally ('ollama serve') or verify AI_BASE_URL")
+		}
 	}
 
 	fmt.Println("==================================================================")

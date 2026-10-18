@@ -1,9 +1,11 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -296,3 +298,189 @@ func TestOllamaClient_WithFakeServer(t *testing.T) {
 		}
 	})
 }
+
+func TestOllamaClient_CheckHealth(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Daemon and Model Available via /api/tags", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/tags" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"models":[{"name":"llama3.2:latest"},{"name":"mistral:latest"}]}`))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIBaseURL:        srv.URL,
+			AIModel:          "llama3.2",
+			AIRequestTimeout: 3 * time.Second,
+		}
+		client := NewOllamaClient(cfg)
+		health := client.CheckHealth(ctx)
+
+		if !health.Reachable {
+			t.Errorf("expected reachable true, got false")
+		}
+		if !health.ModelAvailable {
+			t.Errorf("expected model_available true, got false with message: %s", health.ErrorMessage)
+		}
+		if !client.IsAvailable(ctx) {
+			t.Errorf("expected IsAvailable true")
+		}
+	})
+
+	t.Run("Daemon Available but Model Missing", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/tags" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"models":[{"name":"qwen2.5:latest"},{"name":"phi3:latest"}]}`))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIBaseURL:        srv.URL,
+			AIModel:          "llama3.2",
+			AIRequestTimeout: 3 * time.Second,
+		}
+		client := NewOllamaClient(cfg)
+		health := client.CheckHealth(ctx)
+
+		if !health.Reachable {
+			t.Errorf("expected reachable true, got false")
+		}
+		if health.ModelAvailable {
+			t.Errorf("expected model_available false for missing model")
+		}
+		if health.ErrorCategory != "MODEL_NOT_FOUND" {
+			t.Errorf("expected error_category MODEL_NOT_FOUND, got: %s", health.ErrorCategory)
+		}
+		if client.IsAvailable(ctx) {
+			t.Errorf("expected IsAvailable false when model is missing")
+		}
+	})
+
+	t.Run("Daemon Unreachable", func(t *testing.T) {
+		cfg := &config.Config{
+			AIBaseURL:        "http://127.0.0.1:54321", // non-listening port
+			AIModel:          "llama3.2",
+			AIRequestTimeout: 1 * time.Second,
+		}
+		client := NewOllamaClient(cfg)
+		health := client.CheckHealth(ctx)
+
+		if health.Reachable {
+			t.Errorf("expected reachable false for unreachable daemon")
+		}
+		if health.ModelAvailable {
+			t.Errorf("expected model_available false")
+		}
+		if health.ErrorCategory != "OLLAMA_UNREACHABLE" {
+			t.Errorf("expected error_category OLLAMA_UNREACHABLE, got: %s", health.ErrorCategory)
+		}
+		if client.IsAvailable(ctx) {
+			t.Errorf("expected IsAvailable false")
+		}
+	})
+}
+
+func TestOllamaClient_SensitiveLoggingSanitization(t *testing.T) {
+	ctx := context.Background()
+	snap := &InvestigationSnapshot{
+		CaseID:           "case-sensitive-1",
+		ValidEvidenceIDs: []string{"case-sensitive-1"},
+	}
+
+	t.Run("HTTP Error Body Not Leaked in Logs", func(t *testing.T) {
+		var logBuf bytes.Buffer
+		testLogger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		oldLogger := slog.Default()
+		slog.SetDefault(testLogger)
+		defer slog.SetDefault(oldLogger)
+
+		secretPayload := "SUPER_CONFIDENTIAL_RECIPIENT_SECRET_12345"
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"error":"bad_request","detail":"%s"}`, secretPayload)))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIBaseURL:         srv.URL,
+			AIModel:           "llama3.2",
+			AIRequestTimeout:  3 * time.Second,
+			AIMaxOutputTokens: 1024,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if err == nil {
+			t.Fatalf("expected error from 400 response, got nil")
+		}
+
+		logs := logBuf.String()
+		if strings.Contains(logs, secretPayload) {
+			t.Fatalf("SECURITY VIOLATION: provider error body was leaked into slog output:\n%s", logs)
+		}
+		if !strings.Contains(logs, "provider_http_error") {
+			t.Errorf("expected log to contain classified error_class=provider_http_error, got:\n%s", logs)
+		}
+		if !strings.Contains(logs, "case_id=case-sensitive-1") {
+			t.Errorf("expected log to include case_id correlation, got:\n%s", logs)
+		}
+	})
+
+	t.Run("Malformed Model Output Not Leaked in Logs", func(t *testing.T) {
+		var logBuf bytes.Buffer
+		testLogger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		oldLogger := slog.Default()
+		slog.SetDefault(testLogger)
+		defer slog.SetDefault(oldLogger)
+
+		secretModelOutput := "SENSITIVE_INVESTIGATION_PII_SSN_999-00-1111_DO_NOT_LOG"
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			resp := fmt.Sprintf(`{
+				"id": "chat-err",
+				"choices": [{
+					"message": {
+						"role": "assistant",
+						"content": "{malformed json unquoted %s"
+					}
+				}]
+			}`, secretModelOutput)
+			_, _ = w.Write([]byte(resp))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIBaseURL:         srv.URL,
+			AIModel:           "llama3.2",
+			AIRequestTimeout:  3 * time.Second,
+			AIMaxOutputTokens: 1024,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if err == nil {
+			t.Fatalf("expected error from malformed json, got nil")
+		}
+
+		logs := logBuf.String()
+		if strings.Contains(logs, secretModelOutput) {
+			t.Fatalf("SECURITY VIOLATION: raw model output was leaked into slog output:\n%s", logs)
+		}
+		if !strings.Contains(logs, "malformed_model_json") {
+			t.Errorf("expected log to contain classified error_class=malformed_model_json, got:\n%s", logs)
+		}
+		if !strings.Contains(logs, "raw_length=") {
+			t.Errorf("expected log to contain size metadata raw_length=, got:\n%s", logs)
+		}
+	})
+}
+

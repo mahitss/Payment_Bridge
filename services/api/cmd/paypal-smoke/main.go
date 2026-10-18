@@ -1,183 +1,221 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
-	"strings"
 	"time"
 
+	"claimbridge/services/api/internal/ai"
 	"claimbridge/services/api/internal/config"
 	"claimbridge/services/api/internal/logger"
 	"claimbridge/services/api/internal/paypal"
 )
 
 func main() {
-	batchIDFlag := flag.String("batch-id", "", "Optional PayPal Payout Batch ID to query status")
-	itemIDFlag := flag.String("item-id", "", "Optional PayPal Payout Item ID to query item status")
-	cancelItemFlag := flag.String("cancel-item", "", "Optional PayPal Payout Item ID to cancel (must be UNCLAIMED)")
-	createPayoutFlag := flag.Bool("create-test-payout", false, "Explicitly create a single test sandbox payout")
-	recipientFlag := flag.String("recipient", "", "Sandbox recipient email for test payout")
-	amountFlag := flag.String("amount", "1.00", "Amount for test payout (e.g. 1.00)")
-	currencyFlag := flag.String("currency", "USD", "Currency code (default USD)")
-	confirmSandboxFlag := flag.Bool("confirm-sandbox-only", false, "Required confirmation flag to authorize test payout creation")
-	envFileFlag := flag.String("env-file", ".env", "Path to .env file to load if present")
-	flag.Parse()
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("paypal-smoke", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	batchIDFlag := fs.String("batch-id", "", "Optional PayPal Payout Batch ID to query status")
+	itemIDFlag := fs.String("item-id", "", "Optional PayPal Payout Item ID to query item status")
+	cancelItemFlag := fs.String("cancel-item", "", "Optional PayPal Payout Item ID to cancel (must be UNCLAIMED)")
+	createPayoutFlag := fs.Bool("create-test-payout", false, "Explicitly create a single test sandbox payout")
+	recipientFlag := fs.String("recipient", "", "Sandbox recipient email for test payout")
+	amountFlag := fs.String("amount", "1.00", "Amount for test payout (e.g. 1.00)")
+	currencyFlag := fs.String("currency", "USD", "Currency code (default USD)")
+	confirmSandboxFlag := fs.Bool("confirm-sandbox-only", false, "Required confirmation flag to authorize test payout creation")
+	envFileFlag := fs.String("env-file", "", "Path to .env file to load (defaults to standard search paths)")
+
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
 
 	// 1. Initialize Redacting Logger
-	logger.InitLogger("info", os.Stdout)
+	logger.InitLogger("info", stdout)
 
-	fmt.Println("================================================================================")
-	fmt.Println("         CLAIMBRIDGE — PAYPAL SANDBOX INTEGRATION VERIFICATION TOOL            ")
-	fmt.Println("================================================================================")
+	fmt.Fprintln(stdout, "================================================================================")
+	fmt.Fprintln(stdout, "         CLAIMBRIDGE — PAYPAL SANDBOX INTEGRATION VERIFICATION TOOL            ")
+	fmt.Fprintln(stdout, "================================================================================")
 
-	// Attempt to load .env file if it exists
-	loadEnvFile(*envFileFlag)
+	// Attempt to load .env file from candidate paths
+	loadedPath, envErr := config.LoadEnvFiles(*envFileFlag)
+	if envErr != nil {
+		fmt.Fprintf(stdout, "[WARN] Failed reading environment file at %s: %v\n", loadedPath, envErr)
+	} else if loadedPath != "" {
+		fmt.Fprintf(stdout, "[INFO] Loaded environment configuration from: %s\n", loadedPath)
+	} else {
+		fmt.Fprintln(stdout, "[INFO] No local .env file found in search paths; relying on environment variables.")
+	}
 
 	// 2. Load and Validate Configuration
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
-		fmt.Printf("\n[CRITICAL ERROR] Configuration failed security validation:\n  -> %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "\n[CRITICAL ERROR] Configuration failed security validation:\n  -> %v\n", err)
+		return 1
 	}
 
 	// 3. Strict Sandbox Guardrails Assertion
 	if cfg.PayPalEnv != "sandbox" {
-		fmt.Printf("\n[SECURITY VIOLATION] PAYPAL_ENV is set to '%s'. Only 'sandbox' is permitted.\n", cfg.PayPalEnv)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "\n[SECURITY VIOLATION] PAYPAL_ENV is set to '%s'. Only 'sandbox' is permitted.\n", cfg.PayPalEnv)
+		return 1
 	}
 
-	fmt.Println("\n[1/3] Environment Security Audit:")
-	fmt.Printf("  • Application Environment : %s\n", cfg.AppEnv)
-	fmt.Printf("  • PayPal Target Mode      : %s [VERIFIED SANDBOX]\n", cfg.PayPalEnv)
-	fmt.Printf("  • PayPal Base URL         : %s\n", cfg.PayPalBaseURL)
-	fmt.Printf("  • Request Timeout         : %s\n", cfg.PayPalRequestTimeout)
+	fmt.Fprintln(stdout, "\n[1/3] Environment Security Audit:")
+	fmt.Fprintf(stdout, "  • Application Environment : %s\n", cfg.AppEnv)
+	fmt.Fprintf(stdout, "  • PayPal Target Mode      : %s [VERIFIED SANDBOX]\n", cfg.PayPalEnv)
+	fmt.Fprintf(stdout, "  • PayPal Base URL         : %s\n", cfg.PayPalBaseURL)
+	fmt.Fprintf(stdout, "  • Request Timeout         : %s\n", cfg.PayPalRequestTimeout)
 
 	// 4. Credential Availability Check
 	credErr := cfg.ValidatePayPalCredentials()
 	if credErr != nil {
-		fmt.Println("\n--------------------------------------------------------------------------------")
-		fmt.Println("[STATUS: BLOCKED] PayPal Sandbox Credentials Not Available")
-		fmt.Println("--------------------------------------------------------------------------------")
-		fmt.Printf("Root Cause: %v\n\n", credErr)
-		fmt.Println("Exact Blocker Details:")
+		fmt.Fprintln(stdout, "\n--------------------------------------------------------------------------------")
+		fmt.Fprintln(stdout, "[STATUS: BLOCKED] PayPal Sandbox Credentials Not Available")
+		fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
+		fmt.Fprintf(stdout, "Root Cause: %v\n\n", credErr)
+		fmt.Fprintln(stdout, "Exact Blocker Details:")
 		if cfg.PayPalClientID == "" {
-			fmt.Println("  - PAYPAL_CLIENT_ID is unset or empty.")
+			fmt.Fprintln(stdout, "  - PAYPAL_CLIENT_ID is unset or empty.")
 		}
 		if cfg.PayPalClientSecret == "" {
-			fmt.Println("  - PAYPAL_CLIENT_SECRET is unset or empty.")
+			fmt.Fprintln(stdout, "  - PAYPAL_CLIENT_SECRET is unset or empty.")
 		}
-		fmt.Println("\nRequired Action to Unblock:")
-		fmt.Println("  1. Review: docs/operational-instructions.md")
-		fmt.Println("  2. Create a Sandbox App at https://developer.paypal.com/dashboard/applications/sandbox")
-		fmt.Println("  3. Ensure 'Payouts' permission is enabled in App Settings.")
-		fmt.Println("  4. Copy credentials into .env:")
-		fmt.Println("       PAYPAL_CLIENT_ID=<your-sandbox-client-id>")
-		fmt.Println("       PAYPAL_CLIENT_SECRET=<your-sandbox-client-secret>")
-		fmt.Println("  5. Re-run: go run ./cmd/paypal-smoke")
-		fmt.Println("--------------------------------------------------------------------------------")
-		os.Exit(3) // Code 3: Blocked / Credentials Missing
+		fmt.Fprintln(stdout, "\nRequired Action to Unblock:")
+		fmt.Fprintln(stdout, "  1. Review: docs/operational-instructions.md")
+		fmt.Fprintln(stdout, "  2. Create a Sandbox App at https://developer.paypal.com/dashboard/applications/sandbox")
+		fmt.Fprintln(stdout, "  3. Ensure 'Payouts' permission is enabled in App Settings.")
+		fmt.Fprintln(stdout, "  4. Copy credentials into .env in the repository root:")
+		fmt.Fprintln(stdout, "       PAYPAL_CLIENT_ID=<your-sandbox-client-id>")
+		fmt.Fprintln(stdout, "       PAYPAL_CLIENT_SECRET=<your-sandbox-client-secret>")
+		fmt.Fprintln(stdout, "  5. Re-run: go run ./cmd/paypal-smoke")
+		fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
+		return 3 // Code 3: Blocked / Credentials Missing
 	}
 
 	// 5. Initialize PayPal Sandbox Client
 	client, err := paypal.NewClient(cfg, nil)
 	if err != nil {
-		fmt.Printf("\n[ERROR] Failed to construct PayPal sandbox client: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "\n[ERROR] Failed to construct PayPal sandbox client: %v\n", err)
+		return 1
 	}
 
 	// 6. Test OAuth2 Authentication
-	fmt.Println("\n[2/3] Performing OAuth2 Client Credentials Grant with PayPal Sandbox...")
+	fmt.Fprintln(stdout, "\n[2/3] Performing OAuth2 Client Credentials Grant with PayPal Sandbox...")
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.PayPalRequestTimeout)
 	defer cancel()
 
 	_, err = client.GetAccessToken(ctx)
 	if err != nil {
-		fmt.Println("\n--------------------------------------------------------------------------------")
-		fmt.Println("[STATUS: FAILED] PayPal Sandbox Authentication Failed")
-		fmt.Println("--------------------------------------------------------------------------------")
+		fmt.Fprintln(stdout, "\n--------------------------------------------------------------------------------")
+		fmt.Fprintln(stdout, "[STATUS: FAILED] PayPal Sandbox Authentication Failed")
+		fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
 		if errors.Is(err, paypal.ErrUnauthorized) {
-			fmt.Println("Error: Invalid client credentials (HTTP 401 Unauthorized).")
-			fmt.Println("Check that the Client ID and Secret match your sandbox app in PayPal Developer Dashboard.")
+			fmt.Fprintln(stdout, "Error: Invalid client credentials (HTTP 401 Unauthorized).")
+			fmt.Fprintln(stdout, "Check that the Client ID and Secret match your sandbox app in PayPal Developer Dashboard.")
+		} else if errors.Is(err, paypal.ErrForbidden) {
+			fmt.Fprintln(stdout, "Error: PayPal account or client lacks Payouts permissions (HTTP 403 Forbidden).")
+			fmt.Fprintln(stdout, "Action: Enable 'Payouts' permission under App Features in the PayPal Developer Dashboard.")
 		} else {
-			fmt.Printf("Error: %v\n", err)
+			fmt.Fprintf(stdout, "Error: %v\n", err)
 		}
-		os.Exit(2)
+		return 2 // Code 2: OAuth Failure
 	}
 
-	fmt.Println("\n  [SUCCESS] OAuth2 Authentication Verified!")
-	fmt.Println("  • Token Type : Bearer")
-	fmt.Println("  • Token State: Cached & Valid")
-	fmt.Println("  • Token Hash : [REDACTED_ACCESS_TOKEN] (never exposed to logs or disk)")
+	fmt.Fprintln(stdout, "\n  [SUCCESS] OAuth2 Authentication Verified!")
+	fmt.Fprintln(stdout, "  • Token Type : Bearer")
+	fmt.Fprintln(stdout, "  • Token State: Cached & Valid")
+	fmt.Fprintln(stdout, "  • Token Hash : [REDACTED_ACCESS_TOKEN] (never exposed to logs or disk)")
 
-	// 7. Optional: Query Payout Batch Status
+	// 7. Optional: Query Payout Batch Status / Item Status / Cancel / Create
 	if *batchIDFlag != "" {
-		fmt.Printf("\n[3/3] Querying Payout Batch Status for: %s\n", *batchIDFlag)
+		fmt.Fprintf(stdout, "\n[3/3] Querying Payout Batch Status for: %s\n", *batchIDFlag)
 		batch, err := client.GetPayoutBatch(ctx, *batchIDFlag)
 		if err != nil {
+			fmt.Fprintln(stdout, "\n--------------------------------------------------------------------------------")
+			fmt.Fprintf(stdout, "[STATUS: FAILED] Query for Payout Batch ID '%s' failed\n", *batchIDFlag)
+			fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
 			if errors.Is(err, paypal.ErrPayoutNotFound) {
-				fmt.Printf("  • Batch ID '%s' was not found in sandbox.\n", *batchIDFlag)
+				fmt.Fprintf(stdout, "Error: Batch ID '%s' was not found in sandbox (HTTP 404).\n", *batchIDFlag)
+			} else if errors.Is(err, paypal.ErrForbidden) {
+				fmt.Fprintln(stdout, "Error: Insufficient permission to view payout batches (HTTP 403).")
 			} else {
-				fmt.Printf("  • Error querying batch: %v\n", err)
+				fmt.Fprintf(stdout, "Error querying batch: %v\n", err)
 			}
-		} else {
-			fmt.Println("  [SUCCESS] Payout Batch Details Retrieved:")
-			fmt.Printf("    - Batch ID    : %s\n", batch.BatchHeader.PayoutBatchID)
-			fmt.Printf("    - Status      : %s\n", batch.BatchHeader.BatchStatus)
-			fmt.Printf("    - Time Created: %s\n", batch.BatchHeader.TimeCreated)
-			if batch.BatchHeader.Amount != nil {
-				fmt.Printf("    - Total Amount: %s %s\n", batch.BatchHeader.Amount.Value, batch.BatchHeader.Amount.Currency)
-			}
-			fmt.Printf("    - Item Count  : %d\n", len(batch.Items))
+			return 1
 		}
+
+		fmt.Fprintln(stdout, "  [SUCCESS] Payout Batch Details Retrieved:")
+		fmt.Fprintf(stdout, "    - Batch ID    : %s\n", batch.BatchHeader.PayoutBatchID)
+		fmt.Fprintf(stdout, "    - Status      : %s\n", batch.BatchHeader.BatchStatus)
+		fmt.Fprintf(stdout, "    - Time Created: %s\n", batch.BatchHeader.TimeCreated)
+		if batch.BatchHeader.Amount != nil {
+			fmt.Fprintf(stdout, "    - Total Amount: %s %s\n", batch.BatchHeader.Amount.Value, batch.BatchHeader.Amount.Currency)
+		}
+		fmt.Fprintf(stdout, "    - Item Count  : %d\n", len(batch.Items))
+
 	} else if *itemIDFlag != "" {
-		fmt.Printf("\n[3/3] Querying Payout Item Status for: %s\n", *itemIDFlag)
+		fmt.Fprintf(stdout, "\n[3/3] Querying Payout Item Status for: %s\n", *itemIDFlag)
 		item, err := client.GetPayoutItem(ctx, *itemIDFlag)
 		if err != nil {
+			fmt.Fprintln(stdout, "\n--------------------------------------------------------------------------------")
+			fmt.Fprintf(stdout, "[STATUS: FAILED] Query for Payout Item ID '%s' failed\n", *itemIDFlag)
+			fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
 			if errors.Is(err, paypal.ErrPayoutNotFound) {
-				fmt.Printf("  • Item ID '%s' was not found in sandbox.\n", *itemIDFlag)
+				fmt.Fprintf(stdout, "Error: Item ID '%s' was not found in sandbox (HTTP 404).\n", *itemIDFlag)
+			} else if errors.Is(err, paypal.ErrForbidden) {
+				fmt.Fprintln(stdout, "Error: Insufficient permission to view payout items (HTTP 403).")
 			} else {
-				fmt.Printf("  • Error querying item: %v\n", err)
+				fmt.Fprintf(stdout, "Error querying item: %v\n", err)
 			}
-		} else {
-			fmt.Println("  [SUCCESS] Payout Item Details Retrieved:")
-			fmt.Printf("    - Item ID       : %s\n", item.PayoutItemID)
-			fmt.Printf("    - Status        : %s\n", item.TransactionStatus)
-			fmt.Printf("    - Receiver      : %s\n", item.Receiver)
-			fmt.Printf("    - Amount        : %s %s\n", item.Amount.Value, item.Amount.Currency)
+			return 1
 		}
+
+		fmt.Fprintln(stdout, "  [SUCCESS] Payout Item Details Retrieved:")
+		fmt.Fprintf(stdout, "    - Item ID       : %s\n", item.PayoutItemID)
+		fmt.Fprintf(stdout, "    - Status        : %s\n", item.TransactionStatus)
+		fmt.Fprintf(stdout, "    - Receiver      : %s\n", ai.MaskEmail(item.Receiver))
+		fmt.Fprintf(stdout, "    - Amount        : %s %s\n", item.Amount.Value, item.Amount.Currency)
+
 	} else if *cancelItemFlag != "" {
-		fmt.Printf("\n[3/3] Requesting Cancellation for Payout Item: %s\n", *cancelItemFlag)
+		fmt.Fprintf(stdout, "\n[3/3] Requesting Cancellation for Payout Item: %s\n", *cancelItemFlag)
 		cancelled, err := client.CancelPayoutItem(ctx, *cancelItemFlag)
 		if err != nil {
-			fmt.Printf("  • Cancellation failed: %v\n", err)
-		} else {
-			fmt.Println("  [SUCCESS] Payout Item Cancelled Successfully:")
-			fmt.Printf("    - Item ID: %s\n", cancelled.PayoutItemID)
-			fmt.Printf("    - Status : %s\n", cancelled.TransactionStatus)
+			fmt.Fprintln(stdout, "\n--------------------------------------------------------------------------------")
+			fmt.Fprintf(stdout, "[STATUS: FAILED] Cancellation for Payout Item ID '%s' failed\n", *cancelItemFlag)
+			fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
+			fmt.Fprintf(stdout, "Error: %v\n", err)
+			return 1
 		}
+
+		fmt.Fprintln(stdout, "  [SUCCESS] Payout Item Cancelled Successfully:")
+		fmt.Fprintf(stdout, "    - Item ID: %s\n", cancelled.PayoutItemID)
+		fmt.Fprintf(stdout, "    - Status : %s\n", cancelled.TransactionStatus)
+
 	} else if *createPayoutFlag {
-		// 8. Explicit Test Payout Creation (Strictly Guarded)
-		fmt.Println("\n[3/3] Explicit Test Payout Dispatch Requested...")
+		fmt.Fprintln(stdout, "\n[3/3] Explicit Test Payout Dispatch Requested...")
 
 		if !*confirmSandboxFlag {
-			fmt.Println("\n[SAFETY ABORT] Payout creation requires the explicit '-confirm-sandbox-only' flag.")
-			fmt.Println("Example: go run ./cmd/paypal-smoke -create-test-payout -recipient test@business.example.com -confirm-sandbox-only")
-			os.Exit(1)
+			fmt.Fprintln(stderr, "\n[SAFETY ABORT] Payout creation requires the explicit '-confirm-sandbox-only' flag.")
+			fmt.Fprintln(stderr, "Example: go run ./cmd/paypal-smoke -create-test-payout -recipient test@business.example.com -confirm-sandbox-only")
+			return 1
 		}
 
 		if *recipientFlag == "" {
-			fmt.Println("\n[INPUT ERROR] -recipient email is required when -create-test-payout is used.")
-			os.Exit(1)
+			fmt.Fprintln(stderr, "\n[INPUT ERROR] -recipient email is required when -create-test-payout is used.")
+			return 1
 		}
 
 		senderBatchID := fmt.Sprintf("claimbridge-smoke-%d", time.Now().Unix())
-		fmt.Printf("  • Deterministic Sender Batch ID: %s\n", senderBatchID)
-		fmt.Printf("  • Recipient                   : %s\n", *recipientFlag)
-		fmt.Printf("  • Amount                      : %s %s\n", *amountFlag, *currencyFlag)
+		fmt.Fprintf(stdout, "  • Deterministic Sender Batch ID: %s\n", senderBatchID)
+		fmt.Fprintf(stdout, "  • Recipient                   : %s\n", ai.MaskEmail(*recipientFlag))
+		fmt.Fprintf(stdout, "  • Amount                      : %s %s\n", *amountFlag, *currencyFlag)
 
 		payoutResp, err := client.CreatePayout(ctx, paypal.CreatePayoutRequest{
 			SenderBatchID: senderBatchID,
@@ -188,47 +226,26 @@ func main() {
 			EmailSubject:  "ClaimBridge Test Settlement",
 		})
 		if err != nil {
-			fmt.Printf("\n[PAYOUT FAILED] Sandbox payout creation failed: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintln(stdout, "\n--------------------------------------------------------------------------------")
+			fmt.Fprintln(stdout, "[STATUS: FAILED] Sandbox Payout Creation Failed")
+			fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
+			fmt.Fprintf(stdout, "Error: %v\n", err)
+			return 1
 		}
 
-		fmt.Println("\n  [SUCCESS] Test Payout Dispatched to Sandbox!")
-		fmt.Printf("    - Payout Batch ID: %s\n", payoutResp.BatchHeader.PayoutBatchID)
-		fmt.Printf("    - Batch Status   : %s\n", payoutResp.BatchHeader.BatchStatus)
-		fmt.Printf("    - Time Created   : %s\n", payoutResp.BatchHeader.TimeCreated)
+		fmt.Fprintln(stdout, "\n  [SUCCESS] Test Payout Dispatched to Sandbox!")
+		fmt.Fprintf(stdout, "    - Payout Batch ID: %s\n", payoutResp.BatchHeader.PayoutBatchID)
+		fmt.Fprintf(stdout, "    - Batch Status   : %s\n", payoutResp.BatchHeader.BatchStatus)
+		fmt.Fprintf(stdout, "    - Time Created   : %s\n", payoutResp.BatchHeader.TimeCreated)
 	} else {
-		fmt.Println("\n[3/3] Sandbox Read-Only Feasibility Mode:")
-		fmt.Println("  • Automatic payouts are DISABLED by default for safety.")
-		fmt.Println("  • To test payout creation: specify -create-test-payout -recipient <email> -confirm-sandbox-only")
-		fmt.Println("  • To inspect a batch    : specify -batch-id <payout-batch-id>")
+		fmt.Fprintln(stdout, "\n[3/3] Sandbox Read-Only Feasibility Mode:")
+		fmt.Fprintln(stdout, "  • Automatic payouts are DISABLED by default for safety.")
+		fmt.Fprintln(stdout, "  • To test payout creation: specify -create-test-payout -recipient <email> -confirm-sandbox-only")
+		fmt.Fprintln(stdout, "  • To inspect a batch    : specify -batch-id <payout-batch-id>")
 	}
 
-	fmt.Println("\n================================================================================")
-	fmt.Println("                 FEASIBILITY VERIFICATION COMPLETED SUCCESSFULLY                ")
-	fmt.Println("================================================================================")
-}
-
-// loadEnvFile reads a local .env file line by line and sets environment variables if not already set.
-func loadEnvFile(path string) {
-	file, err := os.Open(path)
-	if err != nil {
-		return // File does not exist, ignore
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			k := strings.TrimSpace(parts[0])
-			v := strings.TrimSpace(parts[1])
-			if os.Getenv(k) == "" {
-				os.Setenv(k, v)
-			}
-		}
-	}
+	fmt.Fprintln(stdout, "\n================================================================================")
+	fmt.Fprintln(stdout, "                 FEASIBILITY VERIFICATION COMPLETED SUCCESSFULLY                ")
+	fmt.Fprintln(stdout, "================================================================================")
+	return 0
 }

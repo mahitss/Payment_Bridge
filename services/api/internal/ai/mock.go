@@ -48,6 +48,24 @@ func (m *MockProvider) IsAvailable(ctx context.Context) bool {
 	return m.Available
 }
 
+func (m *MockProvider) CheckHealth(ctx context.Context) AIHealthStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	status := AIHealthStatus{
+		Reachable:       m.Available,
+		ModelAvailable:  m.Available,
+		ConfiguredModel: m.Model(),
+		AvailableModels: []string{m.Model()},
+		ProviderURL:     "mock://internal",
+	}
+	if !m.Available {
+		status.ErrorCategory = "MOCK_UNAVAILABLE"
+		status.ErrorMessage = "Mock AI provider configured as unavailable"
+	}
+	return status
+}
+
 func (m *MockProvider) Investigate(ctx context.Context, snapshot *InvestigationSnapshot) (*InvestigationResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

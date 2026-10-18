@@ -2,6 +2,7 @@ package paypal
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -349,4 +350,90 @@ func TestClient_CheckConnection(t *testing.T) {
 		t.Errorf("expected Environment sandbox, got: %s", status.Environment)
 	}
 }
+
+func TestClient_GetAccessToken_UnauthorizedAndForbidden(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		decoded, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(auth, "Basic "))
+		if strings.Contains(string(decoded), "FORBIDDEN") {
+			http.Error(w, `{"error":"forbidden","error_description":"payouts permission missing"}`, http.StatusForbidden)
+			return
+		}
+		http.Error(w, `{"error":"invalid_client","error_description":"Client Authentication failed"}`, http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	// 1. Test 401
+	cfg401 := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "bad_id",
+		PayPalClientSecret:   "bad_secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	client401, _ := NewClient(cfg401, ts.Client())
+	_, err401 := client401.GetAccessToken(context.Background())
+	if !errors.Is(err401, ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized on 401, got: %v", err401)
+	}
+
+	// 2. Test 403
+	cfg403 := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "FORBIDDEN_USER",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	client403, _ := NewClient(cfg403, ts.Client())
+	_, err403 := client403.GetAccessToken(context.Background())
+	if !errors.Is(err403, ErrForbidden) {
+		t.Errorf("expected ErrForbidden on 403, got: %v", err403)
+	}
+}
+
+func TestClient_GetPayoutBatch_UnauthorizedAndForbidden(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(OAuthTokenResponse{
+				AccessToken: "TEST_TOKEN",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+			})
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts/BATCH-401" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts/BATCH-403" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	client, _ := NewClient(cfg, ts.Client())
+	ctx := context.Background()
+
+	_, err401 := client.GetPayoutBatch(ctx, "BATCH-401")
+	if !errors.Is(err401, ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized on batch 401, got: %v", err401)
+	}
+
+	_, err403 := client.GetPayoutBatch(ctx, "BATCH-403")
+	if !errors.Is(err403, ErrForbidden) {
+		t.Errorf("expected ErrForbidden on batch 403, got: %v", err403)
+	}
+}
+
 
