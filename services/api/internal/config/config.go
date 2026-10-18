@@ -293,4 +293,3 @@ func LoadEnvFiles(customPath ...string) (string, error) {
 	}
 	return resolved, scanner.Err()
 }
-

@@ -968,4 +968,3 @@ func (r *PostgresRepository) ListInvestigationsByCaseID(ctx context.Context, org
 	}
 	return list, nil
 }
-

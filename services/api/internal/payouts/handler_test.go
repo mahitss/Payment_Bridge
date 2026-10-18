@@ -291,4 +291,3 @@ func TestPayoutHandler_RejectSubmitCancelledOperation(t *testing.T) {
 		t.Fatalf("expected 409 Conflict when submitting cancelled operation, got: %d (%s)", recSubmit.Code, recSubmit.Body.String())
 	}
 }
-

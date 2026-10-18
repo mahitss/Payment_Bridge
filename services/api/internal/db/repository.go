@@ -6,10 +6,10 @@ import (
 )
 
 var (
-	ErrUserNotFound          = errors.New("user not found")
-	ErrUserAlreadyExists     = errors.New("user with this email already exists")
-	ErrSessionNotFound       = errors.New("session not found or expired")
-	ErrTokenNotFoundOrUsed   = errors.New("token is invalid, expired, or already consumed")
+	ErrUserNotFound               = errors.New("user not found")
+	ErrUserAlreadyExists          = errors.New("user with this email already exists")
+	ErrSessionNotFound            = errors.New("session not found or expired")
+	ErrTokenNotFoundOrUsed        = errors.New("token is invalid, expired, or already consumed")
 	ErrOrganizationNotFound       = errors.New("organization not found")
 	ErrAccessDenied               = errors.New("access denied: user does not have membership in organization")
 	ErrMembershipConflict         = errors.New("user already has membership in this organization")
@@ -78,4 +78,3 @@ type Repository interface {
 	// Health
 	Ping(ctx context.Context) error
 }
-

@@ -50,8 +50,8 @@ type RegisterInput struct {
 
 // RegisterOutput result of registration.
 type RegisterOutput struct {
-	Message          string `json:"message"`
-	EmailVerificationRequired bool `json:"email_verification_required"`
+	Message                   string `json:"message"`
+	EmailVerificationRequired bool   `json:"email_verification_required"`
 }
 
 // Register creates a new user, personal organization, and sends verification link.
@@ -189,9 +189,9 @@ type LoginInput struct {
 
 // LoginOutput authenticated session and profile details.
 type LoginOutput struct {
-	SessionToken string           `json:"-"` // Sent via HttpOnly cookie only
-	User         SafeUser         `json:"user"`
-	Organization db.Organization  `json:"organization"`
+	SessionToken string          `json:"-"` // Sent via HttpOnly cookie only
+	User         SafeUser        `json:"user"`
+	Organization db.Organization `json:"organization"`
 }
 
 type SafeUser struct {

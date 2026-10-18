@@ -15,21 +15,21 @@ import (
 )
 
 var (
-	ErrInvalidAmount               = errors.New("amount must be a positive integer in minor units (cents)")
-	ErrAmountExceedsCeiling        = errors.New("amount exceeds maximum allowed payout ceiling ($500.00 USD)")
-	ErrUnsupportedCurrency         = errors.New("unsupported currency: only USD is supported in sandbox milestone")
-	ErrInvalidRecipientEmail       = errors.New("invalid recipient email address")
-	ErrInvalidRecipientName        = errors.New("recipient name cannot be empty")
-	ErrInvalidTitle                = errors.New("title cannot be empty")
-	ErrSelfApprovalForbidden       = errors.New("self-approval forbidden: dual-custody requires a distinct authorized approver")
-	ErrOperationNotApproved        = errors.New("operation requires approval before submission")
-	ErrOperationAlreadySubmitted   = errors.New("operation is already in-flight or submitted")
-	ErrNotEligibleForCancellation  = errors.New("operation is not eligible for cancellation; only unclaimed payouts can be cancelled")
-	ErrNoOperationsToSync          = errors.New("no payout operations found for this case to synchronize")
-	ErrActiveOperationExists       = errors.New("payout case already has an active operation in progress")
-	ErrOperationCannotBeSubmitted  = errors.New("operation cannot be submitted from current status")
-	ErrCaseInTerminalState         = errors.New("cannot perform operation on case in terminal status")
-	ErrOperationAlreadyCancelled   = errors.New("payout operation is already cancelled")
+	ErrInvalidAmount              = errors.New("amount must be a positive integer in minor units (cents)")
+	ErrAmountExceedsCeiling       = errors.New("amount exceeds maximum allowed payout ceiling ($500.00 USD)")
+	ErrUnsupportedCurrency        = errors.New("unsupported currency: only USD is supported in sandbox milestone")
+	ErrInvalidRecipientEmail      = errors.New("invalid recipient email address")
+	ErrInvalidRecipientName       = errors.New("recipient name cannot be empty")
+	ErrInvalidTitle               = errors.New("title cannot be empty")
+	ErrSelfApprovalForbidden      = errors.New("self-approval forbidden: dual-custody requires a distinct authorized approver")
+	ErrOperationNotApproved       = errors.New("operation requires approval before submission")
+	ErrOperationAlreadySubmitted  = errors.New("operation is already in-flight or submitted")
+	ErrNotEligibleForCancellation = errors.New("operation is not eligible for cancellation; only unclaimed payouts can be cancelled")
+	ErrNoOperationsToSync         = errors.New("no payout operations found for this case to synchronize")
+	ErrActiveOperationExists      = errors.New("payout case already has an active operation in progress")
+	ErrOperationCannotBeSubmitted = errors.New("operation cannot be submitted from current status")
+	ErrCaseInTerminalState        = errors.New("cannot perform operation on case in terminal status")
+	ErrOperationAlreadyCancelled  = errors.New("payout operation is already cancelled")
 )
 
 // Service encapsulates business logic for Payout Cases, Operations, and PayPal Sandbox integration.
@@ -393,10 +393,10 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 		OrganizationID: &org.ID,
 		EventType:      "PAYOUT_SUBMITTED_TO_PAYPAL",
 		Metadata: map[string]interface{}{
-			"operation_id":          op.ID,
-			"sender_batch_id":       op.SenderBatchID,
+			"operation_id":           op.ID,
+			"sender_batch_id":        op.SenderBatchID,
 			"paypal_payout_batch_id": paypalResp.BatchHeader.PayoutBatchID,
-			"batch_status":          paypalResp.BatchHeader.BatchStatus,
+			"batch_status":           paypalResp.BatchHeader.BatchStatus,
 		},
 	})
 

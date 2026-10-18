@@ -17,12 +17,12 @@ const (
 	ConfidenceInsufficientEvidence = "INSUFFICIENT_EVIDENCE"
 
 	// Whitelisted Recommendation Actions
-	ActionRequestRecipientInfo         = "REQUEST_RECIPIENT_INFORMATION"
-	ActionCheckProviderStatus          = "CHECK_PROVIDER_STATUS"
-	ActionReviewRecipientDetails       = "REVIEW_RECIPIENT_DETAILS"
+	ActionRequestRecipientInfo          = "REQUEST_RECIPIENT_INFORMATION"
+	ActionCheckProviderStatus           = "CHECK_PROVIDER_STATUS"
+	ActionReviewRecipientDetails        = "REVIEW_RECIPIENT_DETAILS"
 	ActionReviewCancellationEligibility = "REVIEW_CANCELLATION_ELIGIBILITY"
-	ActionEscalateToOperator           = "ESCALATE_TO_OPERATOR"
-	ActionNoActionUntilReconciled      = "NO_ACTION_UNTIL_RECONCILED"
+	ActionEscalateToOperator            = "ESCALATE_TO_OPERATOR"
+	ActionNoActionUntilReconciled       = "NO_ACTION_UNTIL_RECONCILED"
 )
 
 var (
@@ -121,7 +121,7 @@ type InvestigationResult struct {
 	ObservedFacts        []string                      `json:"observed_facts"`
 	Findings             []InvestigationFinding        `json:"findings"`
 	RecommendedNextSteps []InvestigationRecommendation `json:"recommended_next_steps"`
-	MissingInformation  []string                      `json:"missing_information"`
+	MissingInformation   []string                      `json:"missing_information"`
 	RiskFlags            []string                      `json:"risk_flags"`
 	Confidence           string                        `json:"confidence"`
 	Limitations          []string                      `json:"limitations"`

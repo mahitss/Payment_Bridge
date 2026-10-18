@@ -366,5 +366,3 @@ func TestMockRepository_Investigations(t *testing.T) {
 		t.Errorf("expected 1 investigation in list, got %d, err: %v", len(list), err)
 	}
 }
-
-

@@ -160,27 +160,42 @@ ClaimBridge features genuine local model inference for payout investigations, re
    ollama pull llama3.2
    ```
 
-### 6.2 Verify Model Readiness
-Run the pre-demo diagnostic tool to verify that Ollama is reachable and the model is loaded:
+### 6.2 Verify Model Readiness & System Gates
+Run the pre-demo readiness diagnostic tool to verify that Ollama is reachable, the model is installed, and genuine non-mutating inference succeeds:
 
 ```bash
 cd services/api
-go run ./cmd/readiness
+go run ./cmd/readiness -profile=submission
 ```
 
-**Expected AI Readiness Output:**
-```
-------------------------------------------------------------------
- AI INVESTIGATION PROVIDER CONFIGURATION:
-   Enabled:     true
-   Provider:    ollama
-   Model:       llama3.2
-   Endpoint:    http://127.0.0.1:11434
-   Host Reachable  : true
-   Model Available : true
-   Outcome         : PASS (Genuine local llama3.2 inference ready)
-==================================================================
-```
+---
+
+## Step 7: System Readiness Diagnostic Profiles & Gate Semantics
+
+The readiness diagnostic tool (`services/api/cmd/readiness`) eliminates false-green reporting by evaluating discrete checks against explicit operational profiles.
+
+### 7.1 Diagnostic Profiles
+
+| Profile | Command | Intended Use | Required Checks | Optional / Informational Checks |
+|---|---|---|---|---|
+| **`core`** (default) | `go run ./cmd/readiness -profile=core` | Local backend & frontend development. | 1. PostgreSQL Persistence<br>2. Go API Health (`/healthz`)<br>3. Go API Readiness (`/readyz`)<br>4. Rust Deterministic Policy Engine<br>5. Next.js Web Frontend | 6. PayPal Sandbox OAuth<br>7. PayPal Read-Only Lookup<br>8. AI Reachability & Model<br>9. AI Model Inference Probe |
+| **`submission`** (or `demo`) | `go run ./cmd/readiness -profile=submission` | Demo recording & hackathon evaluation. | 1. PostgreSQL Persistence<br>2. Go API Health (`/healthz`)<br>3. Go API Readiness (`/readyz`)<br>4. Rust Deterministic Policy Engine<br>5. Next.js Web Frontend<br>6. Genuine PayPal Sandbox OAuth<br>8. AI Reachability & Model<br>9. Genuine AI Model Inference Probe | 7. PayPal Read-Only Lookup (evaluated if `-batch-id` or `-item-id` supplied) |
+
+### 7.2 Check Status Taxonomy
+
+Every check outputs one of five explicit statuses:
+- **`PASS`**: The check completed successfully and met all verification criteria.
+- **`FAIL`**: The check executed and failed (e.g. non-200 HTTP status, timeout, malformed payload, or rejection).
+- **`BLOCKED`**: The check could not execute due to a missing external/local prerequisite (e.g. unconfigured credentials or offline local daemon).
+- **`WARN`**: Informational warning (e.g. mock provider configured in `core` profile).
+- **`SKIPPED`**: Check was intentionally unrequested (e.g. no payout batch/item ID provided for lookup).
+
+### 7.3 Truth in Testing Guarantees
+1. **Mock Tests Do Not Verify Genuine Integration:** Mock providers and simulated endpoints in unit tests verify code syntax and error handling, but can never satisfy the `submission` profile.
+2. **Model Availability Is Not Inference Verification:** Probing `/api/tags` or `/v1/models` verifies only that the daemon is reachable and the model tag exists. The `submission` profile requires executing a non-mutating synthetic inference probe and passing evidence grounding validation.
+3. **OAuth Success Does Not Establish Payout Lookup:** Successful OAuth authentication verifies credentials with PayPal Sandbox, but does not prove payout creation or lookup. Payout lookups are evaluated independently.
+4. **Current Environment Status:** In an environment without local `.env` sandbox keys or without a running Ollama daemon, running `-profile=submission` accurately reports `[STATUS: BLOCKED]` with Exit Code 1.
+
 
 ### 6.3 Run an End-to-End Investigation in the Web UI
 1. Start the services:

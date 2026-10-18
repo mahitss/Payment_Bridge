@@ -28,10 +28,12 @@
   ollama serve
   # Verify http://localhost:11434 responds
   ```
-- [ ] **Run Pre-Demo Readiness Diagnostic:**
+- [ ] **Run Pre-Demo Readiness Diagnostic (Submission Profile):**
   ```bash
-  cd services/api && go run ./cmd/readiness
-  # Ensure all 6 checks show PASS
+  cd services/api && go run ./cmd/readiness -profile=submission
+  # Must verify all 8 required gates (5 Core + PayPal Sandbox OAuth + Ollama Health + Genuine Non-Mutating Inference Probe)
+  # Ensure exit code is 0 and output reports: [STATUS: READY] FULL SUBMISSION & DEMO READINESS VERIFIED
+  # (For local core development only, use: go run ./cmd/readiness -profile=core)
   ```
 - [ ] **Seed Test Fixtures:**
   ```bash

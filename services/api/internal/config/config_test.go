@@ -178,4 +178,3 @@ func TestResolveAndLoadEnvFiles(t *testing.T) {
 		t.Errorf("expected TEST_ENV_VAR_2 to be 'world' (quotes stripped), got %q", val)
 	}
 }
-

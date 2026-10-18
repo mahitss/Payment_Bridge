@@ -556,4 +556,3 @@ func TestPayoutService_PreventDuplicateActiveOperations(t *testing.T) {
 		t.Fatalf("expected ErrActiveOperationExists when active operation in progress, got: %v", err)
 	}
 }
-

@@ -162,11 +162,10 @@ type PayoutInvestigation struct {
 	ObservedFacts        []string                      `json:"observed_facts"`
 	Findings             []InvestigationFinding        `json:"findings"`
 	RecommendedNextSteps []InvestigationRecommendation `json:"recommended_next_steps"`
-	MissingInformation  []string                      `json:"missing_information"`
+	MissingInformation   []string                      `json:"missing_information"`
 	RiskFlags            []string                      `json:"risk_flags"`
 	Limitations          []string                      `json:"limitations"`
 	RawResponse          map[string]interface{}        `json:"raw_response,omitempty"`
 	ErrorMessage         *string                       `json:"error_message,omitempty"`
 	CreatedAt            time.Time                     `json:"created_at"`
 }
-

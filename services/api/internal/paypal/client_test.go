@@ -435,5 +435,3 @@ func TestClient_GetPayoutBatch_UnauthorizedAndForbidden(t *testing.T) {
 		t.Errorf("expected ErrForbidden on batch 403, got: %v", err403)
 	}
 }
-
-

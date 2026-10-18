@@ -587,4 +587,3 @@ func (m *MockRepository) ListInvestigationsByCaseID(ctx context.Context, orgID, 
 	}
 	return res, nil
 }
-

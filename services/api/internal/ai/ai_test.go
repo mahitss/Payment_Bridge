@@ -158,10 +158,10 @@ func TestOllamaClient_WithFakeServer(t *testing.T) {
 		defer srv.Close()
 
 		cfg := &config.Config{
-			AIBaseURL:            srv.URL,
-			AIModel:              "llama3.2",
-			AIRequestTimeout:     5 * time.Second,
-			AIMaxOutputTokens:    1024,
+			AIBaseURL:         srv.URL,
+			AIModel:           "llama3.2",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 1024,
 		}
 		client := NewOllamaClient(cfg)
 		res, err := client.Investigate(ctx, snap)
@@ -191,10 +191,10 @@ func TestOllamaClient_WithFakeServer(t *testing.T) {
 		defer srv.Close()
 
 		cfg := &config.Config{
-			AIBaseURL:            srv.URL,
-			AIModel:              "llama3.2",
-			AIRequestTimeout:     5 * time.Second,
-			AIMaxOutputTokens:    1024,
+			AIBaseURL:         srv.URL,
+			AIModel:           "llama3.2",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 1024,
 		}
 		client := NewOllamaClient(cfg)
 		res, err := client.Investigate(ctx, snap)
@@ -226,10 +226,10 @@ func TestOllamaClient_WithFakeServer(t *testing.T) {
 		defer srv.Close()
 
 		cfg := &config.Config{
-			AIBaseURL:            srv.URL,
-			AIModel:              "llama3.2",
-			AIRequestTimeout:     5 * time.Second,
-			AIMaxOutputTokens:    1024,
+			AIBaseURL:         srv.URL,
+			AIModel:           "llama3.2",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 1024,
 		}
 		client := NewOllamaClient(cfg)
 		_, err := client.Investigate(ctx, snap)
@@ -245,10 +245,10 @@ func TestOllamaClient_WithFakeServer(t *testing.T) {
 		defer srv.Close()
 
 		cfg := &config.Config{
-			AIBaseURL:            srv.URL,
-			AIModel:              "llama3.2",
-			AIRequestTimeout:     5 * time.Second,
-			AIMaxOutputTokens:    1024,
+			AIBaseURL:         srv.URL,
+			AIModel:           "llama3.2",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 1024,
 		}
 		client := NewOllamaClient(cfg)
 		_, err := client.Investigate(ctx, snap)
@@ -264,10 +264,10 @@ func TestOllamaClient_WithFakeServer(t *testing.T) {
 		defer srv.Close()
 
 		cfg := &config.Config{
-			AIBaseURL:            srv.URL,
-			AIModel:              "llama3.2",
-			AIRequestTimeout:     5 * time.Second,
-			AIMaxOutputTokens:    1024,
+			AIBaseURL:         srv.URL,
+			AIModel:           "llama3.2",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 1024,
 		}
 		client := NewOllamaClient(cfg)
 		_, err := client.Investigate(ctx, snap)
@@ -286,10 +286,10 @@ func TestOllamaClient_WithFakeServer(t *testing.T) {
 		defer srv.Close()
 
 		cfg := &config.Config{
-			AIBaseURL:            srv.URL,
-			AIModel:              "llama3.2",
-			AIRequestTimeout:     5 * time.Second,
-			AIMaxOutputTokens:    1024,
+			AIBaseURL:         srv.URL,
+			AIModel:           "llama3.2",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 1024,
 		}
 		client := NewOllamaClient(cfg)
 		_, err := client.Investigate(ctx, snap)
@@ -483,4 +483,3 @@ func TestOllamaClient_SensitiveLoggingSanitization(t *testing.T) {
 		}
 	})
 }
-

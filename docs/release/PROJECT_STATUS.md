@@ -1,7 +1,7 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 1.4 (Mission 010 Live PayPal Sandbox & Model-Backed AI Verification Baseline)  
-**Date of Audit:** October 18, 2026  
-**Auditor:** Senior Security & Integration Lead  
+**Document Version:** 1.5 (Mission 011 Trustworthy Readiness Diagnostics, Integration Gates & Demo Safety Baseline)  
+**Date of Audit:** October 19, 2026  
+**Auditor:** Senior Staff & Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
 **Security & Reliability Standard:** Fail-Closed Deterministic Enforcement / OWASP ASVS v4.0.3 L2  
 
@@ -9,27 +9,28 @@
 
 ## 1. Executive Summary
 
-This audit reconciles full-system integration, repairs CI race detection and Linux toolchain linking, and establishes an unambiguous 6-tier integration testing hierarchy separating mock-backed acceptance from live external integrations, PostgreSQL persistence, and local model inference runtimes.
+This audit establishes trustworthy readiness diagnostics, eliminates false-green reporting, establishes explicit operational readiness profiles (`core` vs `submission`), and enforces strict integration gates requiring genuine external evidence before declaring demo or submission readiness.
 
 ### Key Audit & Integration Verification Conclusions
-1. **PayPal Sandbox Smoke-Test Hardening & Verification:**
-   - **Multi-Path Configuration Discovery:** Remediated `.env` resolution in `services/api/cmd/paypal-smoke/main.go` and `internal/config/config.go`. The CLI now seamlessly resolves `.env` located at repository root (`../../.env`) when executed from `services/api`, while supporting explicit `-env-file` overrides.
-   - **Strict Exit Code Semantics:** Enforced deterministic exit codes (0: Success, 1: Lookup failure/Safety abort, 2: OAuth 401/403 failure, 3: Unconfigured/Blocked credentials). Failed or unverified operations never print an unconditional success banner.
-   - **Genuine Sandbox OAuth Handshake Probe:** Executed `go run ./cmd/paypal-smoke` in the active environment. Reported `[STATUS: BLOCKED]` (Exit Code 3) because sandbox credentials are not configured in `.env`. Root cause, developer dashboard links, and unblocking instructions are clearly rendered without retry loops.
-   - **Money-Movement Guardrails:** All automated payouts remain disabled by default. Read-only lookups are verified against mock servers, and unrequested payout operations are strictly prevented from executing.
-2. **AI Provider Hardening & Model-Backed Verification:**
-   - **Dual-Mode Deployment Support:** Fully configured and verified both native host (`http://localhost:11434`) and containerized Go API (`http://host.docker.internal:11434` with `extra_hosts: ["host.docker.internal:host-gateway"]` in `infra/docker-compose.full.yml`).
-   - **Sensitive Logging Scrubbing:** Audited error handling in `internal/ai/ollama.go`. Completely eliminated logging of raw HTTP error bodies, prompt text, access tokens, and raw model completions during unmarshal errors. Replaced with safe error classifications (`error_class=provider_http_error`, `error_class=malformed_model_json`), payload byte lengths, and correlation IDs. Verified via automated regression tests in `ai_test.go`.
-   - **Granular Readiness Diagnostics (`CheckHealth` & `AIHealthStatus`):** Added native `/api/tags` and `/v1/models` socket probing to distinguish daemon reachability from model catalog availability. Exposed via `GET /api/v1/ai/status` and `cmd/readiness`.
-   - **Genuine Local Model Inference Probe:** Probed local host runtime. Reported `BLOCKED` because Ollama is not installed/running at `http://localhost:11434`. Exact operator instructions (`ollama serve && ollama pull llama3.2`) are documented in `docs/operational-instructions.md`.
-   - **Graceful Fail-Closed Degradation:** Proved that model unavailability returns HTTP 503 with user-friendly advisory indicators in the web UI without modifying financial state.
-3. **Strict 6-Tier Integration Separation:**
-   - (1) PayPal unit/mock tests: **VERIFIED**
+1. **Elimination of False-Green Diagnostic Reporting:**
+   - **Central Summary & Status Aggregation:** Remediated `services/api/cmd/readiness/main.go` and implemented `services/api/internal/readiness`. Eliminated optimistic banners where failed or degraded checks were previously ignored by an unmutated `allPassed := true` flag.
+   - **Discrete Check Statuses:** Every check now reports one of five discrete statuses: `PASS`, `FAIL`, `BLOCKED`, `WARN`, or `SKIPPED`.
+   - **Deterministic Exit Code Semantics:** The tool returns Exit Code `0` only when all required checks for the active profile pass. If any required check fails or is blocked, the diagnostic terminates with Exit Code `1`.
+2. **Explicit Readiness Profile System:**
+   - **`core` Profile (Default):** Evaluates local application infrastructure: PostgreSQL connectivity, Go API health (`/healthz`), Go API storage readiness (`/readyz`), Rust deterministic policy engine, and Next.js web interface. External integrations (PayPal Sandbox and Ollama) are reported as informational/optional and explicitly disclaim submission readiness.
+   - **`submission` Profile (`-profile=submission` / `-profile=demo`):** Evaluates core checks plus genuine external gates: genuine PayPal Sandbox OAuth authentication, AI provider reachability & model availability, and a genuine non-mutating synthetic inference probe. Mock providers and fake PayPal servers are strictly rejected from passing the submission profile.
+3. **Distinction Between Model Availability and Genuine Inference:**
+   - Model presence in `/api/tags` or `/v1/models` verifies catalog installation only.
+   - The submission profile exercises a non-mutating synthetic investigation snapshot (`SyntheticProbeSnapshot`), executes real model inference with a bounded timeout (15s), and validates response JSON schema and evidence grounding against valid IDs via `ai.ValidateGrounding`. Zero financial operations, cases, or payments are created or altered.
+4. **Strict 6-Tier Integration Separation (Truth in Testing):**
+   - (1) PayPal unit/mock tests: **VERIFIED** (100% pass across mock and token caching suite)
    - (2) Genuine PayPal sandbox OAuth verification: **BLOCKED** (Pending developer credentials in `.env`)
-   - (3) Genuine PayPal read-only payout lookup: **BLOCKED** (Pending developer credentials and sandbox batch ID)
-   - (4) Ollama provider unit tests: **VERIFIED**
-   - (5) Genuine local model inference: **BLOCKED** (Pending local `ollama serve` and `ollama pull llama3.2`)
-   - (6) End-to-end inference through running web application: **BLOCKED** by local daemon availability (UI advisory offline state verified)
+   - (3) Genuine PayPal read-only payout lookup: **BLOCKED** / **SKIPPED** (Pending credentials and valid batch ID)
+   - (4) Ollama provider unit tests: **VERIFIED** (Token redaction and error-body sanitization proven)
+   - (5) Genuine local model inference: **BLOCKED** (Daemon unreachable at `http://127.0.0.1:11434`; operator must run `ollama serve && ollama pull llama3.2`)
+   - (6) End-to-end inference through running web application: **BLOCKED** by local daemon availability (UI advisory offline state verified; fail-closed degradation without financial mutation)
+5. **Automated Diagnostic Regression Suite:**
+   - Implemented 20 automated unit test scenarios in `services/api/internal/readiness/readiness_test.go` covering PostgreSQL failure, API 500s, storage degradation, policy engine failure, frontend offline, PayPal credential absence, OAuth rejection, AI disabled, provider offline, model missing, mock provider rejection, inference timeouts, malformed JSON, fabricated evidence, grounding validation, and profile gate isolation. 100% pass rate.
 
 ---
 
@@ -70,7 +71,7 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 | **REQ-022** | UI Forensic Investigation Panel: distinct visual boundaries between immutable facts and AI advisory opinions | **VERIFIED** | `apps/web/src/app/app/payouts/[id]/page.tsx` | Next.js compilation & JSX inspection | Rendered with amber advisory badges, evidence reference selector chips, and human review toggle | React / Next.js | None | None | Accessibility audit (WCAG AA) |
 | **REQ-023** | System hardening: 1MB body limit, security headers, token redaction in logs, and DB readiness probes | **VERIFIED** | `services/api/internal/server/server.go`, `services/api/internal/logging/logger.go` | `server_test.go` | 1MB payload rejected (400); nosniff, DENY, CSP headers verified; `/readyz` probes DB | None | None | None | Add dynamic rate-limiting per IP |
 | **REQ-024** | Zero-budget containerized deployment: multi-stage Dockerfiles and full-stack compose definition | **VERIFIED** | `services/api/Dockerfile`, `apps/web/Dockerfile`, `infra/docker-compose.full.yml` | Container specification audit | Reproducible single-command launch with isolated bridge networking and host.docker.internal networking | Docker / Compose | None | None | Run live `docker compose up --build` verification |
-| **REQ-025** | Evaluation tools: synthetic evaluator fixture seeder (`cmd/seed`) and pre-demo diagnostic tool (`cmd/readiness`) | **VERIFIED** | `services/api/cmd/seed/main.go`, `services/api/cmd/readiness/main.go` | Binary compilation and dry execution | `seed` and `readiness` compile with Exit 0; readiness accurately diagnoses port reachability and AI health | None | None | None | Execute seeder against clean test DB |
+| **REQ-025** | Evaluation tools: synthetic evaluator fixture seeder (`cmd/seed`) and multi-profile diagnostic tool (`cmd/readiness`) | **VERIFIED** | `services/api/cmd/seed/main.go`, `services/api/cmd/readiness/main.go`, `services/api/internal/readiness/` | `readiness_test.go` (20/20 pass), binary compilation, dry execution | `seed` and `readiness` compile; readiness enforces `core` vs `submission` profile gates with zero false-green reporting | None | None | None | Execute seeder against clean test DB |
 | **REQ-026** | Hackathon demo artifacts: completed demo script, 2-minute shot list, and recording checklist | **VERIFIED** | `docs/demo/DEMO_SCRIPT.md`, `docs/demo/SHOT_LIST.md`, `docs/demo/RECORDING_CHECKLIST.md` | Document review | Complete 120-second walkthrough script with exact voiceover, screen actions, and timings | None | None | None | Record final demo video using OBS |
 | **REQ-027** | Hackathon final video recording upload | **NOT_IMPLEMENTED** | N/A | Inspection of repository files and remote | No video file (`.mp4`, `.webm`) or external video link exists in the repository | Video recording tool (OBS) | P2: Final video recording pending execution by team | P2: Record and upload 2-minute video prior to submission deadline | Record demo video following `docs/demo/DEMO_SCRIPT.md` | |
 

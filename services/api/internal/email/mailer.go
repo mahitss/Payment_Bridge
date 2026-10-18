@@ -12,7 +12,7 @@ import (
 
 var (
 	ErrSMTPUnavailable = errors.New("smtp delivery failed: mail server is unreachable or refused connection")
-	ErrInvalidEmail     = errors.New("invalid recipient email address")
+	ErrInvalidEmail    = errors.New("invalid recipient email address")
 )
 
 // Mailer defines the application email delivery contract.

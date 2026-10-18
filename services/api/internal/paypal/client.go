@@ -20,14 +20,14 @@ import (
 )
 
 var (
-	ErrProductionHostBlocked     = errors.New("security violation: production PayPal host detected; only sandbox permitted")
-	ErrMissingCredentials        = errors.New("paypal credentials missing: client_id and client_secret are required")
-	ErrUnauthorized              = errors.New("paypal authentication failed: invalid client credentials")
-	ErrForbidden                 = errors.New("paypal operation forbidden: insufficient permissions or account restricted")
-	ErrPayoutNotFound            = errors.New("paypal payout batch or item not found")
-	ErrAmbiguousNetworkTimeout   = errors.New("ambiguous network timeout during payout mutation: DO NOT RETRY WITH NEW ID; run reconciliation")
-	ErrInvalidPayoutRequest      = errors.New("invalid payout request: missing sender_batch_id or items")
-	ErrSandboxAssertionFailed    = errors.New("paypal environment is not sandbox")
+	ErrProductionHostBlocked   = errors.New("security violation: production PayPal host detected; only sandbox permitted")
+	ErrMissingCredentials      = errors.New("paypal credentials missing: client_id and client_secret are required")
+	ErrUnauthorized            = errors.New("paypal authentication failed: invalid client credentials")
+	ErrForbidden               = errors.New("paypal operation forbidden: insufficient permissions or account restricted")
+	ErrPayoutNotFound          = errors.New("paypal payout batch or item not found")
+	ErrAmbiguousNetworkTimeout = errors.New("ambiguous network timeout during payout mutation: DO NOT RETRY WITH NEW ID; run reconciliation")
+	ErrInvalidPayoutRequest    = errors.New("invalid payout request: missing sender_batch_id or items")
+	ErrSandboxAssertionFailed  = errors.New("paypal environment is not sandbox")
 )
 
 // Client is a server-side PayPal REST API client configured strictly for Sandbox.
@@ -54,14 +54,14 @@ type OAuthTokenResponse struct {
 
 // PayoutBatchHeader represents metadata about a PayPal Payout Batch.
 type PayoutBatchHeader struct {
-	PayoutBatchID   string `json:"payout_batch_id"`
-	BatchStatus     string `json:"batch_status"`
-	TimeCreated     string `json:"time_created"`
-	TimeCompleted   string `json:"time_completed,omitempty"`
-	SenderBatchID   string `json:"sender_batch_header.sender_batch_id,omitempty"`
-	FundingSource   string `json:"funding_source,omitempty"`
-	Amount          *CurrencyAmount `json:"amount,omitempty"`
-	Fees            *CurrencyAmount `json:"fees,omitempty"`
+	PayoutBatchID string          `json:"payout_batch_id"`
+	BatchStatus   string          `json:"batch_status"`
+	TimeCreated   string          `json:"time_created"`
+	TimeCompleted string          `json:"time_completed,omitempty"`
+	SenderBatchID string          `json:"sender_batch_header.sender_batch_id,omitempty"`
+	FundingSource string          `json:"funding_source,omitempty"`
+	Amount        *CurrencyAmount `json:"amount,omitempty"`
+	Fees          *CurrencyAmount `json:"fees,omitempty"`
 }
 
 // CurrencyAmount represents a PayPal currency & value pair.

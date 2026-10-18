@@ -71,5 +71,18 @@ This document establishes the factual basis for every statement made in the Clai
 ### Claim 6: "The model runs locally on Ollama Llama 3.2 with zero external API fees."
 - **Verifying Source Code:**
   - `services/api/internal/ai/ollama.go` (Targets local port `http://localhost:11434/v1/chat/completions`).
+  - `services/api/internal/readiness/probes.go` (`ProbeAIHealth` and `ProbeAIInference`).
 - **Automated Test Evidence:**
-  - `services/api/internal/ai/ai_test.go` (`TestOllamaProvider_Success` and `TestOllamaProvider_Downtime`).
+  - `services/api/internal/ai/ai_test.go` (`TestOllamaProvider_Success`, `TestOllamaClient_CheckHealth`, and `TestOllamaClient_SensitiveLoggingSanitization`).
+  - `services/api/internal/readiness/readiness_test.go` (`TestGenuineInferencePassesSchemaAndGrounding`, `TestMockProviderConfigured_FailsSubmission`, and `TestGenuineInferenceTimeout`).
+- **Operational Boundary:**
+  - Simulated and mock unit tests run in CI without external dependencies. Genuine model inference requires an active local daemon (`ollama serve`) and installed model (`ollama pull llama3.2`). Model availability alone does not satisfy inference verification; the diagnostic must execute a non-mutating synthetic probe and pass grounding checks.
+
+---
+
+### Claim 7: "Zero False-Green Readiness Gates: Mock providers and unverified credentials cannot pass submission profile."
+- **Verifying Source Code:**
+  - `services/api/internal/readiness/runner.go` (Evaluates `core` vs `submission` profiles; requires discrete `PASS`, `FAIL`, `BLOCKED`, `WARN`, or `SKIPPED` statuses).
+  - `services/api/internal/readiness/probes.go` (Guards against mock AI or fake PayPal servers passing live submission checks).
+- **Automated Test Evidence:**
+  - `services/api/internal/readiness/readiness_test.go` (20 test scenarios verifying PostgreSQL down, API health failure, policy rejection, missing credentials, OAuth failures, model missing, mock provider rejection, and profile gate isolation).
