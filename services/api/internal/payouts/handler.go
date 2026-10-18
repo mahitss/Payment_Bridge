@@ -248,12 +248,15 @@ func (h *Handler) handleInitiatePayoutOperation(w http.ResponseWriter, r *http.R
 
 	op, err := h.service.InitiatePayoutOperation(r.Context(), user, org, caseID)
 	if err != nil {
-		if errors.Is(err, db.ErrPayoutCaseNotFound) {
+		switch {
+		case errors.Is(err, db.ErrPayoutCaseNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "payout case not found"})
-			return
+		case errors.Is(err, ErrActiveOperationExists), errors.Is(err, ErrCaseInTerminalState):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		default:
+			slog.ErrorContext(r.Context(), "Initiate payout operation failed", slog.String("error", err.Error()))
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
-		slog.ErrorContext(r.Context(), "Initiate payout operation failed", slog.String("error", err.Error()))
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -310,6 +313,8 @@ func (h *Handler) handleApprovePayoutOperation(w http.ResponseWriter, r *http.Re
 			})
 		case errors.Is(err, db.ErrPayoutOperationNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "payout operation not found"})
+		case errors.Is(err, ErrCaseInTerminalState):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		default:
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
@@ -348,7 +353,7 @@ func (h *Handler) handleSubmitPayoutOperation(w http.ResponseWriter, r *http.Req
 		switch {
 		case errors.Is(err, ErrOperationNotApproved):
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
-		case errors.Is(err, ErrOperationAlreadySubmitted):
+		case errors.Is(err, ErrOperationAlreadySubmitted), errors.Is(err, ErrOperationCannotBeSubmitted), errors.Is(err, ErrCaseInTerminalState):
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		case errors.Is(err, paypal.ErrAmbiguousNetworkTimeout):
 			writeJSON(w, http.StatusGatewayTimeout, map[string]interface{}{
@@ -390,7 +395,7 @@ func (h *Handler) handleCancelPayoutOperation(w http.ResponseWriter, r *http.Req
 		switch {
 		case errors.Is(err, db.ErrPayoutOperationNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "payout operation not found"})
-		case errors.Is(err, ErrNotEligibleForCancellation):
+		case errors.Is(err, ErrOperationAlreadyCancelled), errors.Is(err, ErrNotEligibleForCancellation):
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		default:
 			slog.ErrorContext(r.Context(), "Cancellation failed", slog.String("error", err.Error()))

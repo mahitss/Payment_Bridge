@@ -195,3 +195,100 @@ func TestPayoutHandler_DualApproval_SelfApprovalForbidden(t *testing.T) {
 		t.Fatalf("expected 200 OK on distinct user approval, got: %d (%s)", recApproveB.Code, recApproveB.Body.String())
 	}
 }
+
+func TestPayoutHandler_RejectDuplicateActiveOperation(t *testing.T) {
+	_, _, userA, _, org, mux := setupTestHandler(t)
+
+	// 1. Create payout case
+	createBody, _ := json.Marshal(CreateCaseRequest{
+		RecipientEmail: "claimant@example.com",
+		RecipientName:  "Jane Claimant",
+		Title:          "Duplicate Test",
+		AmountCents:    12000,
+		Currency:       "USD",
+	})
+	req := authenticatedRequest(http.MethodPost, "/api/v1/payout-cases", createBody, userA, org)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+
+	var createResp struct {
+		Case db.PayoutCase `json:"case"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&createResp)
+	caseID := createResp.Case.ID
+
+	// 2. Initiate first operation -> 201 Created
+	reqInit1 := authenticatedRequest(http.MethodPost, "/api/v1/payout-cases/"+caseID+"/payout-operations", nil, userA, org)
+	recInit1 := httptest.NewRecorder()
+	mux.ServeHTTP(recInit1, reqInit1)
+	if recInit1.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", recInit1.Code)
+	}
+
+	// 3. Initiate second operation on the same case -> 409 Conflict
+	reqInit2 := authenticatedRequest(http.MethodPost, "/api/v1/payout-cases/"+caseID+"/payout-operations", nil, userA, org)
+	recInit2 := httptest.NewRecorder()
+	mux.ServeHTTP(recInit2, reqInit2)
+	if recInit2.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on duplicate operation initiation, got: %d (%s)", recInit2.Code, recInit2.Body.String())
+	}
+}
+
+func TestPayoutHandler_RejectSubmitCancelledOperation(t *testing.T) {
+	_, _, userA, _, org, mux := setupTestHandler(t)
+
+	// 1. Create single-officer case
+	createBody, _ := json.Marshal(CreateCaseRequest{
+		RecipientEmail: "claimant@example.com",
+		RecipientName:  "Jane Claimant",
+		Title:          "Submit Cancelled Test",
+		AmountCents:    12000,
+		Currency:       "USD",
+	})
+	req := authenticatedRequest(http.MethodPost, "/api/v1/payout-cases", createBody, userA, org)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+
+	var createResp struct {
+		Case db.PayoutCase `json:"case"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&createResp)
+	caseID := createResp.Case.ID
+
+	// 2. Initiate operation
+	reqInit := authenticatedRequest(http.MethodPost, "/api/v1/payout-cases/"+caseID+"/payout-operations", nil, userA, org)
+	recInit := httptest.NewRecorder()
+	mux.ServeHTTP(recInit, reqInit)
+	if recInit.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", recInit.Code)
+	}
+
+	var initResp struct {
+		Operation db.PayoutOperation `json:"operation"`
+	}
+	_ = json.NewDecoder(recInit.Body).Decode(&initResp)
+	opID := initResp.Operation.ID
+
+	// 3. Cancel operation locally -> 200 OK
+	reqCancel := authenticatedRequest(http.MethodPost, "/api/v1/payout-operations/"+opID+"/cancel", nil, userA, org)
+	recCancel := httptest.NewRecorder()
+	mux.ServeHTTP(recCancel, reqCancel)
+	if recCancel.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recCancel.Code)
+	}
+
+	// 4. Attempt to submit cancelled operation -> MUST be 409 Conflict
+	reqSubmit := authenticatedRequest(http.MethodPost, "/api/v1/payout-operations/"+opID+"/submit", nil, userA, org)
+	recSubmit := httptest.NewRecorder()
+	mux.ServeHTTP(recSubmit, reqSubmit)
+	if recSubmit.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when submitting cancelled operation, got: %d (%s)", recSubmit.Code, recSubmit.Body.String())
+	}
+}
+

@@ -227,7 +227,17 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) timeoutMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.PayPalRequestTimeout)
+		timeout := s.cfg.PayPalRequestTimeout
+		if strings.Contains(r.URL.Path, "/investigations") {
+			timeout = s.cfg.AIRequestTimeout
+			if timeout < 30*time.Second {
+				timeout = 30 * time.Second
+			}
+		}
+		if timeout <= 0 {
+			timeout = 15 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

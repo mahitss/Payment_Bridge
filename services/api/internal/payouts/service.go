@@ -26,6 +26,10 @@ var (
 	ErrOperationAlreadySubmitted   = errors.New("operation is already in-flight or submitted")
 	ErrNotEligibleForCancellation  = errors.New("operation is not eligible for cancellation; only unclaimed payouts can be cancelled")
 	ErrNoOperationsToSync          = errors.New("no payout operations found for this case to synchronize")
+	ErrActiveOperationExists       = errors.New("payout case already has an active operation in progress")
+	ErrOperationCannotBeSubmitted  = errors.New("operation cannot be submitted from current status")
+	ErrCaseInTerminalState         = errors.New("cannot perform operation on case in terminal status")
+	ErrOperationAlreadyCancelled   = errors.New("payout operation is already cancelled")
 )
 
 // Service encapsulates business logic for Payout Cases, Operations, and PayPal Sandbox integration.
@@ -163,7 +167,17 @@ func (s *Service) InitiatePayoutOperation(ctx context.Context, user *db.User, or
 	}
 
 	if pCase.Status == "COMPLETED" || pCase.Status == "CANCELLED" {
-		return nil, fmt.Errorf("cannot initiate payout on terminal case status: %s", pCase.Status)
+		return nil, fmt.Errorf("%w: cannot initiate payout on case with status %s", ErrCaseInTerminalState, pCase.Status)
+	}
+
+	// Invariant: Payout case must not have multiple concurrent active operations
+	existingOps, err := s.repo.ListPayoutOperationsByCaseID(ctx, org.ID, caseID)
+	if err == nil {
+		for _, existing := range existingOps {
+			if existing.Status != "CANCELLED" && existing.Status != "FAILED" {
+				return nil, fmt.Errorf("%w: operation %s has status %s", ErrActiveOperationExists, existing.ID, existing.Status)
+			}
+		}
 	}
 
 	// Generate deterministic idempotency keys
@@ -215,6 +229,14 @@ func (s *Service) ApprovePayoutOperation(ctx context.Context, user *db.User, org
 		return nil, err
 	}
 
+	pCase, err := s.repo.GetPayoutCaseByID(ctx, org.ID, op.PayoutCaseID)
+	if err != nil {
+		return nil, err
+	}
+	if pCase.Status == "COMPLETED" || pCase.Status == "CANCELLED" {
+		return nil, fmt.Errorf("%w: cannot approve operation for case with status %s", ErrCaseInTerminalState, pCase.Status)
+	}
+
 	if op.RequiresDualApproval && op.InitiatedByUserID == user.ID {
 		return nil, ErrSelfApprovalForbidden
 	}
@@ -253,18 +275,42 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 		return nil, err
 	}
 
+	if pCase.Status == "COMPLETED" || pCase.Status == "CANCELLED" {
+		return nil, fmt.Errorf("%w: cannot submit operation for case with status %s", ErrCaseInTerminalState, pCase.Status)
+	}
+
 	op, err := s.repo.GetPayoutOperationByID(ctx, org.ID, opID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Invariant check: must be approved if dual approval required
-	if op.RequiresDualApproval && op.Status != "APPROVED" {
-		return nil, ErrOperationNotApproved
+	// Invariant check: operation must be in a submittable state
+	if op.RequiresDualApproval {
+		if op.Status != "APPROVED" {
+			if op.Status == "SUBMITTING" || op.Status == "SUBMITTED" || op.Status == "SUCCEEDED" {
+				return nil, ErrOperationAlreadySubmitted
+			}
+			return nil, ErrOperationNotApproved
+		}
+	} else {
+		if op.Status != "PREPARED" {
+			if op.Status == "SUBMITTING" || op.Status == "SUBMITTED" || op.Status == "SUCCEEDED" {
+				return nil, ErrOperationAlreadySubmitted
+			}
+			return nil, fmt.Errorf("%w: operation status is %s (must be PREPARED)", ErrOperationCannotBeSubmitted, op.Status)
+		}
 	}
 
-	if op.Status == "SUBMITTING" || op.Status == "SUBMITTED" || op.Status == "SUCCEEDED" {
-		return nil, ErrOperationAlreadySubmitted
+	// Verify no other operation on the case was already submitted or succeeded
+	existingOps, err := s.repo.ListPayoutOperationsByCaseID(ctx, org.ID, caseID)
+	if err == nil {
+		for _, existing := range existingOps {
+			if existing.ID != op.ID {
+				if existing.Status == "SUBMITTING" || existing.Status == "SUBMITTED" || existing.Status == "SUCCEEDED" || existing.Status == "RECONCILIATION_REQUIRED" {
+					return nil, fmt.Errorf("%w: case already has active submitted operation %s in status %s", ErrOperationAlreadySubmitted, existing.ID, existing.Status)
+				}
+			}
+		}
 	}
 
 	// 1. Transactionally transition to SUBMITTING before outbound call
@@ -455,6 +501,10 @@ func (s *Service) CancelPayoutOperation(ctx context.Context, user *db.User, org 
 	op, err := s.repo.GetPayoutOperationByID(ctx, org.ID, opID)
 	if err != nil {
 		return nil, err
+	}
+
+	if op.Status == "CANCELLED" {
+		return nil, ErrOperationAlreadyCancelled
 	}
 
 	// If local prepared or awaiting approval, cancel immediately

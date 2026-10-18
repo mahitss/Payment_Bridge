@@ -458,3 +458,102 @@ func TestPayoutService_MultiTenantIsolation(t *testing.T) {
 		t.Fatalf("expected ErrPayoutCaseNotFound when initiating on foreign case, got: %v", err)
 	}
 }
+
+func TestPayoutService_RejectSubmitFromInvalidStates(t *testing.T) {
+	svc, _, userA, userB, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	// 1. Single-officer case ($100.00 USD)
+	case1, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com",
+		RecipientName:  "Jane Claimant",
+		Title:          "Single Officer Claim",
+		AmountCents:    10000,
+	})
+
+	op1, err := svc.InitiatePayoutOperation(ctx, userA, org, case1.ID)
+	if err != nil {
+		t.Fatalf("failed to initiate op1: %v", err)
+	}
+
+	// Cancel op1 -> status becomes CANCELLED, case status becomes CANCELLED
+	_, err = svc.CancelPayoutOperation(ctx, userA, org, op1.ID)
+	if err != nil {
+		t.Fatalf("failed to cancel op1: %v", err)
+	}
+
+	// Attempting to submit cancelled op1 must fail fail-closed
+	_, err = svc.SubmitPayoutOperation(ctx, userA, org, case1.ID, op1.ID)
+	if err == nil {
+		t.Fatalf("expected error submitting cancelled payout operation, got nil")
+	}
+	if !errors.Is(err, ErrCaseInTerminalState) && !errors.Is(err, ErrOperationCannotBeSubmitted) {
+		t.Errorf("expected ErrCaseInTerminalState or ErrOperationCannotBeSubmitted, got: %v", err)
+	}
+
+	// 2. Dual-approval case ($350.00 USD)
+	case2, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com",
+		RecipientName:  "Jane Claimant",
+		Title:          "Dual Approval Claim",
+		AmountCents:    35000,
+	})
+
+	op2, err := svc.InitiatePayoutOperation(ctx, userA, org, case2.ID)
+	if err != nil {
+		t.Fatalf("failed to initiate op2: %v", err)
+	}
+
+	// Attempting to submit op2 while AWAITING_APPROVAL must fail
+	_, err = svc.SubmitPayoutOperation(ctx, userA, org, case2.ID, op2.ID)
+	if !errors.Is(err, ErrOperationNotApproved) {
+		t.Fatalf("expected ErrOperationNotApproved for unapproved dual-custody op, got: %v", err)
+	}
+
+	// Approve op2 by userB -> APPROVED
+	_, err = svc.ApprovePayoutOperation(ctx, userB, org, op2.ID)
+	if err != nil {
+		t.Fatalf("failed to approve op2: %v", err)
+	}
+
+	// Manually simulate RECONCILIATION_REQUIRED
+	op2.Status = "RECONCILIATION_REQUIRED"
+	_ = svc.repo.UpdatePayoutOperation(ctx, op2)
+
+	// Attempting to submit op2 while in RECONCILIATION_REQUIRED must fail
+	_, err = svc.SubmitPayoutOperation(ctx, userA, org, case2.ID, op2.ID)
+	if err == nil {
+		t.Fatalf("expected error submitting operation in RECONCILIATION_REQUIRED, got nil")
+	}
+}
+
+func TestPayoutService_PreventDuplicateActiveOperations(t *testing.T) {
+	svc, _, userA, _, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, err := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com",
+		RecipientName:  "Jane Claimant",
+		Title:          "Duplicate Test Claim",
+		AmountCents:    15000,
+	})
+	if err != nil {
+		t.Fatalf("failed to create case: %v", err)
+	}
+
+	// First initiation succeeds
+	op1, err := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	if err != nil {
+		t.Fatalf("failed to initiate op1: %v", err)
+	}
+	if op1.Status != "PREPARED" {
+		t.Fatalf("expected status PREPARED, got %s", op1.Status)
+	}
+
+	// Second initiation on the same case with active op1 MUST fail
+	_, err = svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	if !errors.Is(err, ErrActiveOperationExists) {
+		t.Fatalf("expected ErrActiveOperationExists when active operation in progress, got: %v", err)
+	}
+}
+
