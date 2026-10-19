@@ -34,9 +34,9 @@ test.describe("E. Backend Mutation Guards and Readiness Truthfulness", () => {
     expect(casesRes.status()).toBe(200);
     const data = await casesRes.json();
     const cases = data.cases || [];
-    const fixture = cases.find(
-      (c: any) => c.reference === "DEMO-W9821" || c.is_synthetic_fixture === true
-    );
+    const fixture =
+      cases.find((c: any) => c.reference === "DEMO-W9821") ||
+      cases.find((c: any) => c.is_synthetic_fixture === true);
 
     if (fixture) {
       fixtureCaseId = fixture.id;

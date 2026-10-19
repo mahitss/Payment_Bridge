@@ -277,10 +277,6 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 		return nil, err
 	}
 
-	if pCase.Status == "COMPLETED" || pCase.Status == "CANCELLED" {
-		return nil, fmt.Errorf("%w: cannot submit operation for case with status %s", ErrCaseInTerminalState, pCase.Status)
-	}
-
 	op, err := s.repo.GetPayoutOperationByID(ctx, org.ID, opID)
 	if err != nil {
 		return nil, err
@@ -289,6 +285,10 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 	// Synthetic fixture boundary: demo fixtures cannot be submitted to live PayPal
 	if pCase.IsSyntheticFixture || op.IsSyntheticFixture {
 		return nil, ErrFixtureExternalOperationForbidden
+	}
+
+	if pCase.Status == "COMPLETED" || pCase.Status == "CANCELLED" {
+		return nil, fmt.Errorf("%w: cannot submit operation for case with status %s", ErrCaseInTerminalState, pCase.Status)
 	}
 
 	// Invariant check: operation must be in a submittable state
