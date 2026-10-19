@@ -225,7 +225,16 @@ jobs:
 
       - name: Run Playwright Browser Tests
         working-directory: apps/web
-        run: npm run test:e2e
+        run: |
+          set -o pipefail
+          npx playwright test --reporter=list 2>&1 | tee playwright.log || {
+            status=$?
+            echo "### Playwright Test Failures" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 120 playwright.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit $status
+          }
 
       - name: Upload Playwright Test Report
         if: always()
