@@ -307,18 +307,20 @@ jobs:
           sudo systemctl stop postgresql 2>/dev/null || true
           sudo systemctl disable postgresql 2>/dev/null || true
 
-      - name: Build and Launch Isolated Evaluator Demo Stack
+      - name: Build Go API Container Image
+        run: |
+          echo "Building API multi-stage Docker image..."
+          docker compose -f infra/docker-compose.full.yml build api
+
+      - name: Build Next.js Web Container Image (with Evaluator Mode)
+        run: |
+          echo "Building Web multi-stage Docker image with NEXT_PUBLIC_DEMO_MODE=true..."
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml build web
+
+      - name: Launch Isolated Evaluator Demo Stack
         run: |
           echo "Starting Docker Compose offline evaluator demo stack..."
-          set -o pipefail
-          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d 2>&1 | tee compose-up.log || {
-            status=$?
-            echo "### Docker Compose Launch Failed" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat compose-up.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            exit $status
-          }
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up -d
 
       - name: Wait for Stack Health and Seeder Completion
         run: |

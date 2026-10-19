@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/server ./cmd/serv
 FROM alpine:3.19
 
 RUN apk add --no-cache ca-certificates tzdata wget && \
-    addgroup -S claimbridge && adduser -S claimbridge -G claimbridge
+    addgroup -S claimbridge && adduser -S -G claimbridge claimbridge
 
 WORKDIR /app
 COPY --from=builder /bin/server /app/server
