@@ -11,11 +11,14 @@ import (
 	"time"
 )
 
+const OfficialPayPalSandboxBaseURL = "https://api-m.sandbox.paypal.com"
+
 var (
-	ErrProductionBlocked     = errors.New("security violation: production environment is forbidden in Phase 1")
-	ErrProductionHostBlocked = errors.New("security violation: production PayPal host detected; only sandbox hosts are permitted")
-	ErrMissingPayPalClientID = errors.New("configuration error: PAYPAL_CLIENT_ID is required for PayPal operations")
-	ErrMissingPayPalSecret   = errors.New("configuration error: PAYPAL_CLIENT_SECRET is required for PayPal operations")
+	ErrProductionBlocked      = errors.New("security violation: production environment is forbidden in Phase 1")
+	ErrProductionHostBlocked  = errors.New("security violation: production PayPal host detected; only sandbox hosts are permitted")
+	ErrInvalidSandboxEndpoint = errors.New("security violation: invalid PayPal Sandbox endpoint; must be https://api-m.sandbox.paypal.com")
+	ErrMissingPayPalClientID  = errors.New("configuration error: PAYPAL_CLIENT_ID is required for PayPal operations")
+	ErrMissingPayPalSecret    = errors.New("configuration error: PAYPAL_CLIENT_SECRET is required for PayPal operations")
 )
 
 // Config holds all validated application configuration.
@@ -65,9 +68,9 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("%w: PAYPAL_ENV cannot be 'production' in this milestone", ErrProductionBlocked)
 	}
 
-	payPalBaseURL := getEnv("PAYPAL_SANDBOX_BASE_URL", "https://api-m.sandbox.paypal.com")
-	if isProductionPayPalHost(payPalBaseURL) {
-		return nil, fmt.Errorf("%w: %s is a production host", ErrProductionHostBlocked, payPalBaseURL)
+	payPalBaseURL := getEnv("PAYPAL_SANDBOX_BASE_URL", OfficialPayPalSandboxBaseURL)
+	if err := ValidatePayPalSandboxEndpoint(payPalBaseURL); err != nil {
+		return nil, err
 	}
 
 	timeoutSec := getEnvInt("PAYPAL_REQUEST_TIMEOUT_SECONDS", 15)
@@ -118,7 +121,7 @@ func LoadFromEnv() (*Config, error) {
 		PayPalEnv:              payPalEnv,
 		PayPalClientID:         os.Getenv("PAYPAL_CLIENT_ID"),
 		PayPalClientSecret:     os.Getenv("PAYPAL_CLIENT_SECRET"),
-		PayPalBaseURL:          strings.TrimRight(payPalBaseURL, "/"),
+		PayPalBaseURL:          OfficialPayPalSandboxBaseURL,
 		PayPalRequestTimeout:   time.Duration(timeoutSec) * time.Second,
 		PolicyEngineBinaryPath: getEnv("POLICY_ENGINE_BIN", ""),
 		AIEnabled:              getEnvBool("AI_ENABLED", true),
@@ -152,8 +155,8 @@ func (c *Config) ValidatePayPalCredentials() error {
 	if c.PayPalEnv != "sandbox" {
 		return ErrProductionBlocked
 	}
-	if isProductionPayPalHost(c.PayPalBaseURL) {
-		return ErrProductionHostBlocked
+	if err := ValidatePayPalSandboxEndpoint(c.PayPalBaseURL); err != nil {
+		return err
 	}
 	return nil
 }
@@ -183,6 +186,58 @@ func (c *Config) String() string {
 		"Config{AppEnv: %s, Port: %s, LogLevel: %s, DatabaseURL: %s, AppBaseURL: %s, AllowedOrigins: %v, SessionTTL: %s, SMTP: %s:%d, PayPalEnv: %s, PayPalClientID: %s, PayPalSecret: %s, PayPalBaseURL: %s, Timeout: %s, AIEnabled: %t, AIProvider: %s, AIBaseURL: %s, AIModel: %s, AIKey: %s}",
 		c.AppEnv, c.Port, c.LogLevel, redactedDB, c.AppBaseURL, c.AllowedOrigins, c.SessionTTL, c.SMTPHost, c.SMTPPort, c.PayPalEnv, maskedClientID, maskedSecret, c.PayPalBaseURL, c.PayPalRequestTimeout, c.AIEnabled, c.AIProvider, c.AIBaseURL, c.AIModel, maskedAIKey,
 	)
+}
+
+// ValidatePayPalSandboxEndpoint validates scheme, host, port, and URL structure strictly for PayPal Sandbox.
+func ValidatePayPalSandboxEndpoint(rawURL string) error {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return fmt.Errorf("%w: endpoint URL cannot be empty", ErrInvalidSandboxEndpoint)
+	}
+
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return fmt.Errorf("%w: malformed URL: %w", ErrInvalidSandboxEndpoint, err)
+	}
+
+	// 1. Embedded credentials/userinfo check
+	if u.User != nil {
+		return fmt.Errorf("%w: embedded credentials/userinfo not allowed", ErrInvalidSandboxEndpoint)
+	}
+
+	// 2. Reject production hosts
+	host := strings.ToLower(u.Hostname())
+	if host == "api.paypal.com" || host == "api-m.paypal.com" || host == "www.paypal.com" {
+		return fmt.Errorf("%w: %s is a production host", ErrProductionHostBlocked, host)
+	}
+
+	// 3. Scheme must be strictly HTTPS
+	if strings.ToLower(u.Scheme) != "https" {
+		return fmt.Errorf("%w: scheme must be https, got %q", ErrInvalidSandboxEndpoint, u.Scheme)
+	}
+
+	// 4. Hostname must be strictly api-m.sandbox.paypal.com
+	if host != "api-m.sandbox.paypal.com" {
+		return fmt.Errorf("%w: host must be api-m.sandbox.paypal.com, got %q", ErrInvalidSandboxEndpoint, host)
+	}
+
+	// 5. Port must be empty or standard 443
+	port := u.Port()
+	if port != "" && port != "443" {
+		return fmt.Errorf("%w: unexpected port %q; only standard HTTPS (443) permitted", ErrInvalidSandboxEndpoint, port)
+	}
+
+	// 6. Path must be empty or root "/"
+	if u.Path != "" && u.Path != "/" {
+		return fmt.Errorf("%w: unexpected URL path %q; base URL must not contain a path", ErrInvalidSandboxEndpoint, u.Path)
+	}
+
+	// 7. Query and fragment must be empty
+	if u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%w: query parameters or fragments not permitted", ErrInvalidSandboxEndpoint)
+	}
+
+	return nil
 }
 
 func isProductionPayPalHost(rawURL string) bool {

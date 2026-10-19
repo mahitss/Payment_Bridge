@@ -53,7 +53,12 @@ This guide provides the exact steps required for an engineer or auditor to confi
    PAYPAL_CLIENT_SECRET=your_actual_sandbox_client_secret
    PAYPAL_SANDBOX_BASE_URL=https://api-m.sandbox.paypal.com
    ```
-3. Verify that `PAYPAL_ENV` is strictly `sandbox`. Any value set to `production` will be refused by the runtime.
+3. **Endpoint Security Constraints:**
+   - The application strictly permits only the official HTTPS PayPal Sandbox endpoint: `https://api-m.sandbox.paypal.com`.
+   - The configuration and client boundaries strictly validate URL scheme (`https`), hostname (`api-m.sandbox.paypal.com`), port (empty or 443), userinfo (forbidden), and paths/queries/fragments (forbidden).
+   - Any PayPal production host (e.g. `api-m.paypal.com`), insecure HTTP scheme, or arbitrary host is immediately rejected fail-closed before any HTTP request or credential dispatch occurs.
+   - Normal `.env` overrides cannot redirect credentials to an arbitrary destination. Simulated test endpoints are permitted only via explicit test doubles (`WithSimulatedBaseURL` / `NewTestClient`) and are strictly forbidden when `APP_ENV=production`.
+4. Verify that `PAYPAL_ENV` is strictly `sandbox`. Any value set to `production` will be refused fail-closed by the runtime.
 
 ---
 
@@ -109,12 +114,23 @@ go run ./cmd/paypal-smoke
 | **2** | `FAILED` | OAuth2 grant failed with HTTP 401 (Invalid Credentials) or 403 (Forbidden). | Check Client ID and Secret in `.env`. Ensure 'Payouts' permission is enabled in PayPal Developer Dashboard. |
 | **3** | `BLOCKED` | `PAYPAL_CLIENT_ID` or `PAYPAL_CLIENT_SECRET` unset or empty. | Populate sandbox credentials into `.env`. |
 
-### 4.3 Querying an Existing Sandbox Payout Batch (Read-Only)
-If you have an existing batch ID from sandbox activity:
+### 4.3 Querying an Existing Sandbox Payout Batch or Item (Read-Only)
+If you have an existing batch or item ID from prior sandbox activity:
 
 ```bash
+# Query by batch ID:
 go run ./cmd/paypal-smoke -batch-id <YOUR_PAYOUT_BATCH_ID>
+
+# Or query by item ID:
+go run ./cmd/paypal-smoke -item-id <YOUR_PAYOUT_ITEM_ID>
 ```
+
+> [!IMPORTANT]
+> **Read-Only Lookup vs. OAuth Verification Guarantees:**
+> - **OAuth Verification (Check 6):** Validates client credentials against the official sandbox endpoint and acquires a cached OAuth2 Bearer token.
+> - **Read-Only Lookup (Check 7):** Queries existing sandbox transaction state via HTTP GET requests (`/v1/payments/payouts/{id}` or `/v1/payments/payouts-item/{id}`). Zero payouts or financial mutations are ever created or altered.
+> - **OAuth Prerequisite:** A payout lookup will **never** be dispatched if OAuth verification fails or credentials are unset. Check 7 is automatically reported as `BLOCKED` in those cases.
+> - **Mutual Exclusion:** Supplying both `-batch-id` and `-item-id` is rejected fail-closed with a non-zero exit code (`ambiguous PayPal lookup invocation`) rather than silently ignoring one.
 
 ### 4.4 Safe Test Payout Creation (Explicit Flag Required)
 > [!CAUTION]
@@ -195,6 +211,23 @@ Every check outputs one of five explicit statuses:
 2. **Model Availability Is Not Inference Verification:** Probing `/api/tags` or `/v1/models` verifies only that the daemon is reachable and the model tag exists. The `submission` profile requires executing a non-mutating synthetic inference probe and passing evidence grounding validation.
 3. **OAuth Success Does Not Establish Payout Lookup:** Successful OAuth authentication verifies credentials with PayPal Sandbox, but does not prove payout creation or lookup. Payout lookups are evaluated independently.
 4. **Current Environment Status:** In an environment without local `.env` sandbox keys or without a running Ollama daemon, running `-profile=submission` accurately reports `[STATUS: BLOCKED]` with Exit Code 1.
+
+### 7.4 Strict API Storage Readiness (`/readyz`) Contract
+Check 3 (`ProbeAPIReadiness`) enforces strict verification of API operational readiness and database storage health:
+- **Bounded Request Timeout:** The HTTP request must complete within a bounded 5-second timeout window.
+- **Strict HTTP Status:** The endpoint must return HTTP status code exactly `200 OK`. Any 5xx or 4xx response immediately produces `FAIL`.
+- **Valid JSON Body:** The response body must be parseable JSON. Empty bodies or malformed JSON immediately produce `FAIL`.
+- **Bounded Memory Ingestion:** Diagnostic responses are read through `io.LimitReader(resp.Body, 65536)` (max 64KB) to prevent denial-of-service from rogue or unbounded remote payloads.
+- **Field-Level Strictness:**
+  - The response must contain a non-empty string `status` field equal to `"ready"`.
+  - The response must contain a non-empty string `database` field equal to `"connected"`.
+  - A degraded status or missing database field fails closed and is never defaulted to a healthy state.
+- **Sanitized Diagnostics:** Error messages avoid echoing raw HTML or unescaped error strings to console logs.
+
+### 7.5 Mock vs. Live Test Double Isolation
+- **Controlled Testing Mechanism:** Tests using simulated HTTP servers (`httptest.NewServer`) inject test doubles via `paypal.NewTestClient` or `WithSimulatedBaseURL`.
+- **Production Guardrail:** If `APP_ENV=production`, `WithSimulatedBaseURL` returns `ErrSimulatedEndpointForbidden` fail-closed.
+- **Core Profile Isolation:** When `AI_PROVIDER=mock` is configured, running the `core` profile reports Check 9 as `WARN` (informational) without failing core readiness. In contrast, running the `submission` profile strictly reports `FAIL` and terminates with exit code 1.
 
 
 ### 6.3 Run an End-to-End Investigation in the Web UI

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,7 +138,7 @@ func TestAllRequiredChecksPass_SubmissionProfile(t *testing.T) {
 	defer ppSrv.Close()
 
 	cfg := testConfig(ppSrv.URL)
-	ppClient, _ := paypal.NewClient(cfg, ppSrv.Client())
+	ppClient, _ := paypal.NewTestClient(cfg, ppSrv.Client(), ppSrv.URL)
 
 	fakeAI := &fakeAIProvider{
 		health: ai.AIHealthStatus{
@@ -284,7 +285,7 @@ func TestPolicyEngineFailure(t *testing.T) {
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ready"}`))
+		_, _ = w.Write([]byte(`{"status":"ready","database":"connected"}`))
 	})
 	mux.HandleFunc("/api/v1/policy/evaluate", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -396,7 +397,7 @@ func TestPayPalOAuthRejection(t *testing.T) {
 	defer ppSrv.Close()
 
 	cfg := testConfig(ppSrv.URL)
-	ppClient, _ := paypal.NewClient(cfg, ppSrv.Client())
+	ppClient, _ := paypal.NewTestClient(cfg, ppSrv.Client(), ppSrv.URL)
 
 	opts := RunnerOptions{
 		Profile:      "submission",
@@ -430,7 +431,7 @@ func TestPayPalOAuthPass_LookupNotRun(t *testing.T) {
 	defer ppSrv.Close()
 
 	cfg := testConfig(ppSrv.URL)
-	ppClient, _ := paypal.NewClient(cfg, ppSrv.Client())
+	ppClient, _ := paypal.NewTestClient(cfg, ppSrv.Client(), ppSrv.URL)
 
 	opts := RunnerOptions{
 		Profile:      "core",
@@ -860,7 +861,7 @@ func TestExitCodesAndSummariesMatchReadinessState(t *testing.T) {
 	{
 		apiSrv, webSrv, ppSrv := setupTestServers(t)
 		cfg := testConfig(ppSrv.URL)
-		ppClient, _ := paypal.NewClient(cfg, ppSrv.Client())
+		ppClient, _ := paypal.NewTestClient(cfg, ppSrv.Client(), ppSrv.URL)
 		fakeAI := &fakeAIProvider{
 			health: ai.AIHealthStatus{Reachable: true, ModelAvailable: true},
 		}
@@ -901,5 +902,524 @@ func TestExitCodesAndSummariesMatchReadinessState(t *testing.T) {
 		if summary.ExitCode != 1 || summary.IsReady {
 			t.Errorf("expected ExitCode 1 & IsReady false, got ExitCode=%d IsReady=%v", summary.ExitCode, summary.IsReady)
 		}
+	}
+}
+
+// ============================================================================
+// MISSION 012 REGRESSION TESTS
+// ============================================================================
+
+type trackingPayPalClient struct {
+	tokenFn     func(ctx context.Context) (string, error)
+	batchFn     func(ctx context.Context, batchID string) (*paypal.PayoutBatchResponse, error)
+	itemFn      func(ctx context.Context, itemID string) (*paypal.PayoutItemResponse, error)
+	tokenCalls  int
+	batchCalls  int
+	itemCalls   int
+	lastBatchID string
+	lastItemID  string
+}
+
+func (t *trackingPayPalClient) GetAccessToken(ctx context.Context) (string, error) {
+	t.tokenCalls++
+	if t.tokenFn != nil {
+		return t.tokenFn(ctx)
+	}
+	return "A21AA_TEST_SANDBOX_TOKEN", nil
+}
+
+func (t *trackingPayPalClient) GetPayoutBatch(ctx context.Context, batchID string) (*paypal.PayoutBatchResponse, error) {
+	t.batchCalls++
+	t.lastBatchID = batchID
+	if t.batchFn != nil {
+		return t.batchFn(ctx, batchID)
+	}
+	return &paypal.PayoutBatchResponse{
+		BatchHeader: paypal.PayoutBatchHeader{
+			PayoutBatchID: batchID,
+			BatchStatus:   "SUCCESS",
+			TimeCreated:   "2026-10-19T00:00:00Z",
+		},
+	}, nil
+}
+
+func (t *trackingPayPalClient) GetPayoutItem(ctx context.Context, itemID string) (*paypal.PayoutItemResponse, error) {
+	t.itemCalls++
+	t.lastItemID = itemID
+	if t.itemFn != nil {
+		return t.itemFn(ctx, itemID)
+	}
+	return &paypal.PayoutItemResponse{
+		PayoutItemID:      itemID,
+		TransactionStatus: "SUCCESS",
+		PayoutBatchID:     "BATCH-TEST",
+		Receiver:          "claimant@test.internal",
+	}, nil
+}
+
+// 21. TestPayPalClientReuse_BatchLookupSuccess
+func TestPayPalClientReuse_BatchLookupSuccess(t *testing.T) {
+	apiSrv, webSrv, ppSrv := setupTestServers(t)
+	defer apiSrv.Close()
+	defer webSrv.Close()
+	defer ppSrv.Close()
+
+	tracker := &trackingPayPalClient{}
+	cfg := testConfig(ppSrv.URL)
+
+	opts := RunnerOptions{
+		Profile:      "core",
+		Config:       cfg,
+		BaseURL:      apiSrv.URL,
+		WebURL:       webSrv.URL,
+		HTTPClient:   apiSrv.Client(),
+		PayPalClient: tracker,
+		BatchID:      "BATCH-PAYPAL-123",
+		DBPingFn:     func(ctx context.Context) error { return nil },
+	}
+
+	out := &bytes.Buffer{}
+	summary, err := Run(context.Background(), opts, out, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if tracker.tokenCalls != 1 {
+		t.Errorf("expected 1 token call, got %d", tracker.tokenCalls)
+	}
+	if tracker.batchCalls != 1 {
+		t.Errorf("expected 1 batch lookup call, got %d", tracker.batchCalls)
+	}
+	if tracker.lastBatchID != "BATCH-PAYPAL-123" {
+		t.Errorf("expected batch ID BATCH-PAYPAL-123, got %s", tracker.lastBatchID)
+	}
+	if tracker.itemCalls != 0 {
+		t.Errorf("expected 0 item calls, got %d", tracker.itemCalls)
+	}
+
+	// Verify Check 6 and Check 7 statuses
+	if summary.Results[5].Status != StatusPass {
+		t.Errorf("expected Check 6 (OAuth) PASS, got %s", summary.Results[5].Status)
+	}
+	if summary.Results[6].Status != StatusPass {
+		t.Errorf("expected Check 7 (Lookup) PASS, got %s", summary.Results[6].Status)
+	}
+}
+
+// 22. TestPayPalClientReuse_ItemLookupSuccess
+func TestPayPalClientReuse_ItemLookupSuccess(t *testing.T) {
+	apiSrv, webSrv, ppSrv := setupTestServers(t)
+	defer apiSrv.Close()
+	defer webSrv.Close()
+	defer ppSrv.Close()
+
+	tracker := &trackingPayPalClient{}
+	cfg := testConfig(ppSrv.URL)
+
+	opts := RunnerOptions{
+		Profile:      "core",
+		Config:       cfg,
+		BaseURL:      apiSrv.URL,
+		WebURL:       webSrv.URL,
+		HTTPClient:   apiSrv.Client(),
+		PayPalClient: tracker,
+		ItemID:       "ITEM-PAYPAL-456",
+		DBPingFn:     func(ctx context.Context) error { return nil },
+	}
+
+	out := &bytes.Buffer{}
+	summary, err := Run(context.Background(), opts, out, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if tracker.tokenCalls != 1 {
+		t.Errorf("expected 1 token call, got %d", tracker.tokenCalls)
+	}
+	if tracker.itemCalls != 1 {
+		t.Errorf("expected 1 item lookup call, got %d", tracker.itemCalls)
+	}
+	if tracker.lastItemID != "ITEM-PAYPAL-456" {
+		t.Errorf("expected item ID ITEM-PAYPAL-456, got %s", tracker.lastItemID)
+	}
+	if tracker.batchCalls != 0 {
+		t.Errorf("expected 0 batch calls, got %d", tracker.batchCalls)
+	}
+
+	if summary.Results[5].Status != StatusPass {
+		t.Errorf("expected Check 6 PASS, got %s", summary.Results[5].Status)
+	}
+	if summary.Results[6].Status != StatusPass {
+		t.Errorf("expected Check 7 PASS, got %s", summary.Results[6].Status)
+	}
+}
+
+// 23. TestPayPalClientReuse_MissingCredentialsBlocksBothChecks
+func TestPayPalClientReuse_MissingCredentialsBlocksBothChecks(t *testing.T) {
+	apiSrv, webSrv, ppSrv := setupTestServers(t)
+	defer apiSrv.Close()
+	defer webSrv.Close()
+	defer ppSrv.Close()
+
+	cfg := testConfig(ppSrv.URL)
+	cfg.PayPalClientID = ""
+	cfg.PayPalClientSecret = ""
+
+	opts := RunnerOptions{
+		Profile:    "core",
+		Config:     cfg,
+		BaseURL:    apiSrv.URL,
+		WebURL:     webSrv.URL,
+		HTTPClient: apiSrv.Client(),
+		BatchID:    "BATCH-BLOCKED",
+		DBPingFn:   func(ctx context.Context) error { return nil },
+	}
+
+	out := &bytes.Buffer{}
+	summary, err := Run(context.Background(), opts, out, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if summary.Results[5].Status != StatusBlocked {
+		t.Errorf("expected Check 6 to be BLOCKED, got %s", summary.Results[5].Status)
+	}
+	if summary.Results[6].Status != StatusBlocked {
+		t.Errorf("expected Check 7 to be BLOCKED, got %s", summary.Results[6].Status)
+	}
+}
+
+// 24. TestPayPalClientReuse_OAuthFailurePreventsLookup
+func TestPayPalClientReuse_OAuthFailurePreventsLookup(t *testing.T) {
+	apiSrv, webSrv, ppSrv := setupTestServers(t)
+	defer apiSrv.Close()
+	defer webSrv.Close()
+	defer ppSrv.Close()
+
+	tracker := &trackingPayPalClient{
+		tokenFn: func(ctx context.Context) (string, error) {
+			return "", paypal.ErrUnauthorized
+		},
+	}
+	cfg := testConfig(ppSrv.URL)
+
+	opts := RunnerOptions{
+		Profile:      "core",
+		Config:       cfg,
+		BaseURL:      apiSrv.URL,
+		WebURL:       webSrv.URL,
+		HTTPClient:   apiSrv.Client(),
+		PayPalClient: tracker,
+		BatchID:      "BATCH-NEVER-CALLED",
+		DBPingFn:     func(ctx context.Context) error { return nil },
+	}
+
+	out := &bytes.Buffer{}
+	summary, err := Run(context.Background(), opts, out, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if summary.Results[5].Status != StatusFail {
+		t.Errorf("expected Check 6 FAIL, got %s", summary.Results[5].Status)
+	}
+	// Check 7 must be BLOCKED and MUST NOT invoke batch lookup
+	if summary.Results[6].Status != StatusBlocked {
+		t.Errorf("expected Check 7 BLOCKED, got %s", summary.Results[6].Status)
+	}
+	if tracker.batchCalls != 0 {
+		t.Errorf("expected 0 batch lookup calls when OAuth fails, got %d", tracker.batchCalls)
+	}
+}
+
+// 25. TestPayPalClientReuse_AbsentIdentifierProducesSkipped
+func TestPayPalClientReuse_AbsentIdentifierProducesSkipped(t *testing.T) {
+	apiSrv, webSrv, ppSrv := setupTestServers(t)
+	defer apiSrv.Close()
+	defer webSrv.Close()
+	defer ppSrv.Close()
+
+	tracker := &trackingPayPalClient{}
+	cfg := testConfig(ppSrv.URL)
+
+	opts := RunnerOptions{
+		Profile:      "core",
+		Config:       cfg,
+		BaseURL:      apiSrv.URL,
+		WebURL:       webSrv.URL,
+		HTTPClient:   apiSrv.Client(),
+		PayPalClient: tracker,
+		BatchID:      "",
+		ItemID:       "",
+		DBPingFn:     func(ctx context.Context) error { return nil },
+	}
+
+	out := &bytes.Buffer{}
+	summary, err := Run(context.Background(), opts, out, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if summary.Results[6].Status != StatusSkipped {
+		t.Errorf("expected Check 7 SKIPPED, got %s", summary.Results[6].Status)
+	}
+	if tracker.batchCalls != 0 || tracker.itemCalls != 0 {
+		t.Errorf("expected 0 lookup calls when unrequested, got batch=%d item=%d", tracker.batchCalls, tracker.itemCalls)
+	}
+}
+
+// 26. TestPayPalClientReuse_AmbiguousFlagsConflictRejected
+func TestPayPalClientReuse_AmbiguousFlagsConflictRejected(t *testing.T) {
+	opts := RunnerOptions{
+		Profile: "core",
+		BatchID: "BATCH-123",
+		ItemID:  "ITEM-456",
+	}
+
+	out := &bytes.Buffer{}
+	_, err := Run(context.Background(), opts, out, out)
+	if err == nil {
+		t.Fatal("expected error when both BatchID and ItemID are provided, got nil")
+	}
+	if !strings.Contains(err.Error(), "ambiguous lookup invocation") {
+		t.Errorf("expected ambiguous lookup error message, got: %v", err)
+	}
+}
+
+// 27. TestProbeAPIReadiness_StrictValidationMatrix
+func TestProbeAPIReadiness_StrictValidationMatrix(t *testing.T) {
+	tests := []struct {
+		name           string
+		handler        http.HandlerFunc
+		expectedStatus CheckStatus
+		expectedSubstr string
+	}{
+		{
+			name: "HTTP 200 with valid readiness response",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"status":"ready","database":"connected","service":"claimbridge-api"}`))
+			},
+			expectedStatus: StatusPass,
+			expectedSubstr: "HTTP 200 OK (Status: ready, DB: connected)",
+		},
+		{
+			name: "HTTP 200 with malformed JSON",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{not valid json!!!`))
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "Malformed JSON response",
+		},
+		{
+			name: "HTTP 200 with empty body",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "Empty response body",
+		},
+		{
+			name: "HTTP 200 with missing status field",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"database":"connected"}`))
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "Missing 'status' field",
+		},
+		{
+			name: "HTTP 200 with missing database field",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"status":"ready"}`))
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "Missing 'database' field",
+		},
+		{
+			name: "HTTP 200 with degraded status",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"status":"degraded","database":"connected"}`))
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "reported non-ready status: degraded",
+		},
+		{
+			name: "HTTP 200 with unhealthy database status",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"status":"ready","database":"unavailable"}`))
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "reported non-healthy status: unavailable",
+		},
+		{
+			name: "HTTP 500 internal server error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`Internal Server Error`))
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "returned HTTP 500",
+		},
+		{
+			name: "HTTP 503 service unavailable",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"degraded","database":"unavailable"}`))
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "returned HTTP 503",
+		},
+		{
+			name: "HTTP 404 not found",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+			},
+			expectedStatus: StatusFail,
+			expectedSubstr: "returned HTTP 404",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(tc.handler)
+			defer ts.Close()
+
+			res := ProbeAPIReadiness(context.Background(), ts.Client(), ts.URL)
+			if res.Status != tc.expectedStatus {
+				t.Errorf("expected status %s, got %s (summary: %s)", tc.expectedStatus, res.Status, res.Summary)
+			}
+			if !strings.Contains(res.Summary, tc.expectedSubstr) {
+				t.Errorf("expected summary to contain %q, got: %s", tc.expectedSubstr, res.Summary)
+			}
+		})
+	}
+
+	// Subtest: Connection Failure / Server offline
+	t.Run("Connection failure / server offline", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+		targetURL := ts.URL
+		ts.Close() // Immediately close to simulate offline endpoint
+
+		res := ProbeAPIReadiness(context.Background(), http.DefaultClient, targetURL)
+		if res.Status != StatusFail {
+			t.Errorf("expected StatusFail on connection failure, got %s", res.Status)
+		}
+		if !strings.Contains(res.Summary, "unreachable or timed out") {
+			t.Errorf("expected unreachable summary, got: %s", res.Summary)
+		}
+	})
+
+	// Subtest: Request Timeout
+	t.Run("Bounded request timeout exceeded", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(100 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+
+		res := ProbeAPIReadiness(ctx, ts.Client(), ts.URL)
+		if res.Status != StatusFail {
+			t.Errorf("expected StatusFail on timeout, got %s", res.Status)
+		}
+		if !strings.Contains(res.Summary, "unreachable or timed out") {
+			t.Errorf("expected timeout summary, got: %s", res.Summary)
+		}
+	})
+}
+
+// 28. TestCoreProfile_MockAIFromConfig
+func TestCoreProfile_MockAIFromConfig(t *testing.T) {
+	apiSrv, webSrv, ppSrv := setupTestServers(t)
+	defer apiSrv.Close()
+	defer webSrv.Close()
+	defer ppSrv.Close()
+
+	cfg := testConfig(ppSrv.URL)
+	cfg.AIProvider = "mock"
+	cfg.AIEnabled = true
+	ppClient, _ := paypal.NewTestClient(cfg, ppSrv.Client(), ppSrv.URL)
+
+	opts := RunnerOptions{
+		Profile:      "core",
+		Config:       cfg,
+		BaseURL:      apiSrv.URL,
+		WebURL:       webSrv.URL,
+		HTTPClient:   apiSrv.Client(),
+		PayPalClient: ppClient,
+		AIProvider:   nil, // NOT injected; resolved from config
+		DBPingFn:     func(ctx context.Context) error { return nil },
+	}
+
+	out := &bytes.Buffer{}
+	summary, err := Run(context.Background(), opts, out, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// In core profile, mock AI from config should report WARN and not fail core readiness
+	if summary.Results[8].Status != StatusWarn {
+		t.Errorf("expected Check 9 (Inference) to report WARN in core profile, got: %s", summary.Results[8].Status)
+	}
+	if !summary.IsReady {
+		t.Errorf("expected core profile to be READY with mock AI in config, got IsReady=false")
+	}
+	if summary.ExitCode != 0 {
+		t.Errorf("expected ExitCode 0 for core profile with mock AI, got: %d", summary.ExitCode)
+	}
+}
+
+// 29. TestSubmissionProfile_MockAIFromConfig_FailsSubmission
+func TestSubmissionProfile_MockAIFromConfig_FailsSubmission(t *testing.T) {
+	apiSrv, webSrv, ppSrv := setupTestServers(t)
+	defer apiSrv.Close()
+	defer webSrv.Close()
+	defer ppSrv.Close()
+
+	cfg := testConfig(ppSrv.URL)
+	cfg.AIProvider = "mock"
+	cfg.AIEnabled = true
+	ppClient, _ := paypal.NewTestClient(cfg, ppSrv.Client(), ppSrv.URL)
+
+	opts := RunnerOptions{
+		Profile:      "submission",
+		Config:       cfg,
+		BaseURL:      apiSrv.URL,
+		WebURL:       webSrv.URL,
+		HTTPClient:   apiSrv.Client(),
+		PayPalClient: ppClient,
+		AIProvider:   nil, // NOT injected; resolved from config
+		DBPingFn:     func(ctx context.Context) error { return nil },
+	}
+
+	out := &bytes.Buffer{}
+	summary, err := Run(context.Background(), opts, out, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// In submission profile, mock AI MUST fail Check 9 and block readiness
+	if summary.Results[8].Status != StatusFail {
+		t.Errorf("expected Check 9 to FAIL in submission profile with mock AI, got: %s", summary.Results[8].Status)
+	}
+	if summary.IsReady {
+		t.Errorf("expected submission profile to be NOT READY with mock AI, got IsReady=true")
+	}
+	if summary.ExitCode != 1 {
+		t.Errorf("expected ExitCode 1 for submission profile with mock AI, got: %d", summary.ExitCode)
 	}
 }

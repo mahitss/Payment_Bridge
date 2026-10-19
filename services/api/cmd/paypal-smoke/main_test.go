@@ -9,7 +9,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"claimbridge/services/api/internal/config"
 	"claimbridge/services/api/internal/paypal"
 )
 
@@ -63,6 +65,23 @@ func TestRun_MissingCredentialsBlocked(t *testing.T) {
 	}
 }
 
+func TestRun_UnsafeEndpointRejected(t *testing.T) {
+	cleanEnv(t)
+	os.Setenv("PAYPAL_ENV", "sandbox")
+	os.Setenv("PAYPAL_CLIENT_ID", "test_id")
+	os.Setenv("PAYPAL_CLIENT_SECRET", "test_secret")
+	os.Setenv("PAYPAL_SANDBOX_BASE_URL", "http://insecure-http.com")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"-env-file", "nonexistent.env"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit code 1 for unsafe endpoint, got: %d", code)
+	}
+	if !strings.Contains(stderr.String(), "Configuration failed security validation") {
+		t.Errorf("expected security validation error in stderr, got:\n%s", stderr.String())
+	}
+}
+
 func TestRun_OAuthFailure(t *testing.T) {
 	cleanEnv(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,13 +92,25 @@ func TestRun_OAuthFailure(t *testing.T) {
 	os.Setenv("PAYPAL_ENV", "sandbox")
 	os.Setenv("PAYPAL_CLIENT_ID", "bad_client_id")
 	os.Setenv("PAYPAL_CLIENT_SECRET", "bad_client_secret")
-	os.Setenv("PAYPAL_SANDBOX_BASE_URL", ts.URL)
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "bad_client_id",
+		PayPalClientSecret:   "bad_client_secret",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed creating test client: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"-env-file", "nonexistent.env"}, &stdout, &stderr)
+	code := runWithClient([]string{"-env-file", "nonexistent.env"}, &stdout, &stderr, testClient)
 
 	if code != 2 {
-		t.Fatalf("expected exit code 2 (FAILED) on OAuth failure, got: %d", code)
+		t.Fatalf("expected exit code 2 (FAILED) on OAuth failure, got: %d (stderr: %s)", code, stderr.String())
 	}
 
 	out := stdout.String()
@@ -114,10 +145,22 @@ func TestRun_LookupFailureReturnsNonZero(t *testing.T) {
 	os.Setenv("PAYPAL_ENV", "sandbox")
 	os.Setenv("PAYPAL_CLIENT_ID", "test_client_id")
 	os.Setenv("PAYPAL_CLIENT_SECRET", "test_client_secret")
-	os.Setenv("PAYPAL_SANDBOX_BASE_URL", ts.URL)
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "test_client_id",
+		PayPalClientSecret:   "test_client_secret",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed creating test client: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"-env-file", "nonexistent.env", "-batch-id", "BATCH-MISSING"}, &stdout, &stderr)
+	code := runWithClient([]string{"-env-file", "nonexistent.env", "-batch-id", "BATCH-MISSING"}, &stdout, &stderr, testClient)
 
 	if code != 1 {
 		t.Fatalf("expected exit code 1 on failed batch lookup, got: %d", code)
@@ -151,10 +194,22 @@ func TestRun_OAuthSuccessReadOnly(t *testing.T) {
 	os.Setenv("PAYPAL_ENV", "sandbox")
 	os.Setenv("PAYPAL_CLIENT_ID", "test_client_id")
 	os.Setenv("PAYPAL_CLIENT_SECRET", "test_client_secret")
-	os.Setenv("PAYPAL_SANDBOX_BASE_URL", ts.URL)
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "test_client_id",
+		PayPalClientSecret:   "test_client_secret",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed creating test client: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"-env-file", "nonexistent.env"}, &stdout, &stderr)
+	code := runWithClient([]string{"-env-file", "nonexistent.env"}, &stdout, &stderr, testClient)
 
 	if code != 0 {
 		t.Fatalf("expected exit code 0 on successful OAuth verification, got: %d", code)
@@ -202,10 +257,22 @@ func TestRun_SuccessfulBatchLookup(t *testing.T) {
 	os.Setenv("PAYPAL_ENV", "sandbox")
 	os.Setenv("PAYPAL_CLIENT_ID", "test_client_id")
 	os.Setenv("PAYPAL_CLIENT_SECRET", "test_client_secret")
-	os.Setenv("PAYPAL_SANDBOX_BASE_URL", ts.URL)
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "test_client_id",
+		PayPalClientSecret:   "test_client_secret",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed creating test client: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"-env-file", "nonexistent.env", "-batch-id", "BATCH-EXISTING"}, &stdout, &stderr)
+	code := runWithClient([]string{"-env-file", "nonexistent.env", "-batch-id", "BATCH-EXISTING"}, &stdout, &stderr, testClient)
 
 	if code != 0 {
 		t.Fatalf("expected exit code 0 on successful batch lookup, got: %d", code)
@@ -246,11 +313,23 @@ func TestRun_UnrequestedPayoutNeverExecutes(t *testing.T) {
 	os.Setenv("PAYPAL_ENV", "sandbox")
 	os.Setenv("PAYPAL_CLIENT_ID", "test_client_id")
 	os.Setenv("PAYPAL_CLIENT_SECRET", "test_client_secret")
-	os.Setenv("PAYPAL_SANDBOX_BASE_URL", ts.URL)
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "test_client_id",
+		PayPalClientSecret:   "test_client_secret",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed creating test client: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	// Run without payout flag
-	code := run([]string{"-env-file", "nonexistent.env"}, &stdout, &stderr)
+	code := runWithClient([]string{"-env-file", "nonexistent.env"}, &stdout, &stderr, testClient)
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got: %d", code)
 	}
@@ -283,10 +362,21 @@ func TestRun_EnvFileResolution(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	os.Setenv("PAYPAL_SANDBOX_BASE_URL", ts.URL)
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "custom_client_from_file",
+		PayPalClientSecret:   "custom_secret_from_file",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed creating test client: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"-env-file", envPath}, &stdout, &stderr)
+	code := runWithClient([]string{"-env-file", envPath}, &stdout, &stderr, testClient)
 
 	if code != 0 {
 		t.Fatalf("expected exit code 0 with resolved env file, got: %d with output:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())

@@ -103,7 +103,7 @@ func TestMission003_PayoutAcceptanceScenarios(t *testing.T) {
 	authService := auth.NewService(cfg, repo, mockMailer)
 	authHandler := auth.NewHandler(cfg, authService)
 	policyEngine := policy.NewEngine(cfg.PolicyEngineBinaryPath)
-	paypalClient, err := paypal.NewClient(cfg, fakePayPalServer.Client())
+	paypalClient, err := paypal.NewTestClient(cfg, fakePayPalServer.Client(), fakePayPalServer.URL)
 	if err != nil {
 		t.Fatalf("failed to create paypal client: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestMission003_PayoutAcceptanceScenarios(t *testing.T) {
 			},
 		}
 
-		timeoutPayPalClient, err := paypal.NewClient(&timeoutCfg, timeoutHTTPClient)
+		timeoutPayPalClient, err := paypal.NewTestClient(&timeoutCfg, timeoutHTTPClient, timeoutPayPalServer.URL)
 		if err != nil {
 			t.Fatalf("failed to create timeout paypal client: %v", err)
 		}

@@ -16,6 +16,11 @@ func main() {
 	itemIDFlag := flag.String("item-id", "", "Optional PayPal Payout Item ID for read-only lookup probe")
 	flag.Parse()
 
+	if *batchIDFlag != "" && *itemIDFlag != "" {
+		fmt.Fprintf(os.Stderr, "Error: ambiguous PayPal lookup invocation: both -batch-id (%s) and -item-id (%s) provided; specify only one\n", *batchIDFlag, *itemIDFlag)
+		os.Exit(1)
+	}
+
 	opts := readiness.RunnerOptions{
 		Profile: *profileFlag,
 		EnvFile: *envFileFlag,

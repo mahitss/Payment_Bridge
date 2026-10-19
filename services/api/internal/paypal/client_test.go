@@ -15,6 +15,29 @@ import (
 	"claimbridge/services/api/internal/config"
 )
 
+func TestNewClient_AcceptOfficialSandbox(t *testing.T) {
+	validHosts := []string{
+		"https://api-m.sandbox.paypal.com",
+		"https://api-m.sandbox.paypal.com/",
+		"  https://api-m.sandbox.paypal.com  ",
+	}
+
+	for _, host := range validHosts {
+		cfg := &config.Config{
+			AppEnv:        "development",
+			PayPalEnv:     "sandbox",
+			PayPalBaseURL: host,
+		}
+		c, err := NewClient(cfg, nil)
+		if err != nil {
+			t.Errorf("expected valid sandbox endpoint %q to pass, got: %v", host, err)
+		}
+		if c.baseURL != OfficialSandboxBaseURL {
+			t.Errorf("expected normalized baseURL %q, got %q", OfficialSandboxBaseURL, c.baseURL)
+		}
+	}
+}
+
 func TestNewClient_RejectProductionHosts(t *testing.T) {
 	badHosts := []string{
 		"https://api.paypal.com",
@@ -34,6 +57,74 @@ func TestNewClient_RejectProductionHosts(t *testing.T) {
 		if !errors.Is(err, ErrProductionHostBlocked) {
 			t.Errorf("expected ErrProductionHostBlocked for host %s, got: %v", host, err)
 		}
+	}
+}
+
+func TestNewClient_RejectUnsafeEndpoints(t *testing.T) {
+	unsafe := []struct {
+		url     string
+		desc    string
+		errType error
+	}{
+		{"", "empty URL", ErrInvalidSandboxEndpoint},
+		{"https://attacker.com", "arbitrary HTTPS host", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com.attacker.com", "subdomain suffix attempt", ErrInvalidSandboxEndpoint},
+		{"http://api-m.sandbox.paypal.com", "plain HTTP scheme", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com:8443", "unexpected port 8443", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com:8080", "unexpected port 8080", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com/v1/payments", "unexpected path", ErrInvalidSandboxEndpoint},
+		{"https://user:pass@api-m.sandbox.paypal.com", "embedded credentials", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com?query=1", "query parameters", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com#fragment", "fragment identifier", ErrInvalidSandboxEndpoint},
+	}
+
+	for _, tc := range unsafe {
+		cfg := &config.Config{
+			PayPalEnv:     "sandbox",
+			PayPalBaseURL: tc.url,
+		}
+		_, err := NewClient(cfg, nil)
+		if err == nil {
+			t.Errorf("expected error for %s (%q), got nil", tc.desc, tc.url)
+		}
+		if tc.errType != nil && !errors.Is(err, tc.errType) {
+			t.Errorf("expected %v for %s, got: %v", tc.errType, tc.desc, err)
+		}
+	}
+}
+
+func TestNewClient_FailClosedBeforeDispatch(t *testing.T) {
+	// Proves that invalid endpoint configuration fails during NewClient,
+	// BEFORE any HTTP connection or credential-bearing request can be dispatched.
+	cfg := &config.Config{
+		PayPalEnv:          "sandbox",
+		PayPalBaseURL:      "https://malicious-collector.com",
+		PayPalClientID:     "SECRET_CLIENT_ID_NEVER_LEAK",
+		PayPalClientSecret: "SECRET_PASSWORD_NEVER_LEAK",
+	}
+
+	client, err := NewClient(cfg, nil)
+	if err == nil {
+		t.Fatal("expected NewClient to fail immediately for non-sandbox URL, got nil")
+	}
+	if client != nil {
+		t.Fatal("expected returned client to be nil on validation error")
+	}
+}
+
+func TestNewClient_SimulatedEndpointForbiddenInProduction(t *testing.T) {
+	cfg := &config.Config{
+		AppEnv:        "production",
+		PayPalEnv:     "sandbox",
+		PayPalBaseURL: OfficialSandboxBaseURL,
+	}
+
+	_, err := NewTestClient(cfg, nil, "http://127.0.0.1:54321")
+	if err == nil {
+		t.Fatal("expected error when WithSimulatedBaseURL used in production, got nil")
+	}
+	if !errors.Is(err, ErrSimulatedEndpointForbidden) {
+		t.Errorf("expected ErrSimulatedEndpointForbidden, got: %v", err)
 	}
 }
 
@@ -87,7 +178,7 @@ func TestClient_GetAccessToken_SuccessAndCaching(t *testing.T) {
 		PayPalRequestTimeout: 5 * time.Second,
 	}
 
-	client, err := NewClient(cfg, ts.Client())
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -159,7 +250,7 @@ func TestClient_GetPayoutBatch_SuccessAndNotFound(t *testing.T) {
 		PayPalRequestTimeout: 5 * time.Second,
 	}
 
-	client, err := NewClient(cfg, ts.Client())
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -217,7 +308,7 @@ func TestClient_CreatePayout_AmbiguousTimeoutSafety(t *testing.T) {
 		PayPalRequestTimeout: 5 * time.Second,
 	}
 
-	client, err := NewClient(cfg, ts.Client())
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -291,7 +382,7 @@ func TestClient_CancelPayoutItem(t *testing.T) {
 		PayPalRequestTimeout: 5 * time.Second,
 	}
 
-	client, err := NewClient(cfg, ts.Client())
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -337,7 +428,7 @@ func TestClient_CheckConnection(t *testing.T) {
 		PayPalRequestTimeout: 5 * time.Second,
 	}
 
-	client, err := NewClient(cfg, ts.Client())
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
@@ -371,7 +462,7 @@ func TestClient_GetAccessToken_UnauthorizedAndForbidden(t *testing.T) {
 		PayPalClientSecret:   "bad_secret",
 		PayPalRequestTimeout: 5 * time.Second,
 	}
-	client401, _ := NewClient(cfg401, ts.Client())
+	client401, _ := NewTestClient(cfg401, ts.Client(), ts.URL)
 	_, err401 := client401.GetAccessToken(context.Background())
 	if !errors.Is(err401, ErrUnauthorized) {
 		t.Errorf("expected ErrUnauthorized on 401, got: %v", err401)
@@ -385,7 +476,7 @@ func TestClient_GetAccessToken_UnauthorizedAndForbidden(t *testing.T) {
 		PayPalClientSecret:   "secret",
 		PayPalRequestTimeout: 5 * time.Second,
 	}
-	client403, _ := NewClient(cfg403, ts.Client())
+	client403, _ := NewTestClient(cfg403, ts.Client(), ts.URL)
 	_, err403 := client403.GetAccessToken(context.Background())
 	if !errors.Is(err403, ErrForbidden) {
 		t.Errorf("expected ErrForbidden on 403, got: %v", err403)
@@ -422,7 +513,7 @@ func TestClient_GetPayoutBatch_UnauthorizedAndForbidden(t *testing.T) {
 		PayPalClientSecret:   "secret",
 		PayPalRequestTimeout: 5 * time.Second,
 	}
-	client, _ := NewClient(cfg, ts.Client())
+	client, _ := NewTestClient(cfg, ts.Client(), ts.URL)
 	ctx := context.Background()
 
 	_, err401 := client.GetPayoutBatch(ctx, "BATCH-401")

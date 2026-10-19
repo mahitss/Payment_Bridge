@@ -56,7 +56,7 @@ func setupTestService(t *testing.T, paypalHandler http.HandlerFunc) (*Service, *
 		t.Cleanup(ts.Close)
 
 		cfg.PayPalBaseURL = ts.URL
-		client, err := paypal.NewClient(cfg, ts.Client())
+		client, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
 		if err != nil {
 			t.Fatalf("failed to create paypal test client: %v", err)
 		}

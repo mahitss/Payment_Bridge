@@ -25,13 +25,18 @@ type RunnerOptions struct {
 	BaseURL      string
 	WebURL       string
 	DBPingFn     func(context.Context) error
-	PayPalClient *paypal.Client
+	PayPalClient PayPalReadOnlyClient
 	AIProvider   ai.AIProvider
 	HTTPClient   *http.Client
 }
 
 // Run executes the diagnostic suite according to the selected profile and options.
 func Run(ctx context.Context, opts RunnerOptions, stdout, stderr io.Writer) (*Summary, error) {
+	// 0. Validate mutually exclusive lookup flags
+	if opts.BatchID != "" && opts.ItemID != "" {
+		return nil, fmt.Errorf("ambiguous lookup invocation: both -batch-id (%s) and -item-id (%s) provided; specify only one", opts.BatchID, opts.ItemID)
+	}
+
 	// 1. Resolve Profile
 	profileName := strings.ToLower(strings.TrimSpace(opts.Profile))
 	if profileName == "" {
@@ -87,7 +92,27 @@ func Run(ctx context.Context, opts RunnerOptions, stdout, stderr io.Writer) (*Su
 	}
 	fmt.Fprintln(stdout, "================================================================================")
 
-	// 5. Execute Probes
+	// 5. Initialize PayPal Client for the diagnostic run if permitted and not injected
+	var ppClient PayPalReadOnlyClient = opts.PayPalClient
+	var ppInitErr error
+	if ppClient == nil {
+		if cfg.PayPalClientID != "" && cfg.PayPalClientSecret != "" {
+			if cfg.PayPalEnv != "sandbox" {
+				ppInitErr = paypal.ErrSandboxAssertionFailed
+			} else if err := paypal.ValidateSandboxBaseURL(cfg.PayPalBaseURL); err != nil {
+				ppInitErr = err
+			} else {
+				c, err := paypal.NewClient(cfg, nil)
+				if err != nil {
+					ppInitErr = err
+				} else {
+					ppClient = c
+				}
+			}
+		}
+	}
+
+	// 6. Execute Probes
 	var rawResults []CheckResult
 
 	// Check 1: PostgreSQL
@@ -106,15 +131,19 @@ func Run(ctx context.Context, opts RunnerOptions, stdout, stderr io.Writer) (*Su
 	rawResults = append(rawResults, ProbeWebFrontend(ctx, httpClient, webURL))
 
 	// Check 6: PayPal Sandbox OAuth
-	rawResults = append(rawResults, ProbePayPalOAuth(ctx, cfg, opts.PayPalClient))
+	oauthRes := ProbePayPalOAuth(ctx, cfg, ppClient, ppInitErr)
+	rawResults = append(rawResults, oauthRes)
 
 	// Check 7: PayPal Read-Only Lookup
-	rawResults = append(rawResults, ProbePayPalLookup(ctx, opts.PayPalClient, opts.BatchID, opts.ItemID))
+	rawResults = append(rawResults, ProbePayPalLookup(ctx, ppClient, oauthRes.Status, opts.BatchID, opts.ItemID))
 
 	// Check 8: AI Reachability & Model Availability
 	rawResults = append(rawResults, ProbeAIHealth(ctx, cfg, opts.AIProvider))
 
 	// Check 9: Genuine AI Model Inference Probe
+	isMockAI := (opts.AIProvider != nil && opts.AIProvider.Name() == "mock") ||
+		(opts.AIProvider == nil && (strings.EqualFold(cfg.AIProvider, "mock") || cfg.AIProvider == ""))
+
 	if activeProfile == ProfileCore && !cfg.AIEnabled {
 		rawResults = append(rawResults, CheckResult{
 			ID:       9,
@@ -124,14 +153,15 @@ func Run(ctx context.Context, opts RunnerOptions, stdout, stderr io.Writer) (*Su
 			Summary:  "Inference probe skipped in core profile (AI disabled)",
 			Detail:   "Core profile does not require live model inference.",
 		})
-	} else if activeProfile == ProfileCore && opts.AIProvider != nil && opts.AIProvider.Name() == "mock" {
+	} else if activeProfile == ProfileCore && isMockAI {
 		rawResults = append(rawResults, CheckResult{
-			ID:       9,
-			Name:     "Genuine AI Model Inference & Grounding Probe",
-			Category: "AI Model Verification",
-			Status:   StatusWarn,
-			Summary:  "Mock AI provider configured (skipped in core profile)",
-			Detail:   "Core profile permits mock AI for unit development.",
+			ID:             9,
+			Name:           "Genuine AI Model Inference & Grounding Probe",
+			Category:       "AI Model Verification",
+			Status:         StatusWarn,
+			Summary:        "Mock AI provider configured (informational only in core profile)",
+			Detail:         "Core profile permits mock AI for unit development. Live model inference probe is skipped.",
+			OperatorAction: "Configure AI_PROVIDER=ollama and AI_MODEL=llama3.2 for genuine model inference",
 		})
 	} else {
 		rawResults = append(rawResults, ProbeAIInference(ctx, cfg, opts.AIProvider))

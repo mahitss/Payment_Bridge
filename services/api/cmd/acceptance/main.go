@@ -126,7 +126,7 @@ func main() {
 	authService := auth.NewService(cfg, repo, mockMailer)
 	authHandler := auth.NewHandler(cfg, authService)
 	policyEngine := policy.NewEngine(cfg.PolicyEngineBinaryPath)
-	paypalClient, _ := paypal.NewClient(cfg, fakePayPalServer.Client())
+	paypalClient, _ := paypal.NewTestClient(cfg, fakePayPalServer.Client(), fakePayPalServer.URL)
 	payoutsService := payouts.NewService(cfg, repo, policyEngine, paypalClient)
 	payoutsHandler := payouts.NewHandler(cfg, payoutsService)
 
@@ -967,7 +967,7 @@ func main() {
 			DisableKeepAlives: true,
 		},
 	}
-	timeoutPayPalClient, err := paypal.NewClient(&timeoutCfg, timeoutHTTPClient)
+	timeoutPayPalClient, err := paypal.NewTestClient(&timeoutCfg, timeoutHTTPClient, timeoutPayPalServer.URL)
 	if err != nil {
 		fmt.Printf("failed to create timeout paypal client: %v\n", err)
 	}

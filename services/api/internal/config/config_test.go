@@ -145,6 +145,48 @@ func TestConfig_ValidatePayPalCredentials(t *testing.T) {
 	}
 }
 
+func TestValidatePayPalSandboxEndpoint(t *testing.T) {
+	// Valid variations
+	valid := []string{
+		"https://api-m.sandbox.paypal.com",
+		"https://api-m.sandbox.paypal.com/",
+		"  https://api-m.sandbox.paypal.com  ",
+	}
+	for _, v := range valid {
+		if err := ValidatePayPalSandboxEndpoint(v); err != nil {
+			t.Errorf("expected valid URL %q to pass, got: %v", v, err)
+		}
+	}
+
+	// Invalid variations
+	invalid := []struct {
+		url     string
+		desc    string
+		errType error
+	}{
+		{"", "empty URL", ErrInvalidSandboxEndpoint},
+		{"https://api.paypal.com", "production host api.paypal.com", ErrProductionHostBlocked},
+		{"https://api-m.paypal.com", "production host api-m.paypal.com", ErrProductionHostBlocked},
+		{"https://www.paypal.com", "production host www.paypal.com", ErrProductionHostBlocked},
+		{"https://attacker.com", "arbitrary host", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com.evil.com", "subdomain takeover attempt", ErrInvalidSandboxEndpoint},
+		{"http://api-m.sandbox.paypal.com", "plain HTTP scheme", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com:8443", "unexpected port 8443", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com:80", "port 80", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com/v1/payments", "unexpected path", ErrInvalidSandboxEndpoint},
+		{"https://user:pass@api-m.sandbox.paypal.com", "embedded userinfo", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com?query=1", "query parameters", ErrInvalidSandboxEndpoint},
+		{"https://api-m.sandbox.paypal.com#fragment", "fragment identifier", ErrInvalidSandboxEndpoint},
+	}
+
+	for _, tc := range invalid {
+		err := ValidatePayPalSandboxEndpoint(tc.url)
+		if err == nil {
+			t.Errorf("expected error for %s (%q), got nil", tc.desc, tc.url)
+		}
+	}
+}
+
 func TestResolveAndLoadEnvFiles(t *testing.T) {
 	// Create temporary env file using t.TempDir()
 	tempDir := t.TempDir()

@@ -20,6 +20,10 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWithClient(args, stdout, stderr, nil)
+}
+
+func runWithClient(args []string, stdout, stderr io.Writer, injectedClient *paypal.Client) int {
 	fs := flag.NewFlagSet("paypal-smoke", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -67,10 +71,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	effectiveBaseURL := cfg.PayPalBaseURL
+	if injectedClient != nil {
+		effectiveBaseURL = injectedClient.BaseURL()
+	}
+
 	fmt.Fprintln(stdout, "\n[1/3] Environment Security Audit:")
 	fmt.Fprintf(stdout, "  • Application Environment : %s\n", cfg.AppEnv)
 	fmt.Fprintf(stdout, "  • PayPal Target Mode      : %s [VERIFIED SANDBOX]\n", cfg.PayPalEnv)
-	fmt.Fprintf(stdout, "  • PayPal Base URL         : %s\n", cfg.PayPalBaseURL)
+	fmt.Fprintf(stdout, "  • PayPal Base URL         : %s\n", effectiveBaseURL)
 	fmt.Fprintf(stdout, "  • Request Timeout         : %s\n", cfg.PayPalRequestTimeout)
 
 	// 4. Credential Availability Check
@@ -100,10 +109,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// 5. Initialize PayPal Sandbox Client
-	client, err := paypal.NewClient(cfg, nil)
-	if err != nil {
-		fmt.Fprintf(stderr, "\n[ERROR] Failed to construct PayPal sandbox client: %v\n", err)
-		return 1
+	client := injectedClient
+	if client == nil {
+		var cErr error
+		client, cErr = paypal.NewClient(cfg, nil)
+		if cErr != nil {
+			fmt.Fprintf(stderr, "\n[ERROR] Failed to construct PayPal sandbox client: %v\n", cErr)
+			return 1
+		}
 	}
 
 	// 6. Test OAuth2 Authentication

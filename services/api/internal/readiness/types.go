@@ -1,5 +1,11 @@
 package readiness
 
+import (
+	"context"
+
+	"claimbridge/services/api/internal/paypal"
+)
+
 // CheckStatus represents the discrete result of an individual diagnostic check.
 type CheckStatus string
 
@@ -46,4 +52,12 @@ type Summary struct {
 	IsReady       bool          `json:"is_ready"`
 	ExitCode      int           `json:"exit_code"`
 	Results       []CheckResult `json:"results"`
+}
+
+// PayPalReadOnlyClient defines the minimal read-only operations required for readiness verification.
+// It strictly excludes any payout initiation, submission, mutation, or cancellation.
+type PayPalReadOnlyClient interface {
+	GetAccessToken(ctx context.Context) (string, error)
+	GetPayoutBatch(ctx context.Context, batchID string) (*paypal.PayoutBatchResponse, error)
+	GetPayoutItem(ctx context.Context, itemID string) (*paypal.PayoutItemResponse, error)
 }

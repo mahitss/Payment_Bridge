@@ -142,6 +142,7 @@ func ProbeAPIHealth(ctx context.Context, client *http.Client, baseURL string) Ch
 }
 
 // ProbeAPIReadiness verifies storage health and operational status via /readyz.
+// Strictly requires HTTP 200, valid JSON, status == "ready", and database == "connected".
 func ProbeAPIReadiness(ctx context.Context, client *http.Client, baseURL string) CheckResult {
 	res := CheckResult{
 		ID:       3,
@@ -150,7 +151,10 @@ func ProbeAPIReadiness(ctx context.Context, client *http.Client, baseURL string)
 	}
 
 	url := fmt.Sprintf("%s/readyz", baseURL)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, url, nil)
 	if err != nil {
 		res.Status = StatusFail
 		res.Summary = "Failed to construct request to /readyz"
@@ -161,35 +165,97 @@ func ProbeAPIReadiness(ctx context.Context, client *http.Client, baseURL string)
 	resp, err := client.Do(req)
 	if err != nil {
 		res.Status = StatusFail
-		res.Summary = "Go API /readyz unreachable"
-		res.Detail = err.Error()
+		res.Summary = "Go API /readyz unreachable or timed out"
+		res.Detail = "Request failed: connection refused or timeout exceeded"
 		res.OperatorAction = "Ensure Go API server is running on configured port"
 		return res
 	}
 	defer resp.Body.Close()
 
-	var data map[string]interface{}
-	decodeErr := json.NewDecoder(resp.Body).Decode(&data)
+	// Bounded read (max 64KB) to prevent unbounded memory consumption from rogue payloads
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 65536))
+	if err != nil {
+		res.Status = StatusFail
+		res.Summary = "Failed to read /readyz response body"
+		res.Detail = "I/O error during bounded read"
+		return res
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		res.Status = StatusFail
-		dbStatus := "unknown"
-		if decodeErr == nil && data["database"] != nil {
-			dbStatus = fmt.Sprintf("%v", data["database"])
-		}
-		res.Summary = fmt.Sprintf("Go API degraded (HTTP %d, DB: %s)", resp.StatusCode, dbStatus)
-		res.Detail = "Storage readiness check reported non-ready state."
+		res.Summary = fmt.Sprintf("Go API readiness returned HTTP %d", resp.StatusCode)
+		res.Detail = "Storage readiness check reported non-200 status code."
 		res.OperatorAction = "Check PostgreSQL container and migrations"
 		return res
 	}
 
-	dbStatus := "connected"
-	if decodeErr == nil && data["database"] != nil {
-		dbStatus = fmt.Sprintf("%v", data["database"])
+	trimmedBody := bytes.TrimSpace(bodyBytes)
+	if len(trimmedBody) == 0 {
+		res.Status = StatusFail
+		res.Summary = "Empty response body from /readyz"
+		res.Detail = "Expected JSON payload with status and database fields"
+		res.OperatorAction = "Check Go API server logs for internal panic or malformed response"
+		return res
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(trimmedBody, &data); err != nil {
+		res.Status = StatusFail
+		res.Summary = "Malformed JSON response from /readyz"
+		res.Detail = "Response body could not be parsed as valid JSON"
+		res.OperatorAction = "Check Go API server /readyz handler response format"
+		return res
+	}
+
+	statusRaw, hasStatus := data["status"]
+	if !hasStatus || statusRaw == nil {
+		res.Status = StatusFail
+		res.Summary = "Missing 'status' field in /readyz response"
+		res.Detail = "Response JSON did not contain 'status' attribute"
+		return res
+	}
+	statusStr, isString := statusRaw.(string)
+	if !isString || statusStr == "" {
+		res.Status = StatusFail
+		res.Summary = "Invalid 'status' field in /readyz response"
+		res.Detail = "Field 'status' must be a non-empty string"
+		return res
+	}
+
+	dbRaw, hasDB := data["database"]
+	if !hasDB || dbRaw == nil {
+		res.Status = StatusFail
+		res.Summary = "Missing 'database' field in /readyz response"
+		res.Detail = "Response JSON did not contain 'database' attribute"
+		return res
+	}
+	dbStr, isDBString := dbRaw.(string)
+	if !isDBString || dbStr == "" {
+		res.Status = StatusFail
+		res.Summary = "Invalid 'database' field in /readyz response"
+		res.Detail = "Field 'database' must be a non-empty string"
+		return res
+	}
+
+	if statusStr != "ready" {
+		res.Status = StatusFail
+		res.Summary = fmt.Sprintf("Go API reported non-ready status: %s", statusStr)
+		res.Detail = fmt.Sprintf("Expected status 'ready', got %q", statusStr)
+		res.OperatorAction = "Inspect service readiness logs"
+		return res
+	}
+
+	if dbStr != "connected" {
+		res.Status = StatusFail
+		res.Summary = fmt.Sprintf("Go API database reported non-healthy status: %s", dbStr)
+		res.Detail = fmt.Sprintf("Expected database 'connected', got %q", dbStr)
+		res.OperatorAction = "Check PostgreSQL container connectivity and migrations"
+		return res
 	}
 
 	res.Status = StatusPass
-	res.Summary = fmt.Sprintf("HTTP 200 OK (Status: ready, DB: %s)", dbStatus)
+	res.Summary = fmt.Sprintf("HTTP 200 OK (Status: %s, DB: %s)", statusStr, dbStr)
+	res.Detail = "Storage connectivity and API operational readiness verified."
 	return res
 }
 
@@ -301,7 +367,7 @@ func ProbeWebFrontend(ctx context.Context, client *http.Client, webURL string) C
 
 // ProbePayPalOAuth verifies PayPal Sandbox OAuth2 authentication.
 // Tokens and credentials are never leaked. Production hosts are strictly rejected.
-func ProbePayPalOAuth(ctx context.Context, cfg *config.Config, client *paypal.Client) CheckResult {
+func ProbePayPalOAuth(ctx context.Context, cfg *config.Config, client PayPalReadOnlyClient, initErr error) CheckResult {
 	res := CheckResult{
 		ID:       6,
 		Name:     "PayPal Sandbox OAuth Verification",
@@ -323,15 +389,18 @@ func ProbePayPalOAuth(ctx context.Context, cfg *config.Config, client *paypal.Cl
 		return res
 	}
 
+	if initErr != nil {
+		res.Status = StatusFail
+		res.Summary = "Failed to initialize PayPal client"
+		res.Detail = initErr.Error()
+		return res
+	}
+
 	if client == nil {
-		var cErr error
-		client, cErr = paypal.NewClient(cfg, nil)
-		if cErr != nil {
-			res.Status = StatusFail
-			res.Summary = "Failed to initialize PayPal client"
-			res.Detail = cErr.Error()
-			return res
-		}
+		res.Status = StatusBlocked
+		res.Summary = "PayPal client unavailable"
+		res.Detail = "Client could not be constructed from configuration."
+		return res
 	}
 
 	probeCtx, cancel := context.WithTimeout(ctx, cfg.PayPalRequestTimeout)
@@ -366,7 +435,8 @@ func ProbePayPalOAuth(ctx context.Context, cfg *config.Config, client *paypal.Cl
 }
 
 // ProbePayPalLookup performs an optional read-only batch or item status lookup in PayPal Sandbox.
-func ProbePayPalLookup(ctx context.Context, client *paypal.Client, batchID, itemID string) CheckResult {
+// Strictly read-only; never creates, mutates, or cancels a payout.
+func ProbePayPalLookup(ctx context.Context, client PayPalReadOnlyClient, oauthStatus CheckStatus, batchID, itemID string) CheckResult {
 	res := CheckResult{
 		ID:       7,
 		Name:     "PayPal Read-Only Payout Lookup",
@@ -377,6 +447,22 @@ func ProbePayPalLookup(ctx context.Context, client *paypal.Client, batchID, item
 		res.Status = StatusSkipped
 		res.Summary = "Unrequested (No batch or item ID supplied)"
 		res.Detail = "OAuth verified independently; read-only query skipped (supply -batch-id or -item-id to test)"
+		return res
+	}
+
+	if oauthStatus == StatusBlocked {
+		res.Status = StatusBlocked
+		res.Summary = "Lookup blocked: PayPal credentials unconfigured or missing"
+		res.Detail = "Read-only lookup requires verified OAuth authentication."
+		res.OperatorAction = "Configure sandbox credentials in .env to enable payout lookups"
+		return res
+	}
+
+	if oauthStatus != StatusPass {
+		res.Status = StatusBlocked
+		res.Summary = "Lookup blocked: PayPal OAuth verification did not succeed"
+		res.Detail = fmt.Sprintf("OAuth check reported status %s; read-only lookup aborted to avoid dispatching unauthenticated requests", oauthStatus)
+		res.OperatorAction = "Resolve OAuth authentication failure (Check 6) before attempting payout lookup"
 		return res
 	}
 

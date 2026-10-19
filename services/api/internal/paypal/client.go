@@ -20,15 +20,20 @@ import (
 )
 
 var (
-	ErrProductionHostBlocked   = errors.New("security violation: production PayPal host detected; only sandbox permitted")
-	ErrMissingCredentials      = errors.New("paypal credentials missing: client_id and client_secret are required")
-	ErrUnauthorized            = errors.New("paypal authentication failed: invalid client credentials")
-	ErrForbidden               = errors.New("paypal operation forbidden: insufficient permissions or account restricted")
-	ErrPayoutNotFound          = errors.New("paypal payout batch or item not found")
-	ErrAmbiguousNetworkTimeout = errors.New("ambiguous network timeout during payout mutation: DO NOT RETRY WITH NEW ID; run reconciliation")
-	ErrInvalidPayoutRequest    = errors.New("invalid payout request: missing sender_batch_id or items")
-	ErrSandboxAssertionFailed  = errors.New("paypal environment is not sandbox")
+	ErrProductionHostBlocked      = errors.New("security violation: production PayPal host detected; only sandbox permitted")
+	ErrInvalidSandboxEndpoint     = errors.New("security violation: invalid PayPal Sandbox endpoint; only https://api-m.sandbox.paypal.com is allowed")
+	ErrSimulatedEndpointForbidden = errors.New("security violation: simulated PayPal endpoint is forbidden in production environment")
+	ErrMissingCredentials         = errors.New("paypal credentials missing: client_id and client_secret are required")
+	ErrUnauthorized               = errors.New("paypal authentication failed: invalid client credentials")
+	ErrForbidden                  = errors.New("paypal operation forbidden: insufficient permissions or account restricted")
+	ErrPayoutNotFound             = errors.New("paypal payout batch or item not found")
+	ErrAmbiguousNetworkTimeout    = errors.New("ambiguous network timeout during payout mutation: DO NOT RETRY WITH NEW ID; run reconciliation")
+	ErrInvalidPayoutRequest       = errors.New("invalid payout request: missing sender_batch_id or items")
+	ErrSandboxAssertionFailed     = errors.New("paypal environment is not sandbox")
 )
+
+// OfficialSandboxBaseURL is the immutable official PayPal sandbox API endpoint.
+const OfficialSandboxBaseURL = "https://api-m.sandbox.paypal.com"
 
 // Client is a server-side PayPal REST API client configured strictly for Sandbox.
 type Client struct {
@@ -40,6 +45,11 @@ type Client struct {
 	tokenMu     sync.RWMutex
 	cachedToken string
 	tokenExpiry time.Time
+}
+
+// BaseURL returns the configured base URL for the client.
+func (c *Client) BaseURL() string {
+	return c.baseURL
 }
 
 // OAuthTokenResponse represents the response from PayPal OAuth2 token endpoint.
@@ -126,20 +136,96 @@ type CreatePayoutResponse struct {
 	Links       []LinkDescription `json:"links,omitempty"`
 }
 
-// NewClient initializes a PayPal sandbox client with strict security assertions.
-func NewClient(cfg *config.Config, httpClient *http.Client) (*Client, error) {
-	if cfg.PayPalEnv != "sandbox" {
-		return nil, ErrSandboxAssertionFailed
+// ValidateSandboxBaseURL verifies that the URL strictly targets the official PayPal sandbox.
+func ValidateSandboxBaseURL(rawURL string) error {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return fmt.Errorf("%w: endpoint URL cannot be empty", ErrInvalidSandboxEndpoint)
 	}
 
-	u, err := url.Parse(cfg.PayPalBaseURL)
+	u, err := url.Parse(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("invalid paypal base URL: %w", err)
+		return fmt.Errorf("%w: malformed URL: %w", ErrInvalidSandboxEndpoint, err)
+	}
+
+	if u.User != nil {
+		return fmt.Errorf("%w: embedded credentials/userinfo not allowed", ErrInvalidSandboxEndpoint)
 	}
 
 	host := strings.ToLower(u.Hostname())
 	if host == "api.paypal.com" || host == "api-m.paypal.com" || host == "www.paypal.com" {
-		return nil, fmt.Errorf("%w: cannot use production host %s", ErrProductionHostBlocked, host)
+		return fmt.Errorf("%w: %s is a production host", ErrProductionHostBlocked, host)
+	}
+
+	if strings.ToLower(u.Scheme) != "https" {
+		return fmt.Errorf("%w: scheme must be https, got %q", ErrInvalidSandboxEndpoint, u.Scheme)
+	}
+
+	if host != "api-m.sandbox.paypal.com" {
+		return fmt.Errorf("%w: host must be api-m.sandbox.paypal.com, got %q", ErrInvalidSandboxEndpoint, host)
+	}
+
+	port := u.Port()
+	if port != "" && port != "443" {
+		return fmt.Errorf("%w: unexpected port %q; only standard HTTPS (443) permitted", ErrInvalidSandboxEndpoint, port)
+	}
+
+	if u.Path != "" && u.Path != "/" {
+		return fmt.Errorf("%w: unexpected URL path %q; base URL must not contain a path", ErrInvalidSandboxEndpoint, u.Path)
+	}
+
+	if u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%w: query parameters or fragments not permitted", ErrInvalidSandboxEndpoint)
+	}
+
+	return nil
+}
+
+// ClientOption configures optional behavior on Client construction.
+type ClientOption func(*clientOptions)
+
+type clientOptions struct {
+	simulatedBaseURL string
+}
+
+// WithSimulatedBaseURL is an explicit testing option allowing test suites to target
+// simulated local HTTP test servers (e.g. httptest.Server).
+func WithSimulatedBaseURL(testURL string) ClientOption {
+	return func(o *clientOptions) {
+		o.simulatedBaseURL = strings.TrimRight(testURL, "/")
+	}
+}
+
+// NewTestClient is a convenience test constructor that configures a simulated endpoint.
+func NewTestClient(cfg *config.Config, httpClient *http.Client, simulatedURL string) (*Client, error) {
+	return NewClient(cfg, httpClient, WithSimulatedBaseURL(simulatedURL))
+}
+
+// NewClient initializes a PayPal sandbox client with strict security assertions.
+// By default, it strictly validates that the endpoint is https://api-m.sandbox.paypal.com.
+func NewClient(cfg *config.Config, httpClient *http.Client, opts ...ClientOption) (*Client, error) {
+	if cfg.PayPalEnv != "sandbox" {
+		return nil, ErrSandboxAssertionFailed
+	}
+
+	var options clientOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
+
+	targetURL := OfficialSandboxBaseURL
+	if options.simulatedBaseURL != "" {
+		if strings.EqualFold(cfg.AppEnv, "production") {
+			return nil, ErrSimulatedEndpointForbidden
+		}
+		targetURL = options.simulatedBaseURL
+	} else {
+		if err := ValidateSandboxBaseURL(cfg.PayPalBaseURL); err != nil {
+			return nil, err
+		}
+		targetURL = OfficialSandboxBaseURL
 	}
 
 	if httpClient == nil {
@@ -149,7 +235,7 @@ func NewClient(cfg *config.Config, httpClient *http.Client) (*Client, error) {
 	}
 
 	return &Client{
-		baseURL:      strings.TrimRight(cfg.PayPalBaseURL, "/"),
+		baseURL:      targetURL,
 		clientID:     cfg.PayPalClientID,
 		clientSecret: cfg.PayPalClientSecret,
 		httpClient:   httpClient,
