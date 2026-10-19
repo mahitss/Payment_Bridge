@@ -233,7 +233,7 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
             tail -n 120 playwright.log >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            grep -E '(Error:|✕|failed|TimeoutError|expected)' playwright.log | head -n 30 | while IFS= read -r line; do
+            grep -i -E '(Error:|✕|failed|TimeoutError|expected|received)' playwright.log | head -n 40 | while IFS= read -r line; do
               echo "::error title=Playwright Failure::$line"
             done
             exit $status

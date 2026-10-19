@@ -30,7 +30,7 @@ var (
 	ErrOperationCannotBeSubmitted        = errors.New("operation cannot be submitted from current status")
 	ErrCaseInTerminalState               = errors.New("cannot perform operation on case in terminal status")
 	ErrOperationAlreadyCancelled         = errors.New("payout operation is already cancelled")
-	ErrFixtureExternalOperationForbidden = errors.New("cannot perform external PayPal operation on synthetic demo fixture: demo fixtures are strictly isolated from live financial destinations")
+	ErrFixtureExternalOperationForbidden = errors.New("forbidden on synthetic demo fixtures: cannot perform external PayPal operation on synthetic demo fixture: demo fixtures are strictly isolated from live financial destinations")
 )
 
 // Service encapsulates business logic for Payout Cases, Operations, and PayPal Sandbox integration.
@@ -515,13 +515,14 @@ func (s *Service) CancelPayoutOperation(ctx context.Context, user *db.User, org 
 		return nil, err
 	}
 
-	if op.Status == "CANCELLED" {
-		return nil, ErrOperationAlreadyCancelled
+	// Synthetic fixture boundary: demo fixtures cannot be cancelled or sent to live PayPal
+	pCase, _ := s.repo.GetPayoutCaseByID(ctx, org.ID, op.PayoutCaseID)
+	if op.IsSyntheticFixture || (pCase != nil && pCase.IsSyntheticFixture) {
+		return nil, ErrFixtureExternalOperationForbidden
 	}
 
-	// Synthetic fixture boundary: demo fixtures cannot be cancelled or sent to live PayPal
-	if op.IsSyntheticFixture {
-		return nil, ErrFixtureExternalOperationForbidden
+	if op.Status == "CANCELLED" {
+		return nil, ErrOperationAlreadyCancelled
 	}
 
 	// If local prepared or awaiting approval, cancel immediately
