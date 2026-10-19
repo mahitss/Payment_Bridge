@@ -86,9 +86,9 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     await approveButton.click();
 
     // 5. Confirm in modal
-    const confirmModal = page.locator("h3:has-text('Confirm Dual-Custody Approval')");
+    const confirmModal = page.locator("h3:has-text('Authorize Dual-Custody Approval')");
     await expect(confirmModal).toBeVisible();
-    await page.locator('div.fixed button:has-text("Confirm Dual-Custody Approval")').click();
+    await page.getByRole("button", { name: "Confirm Approval" }).click();
 
     // 6. Verify success banner
     await expect(

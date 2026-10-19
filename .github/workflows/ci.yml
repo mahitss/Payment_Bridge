@@ -227,7 +227,7 @@ jobs:
         working-directory: apps/web
         run: |
           set -o pipefail
-          npx playwright test --reporter=list 2>&1 | tee playwright.log || {
+          npx playwright test --reporter=list,html 2>&1 | tee playwright.log || {
             status=$?
             echo "### Playwright Test Failures" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
@@ -257,6 +257,8 @@ jobs:
         run: |
           echo "=== RECENT API LOGS ==="
           tail -n 100 services/api/api.log 2>/dev/null || true
+          echo "=== RECENT PLAYWRIGHT LOGS ==="
+          tail -n 100 apps/web/playwright.log 2>/dev/null || true
 
   security-checks:
     name: Security & Secret Audit

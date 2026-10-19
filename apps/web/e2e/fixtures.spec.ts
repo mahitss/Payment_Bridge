@@ -80,8 +80,8 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     await expect(aiEngine.locator("text=Simulated Evaluation Fixture")).toBeVisible();
 
     // Verify pre-seeded investigation details are displayed
-    // The seeder seeds a synthetic investigation with finding "Synthetic evaluation finding: claimant verification passed."
-    const preSeededFinding = page.locator("text=Synthetic evaluation finding");
+    // The seeder seeds a synthetic investigation with finding "Simulated scenario: recipient has not claimed the transfer within the observation window."
+    const preSeededFinding = page.locator("text=recipient has not claimed the transfer");
     await expect(preSeededFinding).toBeVisible();
 
     // Evidence citations must be visible and properly grounded
