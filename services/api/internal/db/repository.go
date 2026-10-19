@@ -23,6 +23,7 @@ var (
 // Repository encapsulates data access operations for ClaimBridge.
 type Repository interface {
 	// User & Organization Lifecycle
+	CreateUser(ctx context.Context, user *User) (*User, error)
 	CreateUserWithPersonalOrg(ctx context.Context, user *User, orgName string) (*User, *Organization, error)
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserByID(ctx context.Context, id string) (*User, error)

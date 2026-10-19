@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("D. Policy Enforcement and Separation of Duties Workflow", () => {
+test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", () => {
   const caseRef = `TEST-E2E-${Date.now()}`;
 
   test("operator creates $350 case requiring dual approval, self-approval is blocked", async ({
@@ -38,9 +38,16 @@ test.describe("D. Policy Enforcement and Separation of Duties Workflow", () => {
     await expect(page.locator("text=$350.00")).toBeVisible();
     await expect(page.locator("text=Dual-Approval Required")).toBeVisible();
 
-    // 7. Verify self-approval is strictly BLOCKED for the operator
+    // 7. Initiate payout operation to enter dual-custody approval flow
+    const initiateBtn = page.getByRole("button", {
+      name: /Initiate Sandbox Payout Operation/i,
+    });
+    await expect(initiateBtn).toBeVisible({ timeout: 5000 });
+    await initiateBtn.click();
+
+    // 8. Verify self-approval is strictly BLOCKED for the operator
     const selfApprovalText = page.locator("text=Self-approval blocked by policy");
-    await expect(selfApprovalText).toBeVisible();
+    await expect(selfApprovalText).toBeVisible({ timeout: 10000 });
 
     const approveButton = page.getByRole("button", {
       name: /Approve Operation/i,

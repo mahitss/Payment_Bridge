@@ -103,6 +103,13 @@ func TestSeeder_PostgresIntegration(t *testing.T) {
 	if role != "ADMIN" {
 		t.Fatalf("expected demo officer role ADMIN in demoOrg, got: %s", role)
 	}
+	officerMemberships, err := repo.GetOrganizationMemberships(ctx, officerUser.ID)
+	if err != nil || len(officerMemberships) == 0 {
+		t.Fatalf("officer must have memberships: %v", err)
+	}
+	if officerMemberships[0].Organization.ID != demoOrgID {
+		t.Fatalf("expected officer's primary org to be demoOrg (%s), got: %s", demoOrgID, officerMemberships[0].Organization.ID)
+	}
 
 	// Verify all 3 cases were created
 	casesRun1, totalRun1, err := repo.ListPayoutCasesByOrg(ctx, demoOrgID, 100, 0)

@@ -107,7 +107,7 @@ func (s *Seeder) Seed(ctx context.Context, opts Options) error {
 			EmailVerifiedAt: &now,
 			IsActive:        true,
 		}
-		officerUser, _, err = s.repo.CreateUserWithPersonalOrg(ctx, newUser, OfficerOrg)
+		officerUser, err = s.repo.CreateUser(ctx, newUser)
 		if err != nil {
 			return fmt.Errorf("failed to create demo compliance officer: %w", err)
 		}

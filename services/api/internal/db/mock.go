@@ -56,6 +56,37 @@ func (m *MockRepository) Ping(ctx context.Context) error {
 	return nil
 }
 
+func (m *MockRepository) CreateUser(ctx context.Context, user *User) (*User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	normEmail := strings.ToLower(strings.TrimSpace(user.Email))
+	if _, exists := m.UsersByEmail[normEmail]; exists {
+		return nil, ErrUserAlreadyExists
+	}
+
+	now := time.Now().UTC()
+	userID := user.ID
+	if userID == "" {
+		userID = crypto.GenerateUUID()
+	}
+	createdUser := &User{
+		ID:            userID,
+		Email:         normEmail,
+		PasswordHash:  user.PasswordHash,
+		Name:          user.Name,
+		EmailVerified: user.EmailVerified,
+		IsActive:      true,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	m.Users[userID] = createdUser
+	m.UsersByEmail[normEmail] = createdUser
+
+	copyUser := *createdUser
+	return &copyUser, nil
+}
+
 func (m *MockRepository) CreateUserWithPersonalOrg(ctx context.Context, user *User, orgName string) (*User, *Organization, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

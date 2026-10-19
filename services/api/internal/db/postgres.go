@@ -52,6 +52,38 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
+func (r *PostgresRepository) CreateUser(ctx context.Context, user *User) (*User, error) {
+	queryUser := `
+		INSERT INTO users (email, password_hash, name, email_verified, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		RETURNING id, email, name, email_verified, is_active, created_at, updated_at
+	`
+	createdUser := &User{}
+	err := r.pool.QueryRow(ctx, queryUser,
+		user.Email,
+		user.PasswordHash,
+		user.Name,
+		user.EmailVerified,
+		user.IsActive,
+	).Scan(
+		&createdUser.ID,
+		&createdUser.Email,
+		&createdUser.Name,
+		&createdUser.EmailVerified,
+		&createdUser.IsActive,
+		&createdUser.CreatedAt,
+		&createdUser.UpdatedAt,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+			return nil, ErrUserAlreadyExists
+		}
+		return nil, fmt.Errorf("failed to insert user: %w", err)
+	}
+	return createdUser, nil
+}
+
 func (r *PostgresRepository) CreateUserWithPersonalOrg(ctx context.Context, user *User, orgName string) (*User, *Organization, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

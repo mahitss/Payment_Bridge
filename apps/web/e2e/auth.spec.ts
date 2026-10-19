@@ -36,7 +36,7 @@ test.describe("B. Authentication and Demo Accounts", () => {
     await expect(page.locator("header")).toContainText("operator@claimbridge.internal");
 
     // Verify tenant badge
-    await expect(page.locator("header")).toContainText("Demo Claims Corp");
+    await expect(page.locator("header")).toContainText("PayPal AI Hackathon Adjudications");
   });
 
   test("seeded compliance officer can log in and access demo workspace", async ({
@@ -54,8 +54,9 @@ test.describe("B. Authentication and Demo Accounts", () => {
     // Verify officer email is displayed in header
     await expect(page.locator("header")).toContainText("officer@claimbridge.internal");
 
-    // Verify tenant badge shows ADMIN or appropriate role
-    await expect(page.locator("header")).toContainText("Demo Claims Corp");
+    // Verify tenant badge shows ADMIN role in demo organization
+    await expect(page.locator("header")).toContainText("PayPal AI Hackathon Adjudications");
+    await expect(page.locator("header")).toContainText("ADMIN");
   });
 
   test("evaluator banner appears on landing page when demo mode is enabled", async ({

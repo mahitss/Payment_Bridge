@@ -1,5 +1,5 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 1.8 (Mission 014 Full-Stack End-to-End Verification, Demo Reliability & Truthful Release Signals Baseline)  
+**Document Version:** 1.9 (Mission 015 CI Recovery, Dependency Lockfile Integrity, and End-to-End Test Stabilization Baseline)  
 **Date of Audit:** October 19, 2026  
 **Auditor:** Staff Application Security & Senior Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
@@ -9,30 +9,21 @@
 
 ## 1. Executive Summary
 
-This audit establishes full-stack end-to-end browser verification, truthful release signaling, and demo reliability following the Mission 013 baseline:
-1. **P0 Landing-Page Claims & Gateway Diagnostic Probe Corrections:**
-   - Replaced unconditional "Verified Release" badges with accurate "Sandbox Prototype" indicators.
-   - Decoupled API Gateway reachability (`/healthz`) from PayPal Sandbox OAuth authentication (`/api/v1/sandbox/status`).
-   - Parsed and validated the `/api/v1/sandbox/status` response contract (`status === "authenticated"`, `token_valid === true`, `paypal_env === "sandbox"`).
-   - Partitioned probe outputs into distinct status badges (Online/Offline, OAuth Verified/Unconfigured/Auth Rejected/Unreachable), preventing token/secret leaks or raw JSON dumping in the browser.
-2. **Offline Simulated Walkthrough Genuinely Runnable:**
-   - Updated `DEMO_SCRIPT.md`, `SHOT_LIST.md`, `RECORDING_CHECKLIST.md`, `CLAIMS_AND_EVIDENCE.md`, and `README.md`.
-   - Reframed forensic scene to inspect the persisted pre-seeded synthetic investigation report on `DEMO-W9821` (`SIMULATED DEMO INVESTIGATION`), removing the false requirement for a running Ollama daemon in the offline demonstration track.
-   - Guaranteed honest offline error behavior: clicking "Run Investigation" without a running provider returns `AI_UNAVAILABLE` without fabricating artificial responses or corrupting case status.
-   - Clearly distinguished transitions between freshly created cases and separately seeded fixtures.
-3. **Comprehensive Automated Browser E2E Suite (`apps/web/e2e`):**
-   - Implemented `@playwright/test` suite covering:
-     - `e2e/health.spec.ts`: Startup, landing page claims, diagnostic health probe.
-     - `e2e/auth.spec.ts`: Protected route redirects, invalid credentials, operator & officer logins, demo mode banner.
-     - `e2e/fixtures.spec.ts`: `DEMO-W9821` registry visibility, provenance banner, offline synthetic investigation view, and disabled action buttons.
-     - `e2e/policy-workflow.spec.ts`: $350 case creation, dual-custody detection, self-approval blockage, distinct officer approval, and no auto-submission side effect.
-     - `e2e/mutation-guards.spec.ts`: Direct API rejection (HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`) on fixture submit, sync, and cancel.
-4. **PostgreSQL Seeder Idempotency & Reset Verification:**
-   - Implemented `services/api/internal/seeder/seeder_postgres_test.go` (`TestSeeder_PostgresIntegration`).
-   - Validated against disposable PostgreSQL: schema migration execution, idempotent repeated seeding (0 duplicate cases/ops), real repository queries, scoped reset removing only synthetic fixtures, and 100% preservation of non-fixture records.
-5. **CI End-to-End Pipeline Integration:**
-   - Added `e2e` job to `.github/workflows/ci.yml` with dedicated PostgreSQL service, running database migrations, seeding, Go API server, Next.js with `NEXT_PUBLIC_DEMO_MODE=true`, and Playwright test execution.
-6. **Absolute Financial Safety:** Zero payouts created, approved, submitted, or cancelled through PayPal during this mission.
+This audit establishes CI recovery, dependency lockfile integrity, and end-to-end test stabilization following the Mission 014 baseline:
+1. **Frontend Dependency Lockfile Integrity Restored:**
+   - Identified missing `@emnapi/core`, `@emnapi/runtime`, and version-mismatched `@emnapi/wasi-threads` entries in `apps/web/package-lock.json` caused by SWC WASM binding dependencies (`@unrs/resolver-binding-wasm32-wasi`).
+   - Regenerated lockfile entries deterministically using `npm install --package-lock-only` without modifying package manager arguments, framework versions, or bypassing integrity checks.
+   - Formally verified that clean `npm ci` succeeds from a fresh checkout in 0 errors and audits 432 packages cleanly.
+2. **Tenant Membership & Organization Alignment:**
+   - Reconciled tenant naming: `seeder.go` defines `DemoOrgName = "PayPal AI Hackathon Adjudications"`. Updated E2E authentication expectations and demo documentation from `Demo Claims Corp` to `PayPal AI Hackathon Adjudications`.
+   - Added `CreateUser` directly to the `db.Repository` interface (implemented in both PostgreSQL and mock stores), enabling `officerUser` to be created directly and assigned to `demoOrg` as `ADMIN` without creating a detached personal workspace that prevented reviewing demo payouts.
+3. **End-to-End Test Contract Stabilization (`apps/web/e2e`):**
+   - Corrected `fixtures.spec.ts` evidence label locator from `Citations` to `Evidence:`.
+   - Updated `policy-workflow.spec.ts` to execute `test.describe.serial` and explicitly click "Initiate Sandbox Payout Operation", properly transitioning newly created cases from `DRAFT` to `AWAITING_APPROVAL` before asserting self-approval guards.
+4. **CI Service Orchestration Hardening (`.github/workflows/ci.yml`):**
+   - Added bounded readiness polling for disposable PostgreSQL (`pg_isready`), Go API Gateway (`/healthz`), and Next.js frontend (`localhost:3000`), with immediate fail-closed exit codes if any service fails to start within 30 seconds.
+   - Enforced `NEXT_PUBLIC_DEMO_MODE=true` during Next.js build time in CI so demo indicators are correctly embedded into the client bundle.
+5. **Absolute Financial Safety:** Zero payouts created, approved, submitted, or cancelled through PayPal during this mission. All existing security invariants, synthetic fixture guards, and race tests preserved intact.
 
 ---
 

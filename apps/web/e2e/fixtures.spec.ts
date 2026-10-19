@@ -81,6 +81,6 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     await expect(preSeededFinding).toBeVisible();
 
     // Evidence citations must be visible and properly grounded
-    await expect(page.locator("text=Citations")).toBeVisible();
+    await expect(page.locator("text=Evidence:")).toBeVisible();
   });
 });
