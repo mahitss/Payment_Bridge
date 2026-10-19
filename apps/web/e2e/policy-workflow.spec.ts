@@ -25,10 +25,10 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     await page.fill('input[placeholder="150.00"]', "350.00");
 
     // Dual-approval badge should reflect true
-    await expect(page.locator("text=Dual-Approval Required")).toBeVisible();
+    await expect(page.locator("text=DUAL-CUSTODY MANDATED")).toBeVisible();
 
     // 4. Submit form
-    await page.click('button[type="submit"]:has-text("Create & Establish Case")');
+    await page.click('button[type="submit"]:has-text("Create Payout Case")');
 
     // 5. Should redirect to case detail page
     await expect(page).toHaveURL(/\/app\/payouts\//, { timeout: 10000 });
@@ -36,7 +36,7 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
 
     // 6. Verify case amount is $350.00 and dual-custody is required
     await expect(page.locator("text=$350.00")).toBeVisible();
-    await expect(page.locator("text=Dual-Approval Required")).toBeVisible();
+    await expect(page.locator("text=Dual-Custody Required")).toBeVisible();
 
     // 7. Initiate payout operation to enter dual-custody approval flow
     const initiateBtn = page.getByRole("button", {
