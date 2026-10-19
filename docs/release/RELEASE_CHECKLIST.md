@@ -4,7 +4,7 @@
 **Target Event:** PayPal AI Hackathon  
 **Lead Verification Engineer:** Senior AI Systems & Security Engineer  
 **Signoff Date:** 2026-10-20  
-**CI Baseline:** Commit `3d85fae8d6e2b31371ebaa0a5a2c966de697582e` (Workflow Run `39313780922`: 5/5 jobs green)  
+**CI Baseline:** Commit `0e968d1c39b0f4d456954d5e1d2eb3ad0c63b4e4` (Workflow Run `39314456794`: 5/5 jobs green; expanded to 6 jobs with `docker-compose-evaluator`)  
 
 ---
 
@@ -25,6 +25,7 @@
 | **G-11** | **Open Source License Included** | MIT License committed at repository root (`LICENSE`) | **PASSED** |
 | **G-12** | **Complete Documentation & Runbooks** | PRD, Threat Model, ADRs 001–006, Traceability, Verification Matrix, and Runbooks present | **PASSED** |
 | **G-13** | **Synthetic Fixture Safeguards** | Server-side mutation guards reject fixture submit/sync/cancel with HTTP 403; 0 outbound PayPal requests | **PASSED** |
+| **G-14** | **One-Command Docker Evaluator Stack** | CI job `docker-compose-evaluator` builds multi-stage images, initializes PostgreSQL with migrations, executes idempotent seeder, compiles evaluator banner, and verifies complete Playwright 18/18 browser suite against Compose | **PASSED** |
 
 ---
 

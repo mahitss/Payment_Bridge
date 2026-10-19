@@ -9,15 +9,19 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/server ./cmd/server && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/seed ./cmd/seed && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/readiness ./cmd/readiness
 
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates tzdata && \
+RUN apk add --no-cache ca-certificates tzdata wget && \
     addgroup -S claimbridge && adduser -S claimbridge -G claimbridge
 
 WORKDIR /app
 COPY --from=builder /bin/server /app/server
+COPY --from=builder /bin/seed /app/seed
+COPY --from=builder /bin/readiness /app/readiness
 
 USER claimbridge
 

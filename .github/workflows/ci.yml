@@ -279,3 +279,177 @@ jobs:
         run: |
           echo "Verifying PAYPAL_ENV defaults strictly to sandbox..."
           grep "PAYPAL_ENV=sandbox" .env.example
+
+  docker-compose-evaluator:
+    name: Docker Compose Offline Evaluator Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js for Playwright E2E
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build and Launch Isolated Evaluator Demo Stack
+        run: |
+          echo "Starting Docker Compose offline evaluator demo stack..."
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d
+
+      - name: Wait for Stack Health and Seeder Completion
+        run: |
+          echo "Waiting for PostgreSQL, API Gateway, Seeder, and Next.js Web containers..."
+          
+          # Wait for Seeder to exit with code 0
+          echo "Waiting for claimbridge-seeder to complete successfully..."
+          seeder_ok=0
+          for i in {1..60}; do
+            status=$(docker inspect claimbridge-seeder --format '{{.State.Status}}' 2>/dev/null || echo "not_found")
+            exit_code=$(docker inspect claimbridge-seeder --format '{{.State.ExitCode}}' 2>/dev/null || echo "-1")
+            if [ "$status" = "exited" ]; then
+              if [ "$exit_code" = "0" ]; then
+                echo "claimbridge-seeder completed successfully with exit code 0."
+                seeder_ok=1
+                break
+              else
+                echo "claimbridge-seeder failed with exit code $exit_code" >&2
+                docker logs claimbridge-seeder
+                exit 1
+              fi
+            fi
+            echo "Waiting for seeder ($i/60, status=$status)..."
+            sleep 2
+          done
+          if [ "$seeder_ok" -ne 1 ]; then
+            echo "claimbridge-seeder did not complete within bounded timeout" >&2
+            docker logs claimbridge-seeder
+            exit 1
+          fi
+
+          # Wait for API Gateway healthz
+          echo "Waiting for Go API Gateway (claimbridge-api) /healthz..."
+          api_ok=0
+          for i in {1..30}; do
+            if curl -fsSL http://127.0.0.1:8080/healthz | grep -q '"status":"ok"'; then
+              echo "Go API Gateway is healthy"
+              api_ok=1
+              break
+            fi
+            echo "Waiting for API Gateway ($i/30)..."
+            sleep 1
+          done
+          if [ "$api_ok" -ne 1 ]; then
+            echo "Go API Gateway failed to become healthy within 30 seconds" >&2
+            docker logs claimbridge-api
+            exit 1
+          fi
+
+          # Wait for Web Frontend
+          echo "Waiting for Next.js Web Frontend (claimbridge-web)..."
+          web_ok=0
+          for i in {1..40}; do
+            if curl -fsSL http://127.0.0.1:3000/ > /dev/null 2>&1; then
+              echo "Next.js Web Frontend is ready"
+              web_ok=1
+              break
+            fi
+            echo "Waiting for Web Frontend ($i/40)..."
+            sleep 2
+          done
+          if [ "$web_ok" -ne 1 ]; then
+            echo "Next.js Frontend failed to become ready within 80 seconds" >&2
+            docker logs claimbridge-web
+            exit 1
+          fi
+
+      - name: Verify Health, Readiness, and Evaluator Banner Contracts
+        run: |
+          echo "Verifying /healthz contract directly on API..."
+          curl -fsSL http://127.0.0.1:8080/healthz | grep -q '"status":"ok"'
+          
+          echo "Verifying /readyz contract directly on API..."
+          curl -fsSL http://127.0.0.1:8080/readyz | grep -q '"database":"ready"'
+
+          echo "Verifying Next.js reverse-proxy rewrite to /healthz..."
+          curl -fsSL http://127.0.0.1:3000/healthz | grep -q '"service":"claimbridge-api"'
+
+          echo "Verifying Next.js reverse-proxy rewrite to /readyz..."
+          curl -fsSL http://127.0.0.1:3000/readyz | grep -q '"database":"ready"'
+
+          echo "Verifying build-time NEXT_PUBLIC_DEMO_MODE compilation in HTML..."
+          landing_html=$(curl -fsSL http://127.0.0.1:3000/)
+          echo "$landing_html" | grep -q "Local Evaluation Fixtures (Demo Mode Enabled)"
+          echo "$landing_html" | grep -q "operator@claimbridge.internal"
+          echo "Evaluator banner successfully verified in containerized bundle."
+
+      - name: Run Playwright E2E Suite Against Docker Compose Stack
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://127.0.0.1:3000
+        run: |
+          set -o pipefail
+          npx playwright test --reporter=list,html 2>&1 | tee playwright-compose.log || {
+            status=$?
+            echo "### Playwright Compose Test Failures" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 120 playwright-compose.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit $status
+          }
+
+      - name: Test Clean-State, Idempotency, and Stack Restart Behavior
+        run: |
+          echo "Testing seeder idempotency: running seeder a second time..."
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml run --rm seeder
+          echo "Seeder re-run passed with exit code 0."
+
+          echo "Testing restart behavior: restarting api and web containers..."
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml restart api web
+
+          echo "Verifying API is healthy and database is connected after restart..."
+          for i in {1..30}; do
+            if curl -fsSL http://127.0.0.1:8080/readyz | grep -q '"database":"ready"'; then
+              echo "API is healthy and database is connected after restart."
+              break
+            fi
+            sleep 1
+          done
+
+          echo "Verifying landing page and evaluator banner after restart..."
+          for i in {1..30}; do
+            if curl -fsSL http://127.0.0.1:3000/ | grep -q "Local Evaluation Fixtures (Demo Mode Enabled)"; then
+              echo "Next.js web container restarted and serving evaluator demo banner."
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Upload Playwright Test Report on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-compose-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+      - name: Collect Container Logs on Failure
+        if: failure()
+        run: |
+          echo "=== DOCKER COMPOSE LOGS (ON FAILURE) ==="
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml logs --tail 200
+
+      - name: Tear Down Docker Compose Stack
+        if: always()
+        run: |
+          echo "Tearing down Docker Compose containers and volumes..."
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml down -v --remove-orphans

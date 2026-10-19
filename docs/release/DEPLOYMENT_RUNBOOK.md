@@ -17,35 +17,58 @@
 
 ---
 
-## 2. Option A: Single-Command Full-Stack Docker Deployment (Recommended)
+## 2. Option A: Single-Command Offline Evaluator Demo Deployment (Recommended for Hackathon Evaluation)
 
-To launch the complete application stack (PostgreSQL, Mailpit, Go API, and Next.js Web) in containerized isolation:
+To launch the complete application stack with automatic schema migrations, idempotent demo seeder, and the evaluator credentials banner enabled at build-time:
 
 ```bash
 # 1. Clone repository
 git clone https://github.com/mahitss/Payment_Bridge.git
 cd Payment_Bridge
 
-# 2. Copy and customize environment variables
-cp .env.example .env
-
-# Edit .env with your PayPal Sandbox credentials:
-# PAYPAL_CLIENT_ID=your_sandbox_client_id
-# PAYPAL_CLIENT_SECRET=your_sandbox_client_secret
-
-# 3. Launch full stack
-docker compose -f infra/docker-compose.full.yml up --build -d
+# 2. Launch full evaluation stack
+docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d
 ```
 
-### Verification Endpoints:
-- **Web Application:** `http://localhost:3000`
-- **Go API Gateway:** `http://localhost:8080/healthz`
-- **Readiness Probe:** `http://localhost:8080/readyz`
+### 2.1 Lifecycle & Startup Sequence
+1. **PostgreSQL 16 (`claimbridge-postgres`):** Starts and verifies health (`pg_isready -U claimbridge -d claimbridge_dev`). Bound strictly to `127.0.0.1:5432`.
+2. **Mailpit (`claimbridge-mailpit`):** Starts mock SMTP server on `127.0.0.1:1025` and web UI on `127.0.0.1:8025`.
+3. **Go API Gateway (`claimbridge-api`):** Built from multi-stage Dockerfile containing `/app/server`, `/app/seed`, and `/app/readiness`. Connects to PostgreSQL, executes schema migrations (`DATABASE_AUTOMIGRATE=true`), and exposes health on `127.0.0.1:8080/healthz`.
+4. **Idempotent Seeder (`claimbridge-seeder`):** Overlay container runs `/app/seed`. Creates demo organization, operator, compliance officer, and synthetic fixtures (`DEMO-W9821`, `DEMO-M4421`, `DEMO-V1082`). Once complete, exits cleanly with code 0 (`condition: service_completed_successfully`).
+5. **Next.js Web Frontend (`claimbridge-web`):** Built with `NEXT_PUBLIC_DEMO_MODE=true` and `API_INTERNAL_URL=http://api:8080`. Waits for both API health and seeder completion. Exposes frontend on `127.0.0.1:3000`.
+
+### 2.2 Verification Endpoints
+- **Web Application:** `http://localhost:3000` (Displays evaluator quick-start banner with credentials)
+- **API Health Probe:** `http://localhost:8080/healthz`
+- **API Readiness Probe:** `http://localhost:8080/readyz`
 - **Mailpit Web UI (Inspect emails):** `http://localhost:8025`
+
+### 2.3 Evaluator Demo Accounts
+- **Lead Operator:** `operator@claimbridge.internal` / `OperatorPass123!`
+- **Compliance Officer:** `officer@claimbridge.internal` / `OfficerPass123!`
+
+### 2.4 Safe Teardown & Data Preservation
+```bash
+# Stop containers while preserving PostgreSQL data volume (postgres_data)
+docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml down
+
+# Reset only synthetic demo fixtures (preserves real accounts and non-demo records)
+docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml run --rm seeder -reset
+```
 
 ---
 
-## 3. Option B: Native Host Process Development Launch
+## 3. Option B: Standard Full-Stack Docker Deployment (Non-Demo Mode)
+
+To launch the full containerized stack without pre-seeded accounts or the evaluator banner:
+
+```bash
+docker compose -f infra/docker-compose.full.yml up --build -d
+```
+
+---
+
+## 4. Option C: Native Host Process Development Launch
 
 ### 3.1 Start Backing Services
 ```bash
@@ -66,7 +89,7 @@ cargo build --release
 ./target/release/claimbridge-policy
 ```
 
-### 3.4 Start the Go API Server
+### 4.4 Start the Go API Server
 ```bash
 cd services/api
 go run ./cmd/server
@@ -74,12 +97,12 @@ go run ./cmd/server
 Expected output:
 ```text
 INFO Database connection established max_conns=25 min_conns=2
-INFO Applied database migrations count=4
+INFO Applied database migrations count=5
 INFO Initialized AI inference provider provider=mock model=llama3.2 enabled=false
 INFO HTTP Server listening addr=:8080
 ```
 
-### 3.5 Start the Next.js Frontend
+### 4.5 Start the Next.js Frontend
 ```bash
 cd apps/web
 npm ci
@@ -89,7 +112,7 @@ Open `http://localhost:3000` in your browser.
 
 ---
 
-## 4. Option C: Local Free-Tier AI Inference (Ollama)
+## 5. Option D: Local Free-Tier AI Inference (Ollama)
 
 To run the AI investigation engine 100% locally with zero external API fees:
 
@@ -110,7 +133,7 @@ To run the AI investigation engine 100% locally with zero external API fees:
 
 ---
 
-## 5. Health, Readiness, and Liveness Probes
+## 6. Health, Readiness, and Liveness Probes
 
 | Endpoint | Method | Expected HTTP Status | Output Semantics |
 | :--- | :--- | :--- | :--- |
@@ -120,11 +143,38 @@ To run the AI investigation engine 100% locally with zero external API fees:
 
 ---
 
-## 6. Disaster Recovery & Troubleshooting
+## 7. Disaster Recovery & Troubleshooting
 
-### Scenario: Database Connection Failure
-- **Symptom:** `/readyz` returns HTTP 503 with `"database": "unavailable"`.
-- **Remediation:** Verify PostgreSQL container health: `docker ps`. Inspect logs: `docker logs claimbridge-postgres`.
+### Scenario: Database Connection or Migration Failure
+- **Symptom:** `/readyz` returns HTTP 503 with `"database": "unavailable"`, or the `api` container fails to start.
+- **Remediation:** Verify PostgreSQL container health:
+  ```bash
+  docker compose -f infra/docker-compose.full.yml ps
+  docker logs claimbridge-postgres
+  ```
+  Ensure port 5432 is not occupied by an existing local PostgreSQL service. Clean up and restart if needed:
+  ```bash
+  docker compose -f infra/docker-compose.full.yml down
+  docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d
+  ```
+
+### Scenario: Seeder Container Failure or Restart
+- **Symptom:** `claimbridge-seeder` logs an error or fails to complete.
+- **Remediation:** Inspect seeder container logs:
+  ```bash
+  docker logs claimbridge-seeder
+  ```
+  The seeder is completely idempotent. Re-run manually to inspect output:
+  ```bash
+  docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml run --rm seeder
+  ```
+
+### Scenario: API Reverse-Proxy Routing Misconfiguration
+- **Symptom:** Next.js frontend returns HTTP 500 or 404 when calling `/api/v1/...`.
+- **Remediation:** Ensure `API_INTERNAL_URL` is set to `http://api:8080` (without trailing paths or wildcards). Next.js automatically appends `/api/:path*` via `next.config.mjs` rewrites. Verify internal bridge networking:
+  ```bash
+  docker exec claimbridge-web wget -q -O - http://api:8080/healthz
+  ```
 
 ### Scenario: Payout Operation in `RECONCILIATION_REQUIRED`
 - **Symptom:** Ambiguous network drop occurred during PayPal submission.

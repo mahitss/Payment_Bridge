@@ -59,6 +59,15 @@ func main() {
 		slog.Info("Connected to PostgreSQL successfully")
 		repo = pgRepo
 		defer pgRepo.Close()
+
+		if cfg.DatabaseAutoMigrate {
+			slog.Info("Applying database migrations on startup (DATABASE_AUTOMIGRATE=true)...")
+			if mErr := pgRepo.RunMigrations(initCtx); mErr != nil {
+				slog.Error("Failed applying database migrations on startup", slog.String("error", mErr.Error()))
+				os.Exit(1)
+			}
+			slog.Info("Database migrations applied successfully")
+		}
 	}
 
 	// 4. Initialize Email Delivery (Mailpit / SMTP)

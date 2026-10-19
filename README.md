@@ -113,26 +113,75 @@ claim-bridge/
 
 ## Quick Start
 
-### 1. Option A: Single-Command Full-Stack Docker Launch
+### 1. Option A: Single-Command Offline Evaluator Demo Launch (Recommended for Evaluators)
+
+A clean checkout requires **zero host dependencies** (no Go, Rust, or Node.js required on your host machine). Docker and Docker Compose are the only prerequisites.
+
 ```bash
-# Clone repository
+# 1. Clone repository
 git clone https://github.com/mahitss/Payment_Bridge.git
 cd Payment_Bridge
 
-# Configure environment
-cp .env.example .env
-
-# Launch complete stack (Postgres, Mailpit, API, Web)
-docker compose -f infra/docker-compose.full.yml up --build -d
+# 2. Launch the complete offline evaluation demo stack
+docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d
 ```
-- Web Application: [http://localhost:3000](http://localhost:3000)
-- API Health Probe: [http://localhost:8080/healthz](http://localhost:8080/healthz)
-- API Readiness Probe: [http://localhost:8080/readyz](http://localhost:8080/readyz)
-- Mailpit Web Inbox: [http://localhost:8025](http://localhost:8025)
+
+#### What This Command Does Automatically:
+1. Builds the Go API Gateway multi-stage image containing `/app/server`, `/app/seed`, and `/app/readiness`.
+2. Starts PostgreSQL 16 and waits for container health.
+3. Starts the Go API Gateway and applies schema migrations (`DATABASE_AUTOMIGRATE=true`).
+4. Runs the idempotent seeder (`/app/seed`) to establish demo credentials (`operator@claimbridge.internal`, `officer@claimbridge.internal`) and synthetic fixtures (`DEMO-W9821`, `DEMO-M4421`, `DEMO-V1082`).
+5. Builds and starts the Next.js frontend with `NEXT_PUBLIC_DEMO_MODE=true` compiled into the client bundle and API reverse-proxy routes mapped directly to the internal API container.
+
+#### Verifying Startup Completion:
+```bash
+# Check container status (seeder should be Exited (0), other services healthy/running)
+docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml ps
+
+# Confirm API Gateway and database readiness
+curl -s http://localhost:8080/readyz
+# Expected output: {"database":"ready","environment":"sandbox","paypal_configured":false,"status":"ready"}
+```
+
+#### Service Endpoints:
+- **Web Application:** [http://localhost:3000](http://localhost:3000) (Evaluator quick-start banner with credentials is prominently displayed)
+- **API Health Probe:** [http://localhost:8080/healthz](http://localhost:8080/healthz)
+- **API Readiness Probe:** [http://localhost:8080/readyz](http://localhost:8080/readyz)
+- **Mailpit Web Inbox:** [http://localhost:8025](http://localhost:8025)
+
+#### Seeded Evaluation Accounts:
+| Role | Email Address | Password | Permissions & Purpose |
+| :--- | :--- | :--- | :--- |
+| **Lead Operator** | `operator@claimbridge.internal` | `OperatorPass123!` | Case creation, initiation. Self-approval is blocked fail-closed. |
+| **Compliance Officer** | `officer@claimbridge.internal` | `OfficerPass123!` | Distinct approver for dual-custody disbursements (> $250.00). |
+
+#### Offline Synthetic Track vs. Live External Track:
+- **Offline Synthetic Track (Active by Default):** Pre-seeded cases (`DEMO-W9821`, `DEMO-M4421`, `DEMO-V1082`) display persisted forensic evidence. External PayPal mutations (submit, sync, cancel) are protected by server-side guards returning HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN` with zero outbound PayPal network requests.
+- **Live PayPal Sandbox (Optional):** Requires supplying genuine `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` in `.env`.
+- **Genuine AI Inference (Optional):** Requires a running local Ollama model (`ollama serve && ollama pull llama3.2`). When Ollama is offline, the system safely reports `AI_UNAVAILABLE` without disrupting core financial and policy workflows.
+
+#### Safe Shutdown & Volume Preservation:
+```bash
+# Stop containers while preserving PostgreSQL database volume (postgres_data)
+docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml down
+
+# (Optional) Reset ONLY synthetic demo fixtures without deleting user accounts or real data:
+docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml run --rm seeder -reset
+```
 
 ---
 
-### 2. Option B: Local Developer Launch
+### 2. Option B: Standard Full-Stack Docker Launch (Non-Demo Mode)
+
+To launch the full containerized stack without the demo seeder or evaluator banner:
+
+```bash
+docker compose -f infra/docker-compose.full.yml up --build -d
+```
+
+---
+
+### 3. Option C: Local Developer Launch (Host Process)
 
 #### Step 1: Start Backing Services
 ```bash

@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: claimbridge_local_dev_only
       POSTGRES_DB: claimbridge_dev
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
@@ -23,8 +23,8 @@ services:
     container_name: claimbridge-mailpit
     restart: unless-stopped
     ports:
-      - "1025:1025" # SMTP port for email delivery
-      - "8025:8025" # Web UI to inspect test emails
+      - "127.0.0.1:1025:1025" # SMTP port for email delivery
+      - "127.0.0.1:8025:8025" # Web UI to inspect test emails
     environment:
       MP_MAX_MESSAGES: 500
       MP_DATABASE: ""

@@ -6,28 +6,24 @@
 
 ## 1. System & Service Readiness
 
-- [ ] **Docker Containers Running:**
+- [ ] **Method 1: Single-Command Docker Compose Evaluator Launch (Recommended):**
   ```bash
-  docker compose -f infra/docker-compose.yml ps
-  # Verify claimbridge-postgres (port 5432) and claimbridge-mailpit (port 8025) are running
+  # Launches PostgreSQL, Mailpit, API (with auto-migrations), Seeder, and Next.js Web (with evaluator banner)
+  docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d
+  # Verify web is at http://localhost:3000 and API readiness probe returns 200:
+  curl -s http://localhost:8080/readyz
   ```
-- [ ] **Go API Gateway Running:**
+
+- [ ] **Method 2: Native Host Development Launch:**
   ```bash
-  cd services/api && go run ./cmd/server
-  # Check http://localhost:8080/healthz returns 200 OK
-  ```
-- [ ] **Next.js Web Frontend Running (with Demo Mode for Evaluators):**
-  ```bash
-  # In apps/web: set NEXT_PUBLIC_DEMO_MODE=true if you want the evaluator quick-start banner visible
-  NEXT_PUBLIC_DEMO_MODE=true npm run dev
-  # Check http://localhost:3000 loads without console errors
-  ```
-- [ ] **Seed / Reset Demo Fixtures:**
-  ```bash
-  cd services/api
-  # Seed idempotent demo fixtures and verify memberships
-  go run ./cmd/seed
-  # (Optional: To cleanly reset only synthetic fixtures without touching user accounts: go run ./cmd/seed -reset)
+  # 1. Start backing services
+  docker compose -f infra/docker-compose.yml up -d
+  # 2. Seed idempotent demo fixtures
+  cd services/api && go run ./cmd/seed
+  # 3. Start API gateway
+  go run ./cmd/server
+  # 4. In a separate terminal, start Next.js frontend with demo banner
+  cd apps/web && NEXT_PUBLIC_DEMO_MODE=true npm run dev
   ```
 - [ ] **Decision on Recording Track:**
   - **Track 1 (Recommended / Deterministic Fallback):**

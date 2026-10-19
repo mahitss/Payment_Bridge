@@ -1,0 +1,42 @@
+# ClaimBridge — Hackathon Evaluator Offline Demo Overlay
+# Usage:
+#   docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d
+#
+# This overlay:
+#   1. Runs the idempotent seeder (/app/seed) after PostgreSQL and API Gateway are healthy.
+#   2. Builds the Next.js web frontend with NEXT_PUBLIC_DEMO_MODE=true so evaluator credentials
+#      and demo indicators are compiled directly into the client bundle.
+#   3. Gates web frontend startup until seeder completes successfully.
+
+services:
+  seeder:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    container_name: claimbridge-seeder
+    restart: "no"
+    entrypoint: ["/app/seed"]
+    environment:
+      CLAIMBRIDGE_ENV: sandbox
+      DATABASE_URL: postgres://claimbridge:claimbridge_local_dev_only@postgres:5432/claimbridge_dev?sslmode=disable
+      DATABASE_AUTOMIGRATE: "true"
+      PAYPAL_ENV: sandbox
+      AI_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      args:
+        API_INTERNAL_URL: http://api:8080
+        NEXT_PUBLIC_DEMO_MODE: "true"
+    environment:
+      NEXT_PUBLIC_DEMO_MODE: "true"
+    depends_on:
+      api:
+        condition: service_healthy
+      seeder:
+        condition: service_completed_successfully

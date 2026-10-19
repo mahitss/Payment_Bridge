@@ -27,6 +27,7 @@ type Config struct {
 	Port                   string
 	LogLevel               string
 	DatabaseURL            string
+	DatabaseAutoMigrate    bool
 	AppBaseURL             string
 	APIBaseURL             string
 	AllowedOrigins         []string
@@ -104,6 +105,7 @@ func LoadFromEnv() (*Config, error) {
 		Port:                   getEnv("PORT", "8080"),
 		LogLevel:               strings.ToLower(getEnv("LOG_LEVEL", "info")),
 		DatabaseURL:            getEnv("DATABASE_URL", "postgres://claimbridge:claimbridge_local_dev_only@localhost:5432/claimbridge_dev?sslmode=disable"),
+		DatabaseAutoMigrate:    getEnvBool("DATABASE_AUTOMIGRATE", true),
 		AppBaseURL:             strings.TrimRight(getEnv("APP_BASE_URL", "http://localhost:3000"), "/"),
 		APIBaseURL:             strings.TrimRight(getEnv("API_BASE_URL", "http://localhost:8080"), "/"),
 		AllowedOrigins:         allowedOrigins,
