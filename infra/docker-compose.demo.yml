@@ -30,6 +30,8 @@ services:
 
   web:
     build:
+      context: ../apps/web
+      dockerfile: Dockerfile
       args:
         API_INTERNAL_URL: http://api:8080
         NEXT_PUBLIC_DEMO_MODE: "true"

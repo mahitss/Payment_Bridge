@@ -301,10 +301,24 @@ jobs:
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
 
+      - name: Free Host Port 5432 and Prepare Environment
+        run: |
+          echo "Stopping any host-level PostgreSQL service to free port 5432..."
+          sudo systemctl stop postgresql 2>/dev/null || true
+          sudo systemctl disable postgresql 2>/dev/null || true
+
       - name: Build and Launch Isolated Evaluator Demo Stack
         run: |
           echo "Starting Docker Compose offline evaluator demo stack..."
-          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d
+          set -o pipefail
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d 2>&1 | tee compose-up.log || {
+            status=$?
+            echo "### Docker Compose Launch Failed" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat compose-up.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit $status
+          }
 
       - name: Wait for Stack Health and Seeder Completion
         run: |
@@ -447,6 +461,10 @@ jobs:
         run: |
           echo "=== DOCKER COMPOSE LOGS (ON FAILURE) ==="
           docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml logs --tail 200
+          echo "### Docker Compose Container Logs" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml logs --tail 200 >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Tear Down Docker Compose Stack
         if: always()
