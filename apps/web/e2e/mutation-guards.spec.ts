@@ -15,9 +15,16 @@ test.describe("E. Backend Mutation Guards and Readiness Truthfulness", () => {
     });
     expect(loginRes.status()).toBe(200);
 
-    const cookies = loginRes.headers()["set-cookie"];
-    if (cookies) {
-      sessionCookie = cookies.split(";")[0];
+    const setCookieHeaders = loginRes
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === "set-cookie");
+    if (setCookieHeaders.length > 0) {
+      sessionCookie = setCookieHeaders[0].value.split(";")[0];
+    } else {
+      const rawCookie = loginRes.headers()["set-cookie"];
+      if (rawCookie) {
+        sessionCookie = rawCookie.split(";")[0];
+      }
     }
 
     // Query payout cases to find the seeded synthetic fixture DEMO-W9821

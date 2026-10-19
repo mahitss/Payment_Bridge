@@ -95,9 +95,13 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
       page.locator("text=Dual-custody approval recorded successfully.")
     ).toBeVisible({ timeout: 10000 });
 
-    // 7. Verify case status is APPROVED and NOT automatically submitted to PayPal
-    await expect(page.locator("text=Internal: APPROVED")).toBeVisible();
+    // 7. Verify operation is APPROVED and NOT automatically submitted to PayPal
+    await expect(page.locator("text=Approved by officer")).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole("button", { name: /Submit to PayPal Sandbox/i })
+    ).toBeVisible();
     await expect(page.locator("text=Internal: SUBMITTED")).not.toBeVisible();
+    await expect(page.locator("text=Internal: DRAFT")).toBeVisible();
   });
 
   test("requesting AI investigation when Ollama is offline returns honest failure without corrupting state", async ({
@@ -115,22 +119,24 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     await expect(caseLink).toBeVisible({ timeout: 10000 });
     await caseLink.click();
 
+    // Wait for case detail page to load
+    await expect(page.locator("h1")).toContainText(caseRef);
+
     // Click "Run Investigation"
     const runBtn = page.getByRole("button", { name: /Run Investigation/i });
-    if (await runBtn.isVisible()) {
-      await runBtn.click();
+    await expect(runBtn).toBeVisible({ timeout: 10000 });
+    await runBtn.click();
 
-      // If Ollama is offline in this environment, it must report honest unavailable state
-      // (or if mock is present, it will complete - either way, case state must remain APPROVED)
-      const offlineMsg = page.locator(
-        "text=Investigation assistant is currently offline or unreachable"
-      );
-      const successMsg = page.locator("text=Investigation completed");
+    // If Ollama is offline in this environment, it must report honest unavailable state
+    // (or if mock is present, it will complete - either way, case state must remain DRAFT)
+    const offlineMsg = page.locator(
+      "text=Investigation assistant is currently offline or unreachable"
+    );
+    const successMsg = page.locator("text=Investigation completed");
 
-      await expect(offlineMsg.or(successMsg)).toBeVisible({ timeout: 15000 });
+    await expect(offlineMsg.or(successMsg)).toBeVisible({ timeout: 15000 });
 
-      // Core case status must NOT be corrupted
-      await expect(page.locator("text=Internal: APPROVED")).toBeVisible();
-    }
+    // Core case status must NOT be corrupted
+    await expect(page.locator("text=Internal: DRAFT")).toBeVisible();
   });
 });
