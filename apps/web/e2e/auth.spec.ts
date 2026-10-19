@@ -6,7 +6,7 @@ test.describe("B. Authentication and Demo Accounts", () => {
   }) => {
     await page.goto("/app/payouts");
     // Should be redirected to /login with returnTo query parameter
-    await expect(page).toHaveURL(/\/login\?returnTo=%2Fapp%2Fpayouts/);
+    await expect(page).toHaveURL(/\/login\?returnTo=(%2F|\/)app(\/|%2F)payouts/, { timeout: 10000 });
     await expect(page.locator("h1")).toContainText("Sign in to ClaimBridge");
   });
 

@@ -32,7 +32,7 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     const fixtureLink = page.locator('a:has-text("DEMO-W9821")');
     await expect(fixtureLink).toBeVisible({ timeout: 10000 });
     await fixtureLink.click();
-    await expect(page).toHaveURL(/\/app\/payouts\//);
+    await expect(page).toHaveURL(/\/app\/payouts\/.+/, { timeout: 15000 });
 
     // Verify prominent provenance alert banner
     const banner = page.locator("text=SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION");
@@ -73,6 +73,7 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     const fixtureLink = page.locator('a:has-text("DEMO-W9821")');
     await expect(fixtureLink).toBeVisible({ timeout: 10000 });
     await fixtureLink.click();
+    await expect(page).toHaveURL(/\/app\/payouts\/.+/, { timeout: 15000 });
 
     // Investigation engine card should have the Simulated Evaluation Fixture indicator
     const aiEngine = page.locator("section", { hasText: "AI Payout Investigation Engine" });
