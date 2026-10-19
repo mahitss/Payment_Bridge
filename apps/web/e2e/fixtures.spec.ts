@@ -47,19 +47,19 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     await expect(page.locator("text=SIMULATED FIXTURE")).toBeVisible();
 
     // Verify external controls are disabled for synthetic fixtures
-    const syncButton = page.getByRole("button", { name: /Sync/i });
+    const syncButton = page.getByRole("button", { name: "Sync with PayPal" });
     if (await syncButton.isVisible()) {
       await expect(syncButton).toBeDisabled();
       await expect(syncButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
     }
 
-    const submitButton = page.getByRole("button", { name: /Submit to PayPal Sandbox/i });
+    const submitButton = page.getByRole("button", { name: "Submit to PayPal Sandbox" });
     if (await submitButton.isVisible()) {
       await expect(submitButton).toBeDisabled();
       await expect(submitButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
     }
 
-    const cancelButton = page.getByRole("button", { name: /Cancel Payout/i });
+    const cancelButton = page.getByRole("button", { name: "Cancel Payout" });
     if (await cancelButton.isVisible()) {
       await expect(cancelButton).toBeDisabled();
       await expect(cancelButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
@@ -82,7 +82,7 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
 
     // Verify pre-seeded investigation details are displayed
     // The seeder seeds a synthetic investigation with finding "Simulated scenario: recipient has not claimed the transfer within the observation window."
-    const preSeededFinding = page.locator("text=recipient has not claimed the transfer");
+    const preSeededFinding = page.locator("text=Simulated scenario: recipient has not claimed the transfer");
     await expect(preSeededFinding).toBeVisible();
 
     // Evidence citations must be visible and properly grounded

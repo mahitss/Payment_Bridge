@@ -112,6 +112,7 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     await page.fill("#email", "officer@claimbridge.internal");
     await page.fill("#password", "OfficerPass123!");
     await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/\/app/, { timeout: 10000 });
 
     // Navigate to created case
     await page.goto("/app/payouts");
