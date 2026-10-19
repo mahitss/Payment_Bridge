@@ -220,7 +220,7 @@ go run ./cmd/acceptance
 ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock tests from live external provider runtime:
 
 - **Authoritative Verification Matrix:** See [`docs/submission/VERIFICATION_MATRIX.md`](docs/submission/VERIFICATION_MATRIX.md) for full mapping of requirements to source files, exact tests, evidence tiers, and local reproduction steps.
-- **Continuous Integration Baseline:** Verified green build on `main` branch across all 5 jobs in GitHub Actions ([Run 39309065322](https://github.com/mahitss/Payment_Bridge/actions/runs/39309065322)):
+- **Continuous Integration Baseline:** Verified green build on `main` branch across all 5 jobs in GitHub Actions ([Run 39313780922](https://github.com/mahitss/Payment_Bridge/actions/runs/39313780922)):
   - Rust Policy Engine: 17/17 deterministic unit tests passing, zero Clippy warnings.
   - Go API Gateway: 11/11 packages passing with race detection (`go test -race ./...`).
   - Next.js Web Frontend: ESLint clean, 15/15 standalone production routes built.
