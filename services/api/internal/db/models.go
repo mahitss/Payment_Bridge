@@ -93,6 +93,7 @@ type PayoutCase struct {
 	Status               string    `json:"status"` // DRAFT, SUBMITTED, COMPLETED, DENIED, CANCELLED
 	RiskScore            float64   `json:"risk_score"`
 	DualApprovalRequired bool      `json:"dual_approval_required"`
+	IsSyntheticFixture   bool      `json:"is_synthetic_fixture"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 }
@@ -119,19 +120,21 @@ type PayoutOperation struct {
 	SubmittedAt          *time.Time             `json:"submitted_at,omitempty"`
 	CompletedAt          *time.Time             `json:"completed_at,omitempty"`
 	CancelledAt          *time.Time             `json:"cancelled_at,omitempty"`
+	IsSyntheticFixture   bool                   `json:"is_synthetic_fixture"`
 	CreatedAt            time.Time              `json:"created_at"`
 	UpdatedAt            time.Time              `json:"updated_at"`
 }
 
 type PayoutStatusSnapshot struct {
-	ID                string                 `json:"id"`
-	PayoutOperationID string                 `json:"payout_operation_id"`
-	OrganizationID    string                 `json:"organization_id"`
-	Provider          string                 `json:"provider"`
-	BatchStatus       string                 `json:"batch_status"`
-	ItemStatus        *string                `json:"item_status,omitempty"`
-	RawResponse       map[string]interface{} `json:"raw_response"`
-	RecordedAt        time.Time              `json:"recorded_at"`
+	ID                 string                 `json:"id"`
+	PayoutOperationID  string                 `json:"payout_operation_id"`
+	OrganizationID     string                 `json:"organization_id"`
+	Provider           string                 `json:"provider"`
+	BatchStatus        string                 `json:"batch_status"`
+	ItemStatus         *string                `json:"item_status,omitempty"`
+	RawResponse        map[string]interface{} `json:"raw_response"`
+	IsSyntheticFixture bool                   `json:"is_synthetic_fixture"`
+	RecordedAt         time.Time              `json:"recorded_at"`
 }
 
 type InvestigationFinding struct {

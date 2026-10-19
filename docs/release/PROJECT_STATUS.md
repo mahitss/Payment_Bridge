@@ -1,5 +1,5 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 1.6 (Mission 012 PayPal Endpoint Security, Read-Only Lookup Wiring & Strict Readiness Validation Baseline)  
+**Document Version:** 1.7 (Mission 013 Demo Fixture Integrity, Idempotent Seeding & Truthful PayPal Provenance Baseline)  
 **Date of Audit:** October 19, 2026  
 **Auditor:** Staff Application Security & Senior Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
@@ -35,6 +35,14 @@ This audit remediates verified security and correctness gaps following the Missi
    - 17/17 deterministic Rust policy tests passing with zero clippy warnings.
    - Next.js frontend linting and production bundle compilation passing cleanly.
    - Absolute safety guarantee: Zero payouts created, approved, submitted, or cancelled during verification.
+6. **Mission 013: Demo Fixture Integrity, Idempotent Seeding, and Truthful Provenance:**
+   - **Database Migration 000005:** Added `is_synthetic_fixture` boolean column and performance indexes on `payout_cases`, `payout_operations`, and `payout_status_snapshots`.
+   - **Idempotent Seeder Package (`internal/seeder`):** Extracted logic from `cmd/seed` into testable unit suite. Checked all DB writes fail-closed. Re-running seeder creates zero duplicate records. Automatically grants `officer@claimbridge.internal` `ADMIN` membership in `demoOrg` so dual-custody approval works in the UI.
+   - **Safe Scoped Fixture Reset:** `-reset` strictly targets `is_synthetic_fixture = true`. Non-demo user accounts, organizations, and real cases are 100% preserved.
+   - **Server-Side Financial Mutation Protection:** `SubmitPayoutOperation`, `SyncPayoutCase`, and `CancelPayoutOperation` reject synthetic fixtures with HTTP 403 Forbidden (`FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`), making zero outbound network calls to PayPal.
+   - **Unambiguous Identifiers & UI Provenance:** Synthetic IDs prefixed with `SIMULATED-DEMO-...`, provider recorded as `"SIMULATED_DEMO"`, prominent banner displayed on synthetic cases, and external operation buttons disabled for fixtures.
+   - **Intentional Demo-Mode Config:** Landing page evaluator credentials banner hidden by default; gated behind `NEXT_PUBLIC_DEMO_MODE=true`.
+   - **Truthful Demo Documentation:** Decoupled demo script into Track 1 (deterministic simulated fallback) and Track 2 (optional live sandbox). Removed unverified 2–5% statistical claim. Accurately labeled acceptance tests as simulated tests.
 
 ---
 
@@ -75,9 +83,10 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 | **REQ-022** | UI Forensic Investigation Panel: distinct visual boundaries between immutable facts and AI advisory opinions | **VERIFIED** | `apps/web/src/app/app/payouts/[id]/page.tsx` | Next.js compilation & JSX inspection | Rendered with amber advisory badges, evidence reference selector chips, and human review toggle | React / Next.js | None | None | Accessibility audit (WCAG AA) |
 | **REQ-023** | System hardening: 1MB body limit, security headers, token redaction in logs, and DB readiness probes | **VERIFIED** | `services/api/internal/server/server.go`, `services/api/internal/logging/logger.go` | `server_test.go` | 1MB payload rejected (400); nosniff, DENY, CSP headers verified; `/readyz` probes DB | None | None | None | Add dynamic rate-limiting per IP |
 | **REQ-024** | Zero-budget containerized deployment: multi-stage Dockerfiles and full-stack compose definition | **VERIFIED** | `services/api/Dockerfile`, `apps/web/Dockerfile`, `infra/docker-compose.full.yml` | Container specification audit | Reproducible single-command launch with isolated bridge networking and host.docker.internal networking | Docker / Compose | None | None | Run live `docker compose up --build` verification |
-| **REQ-025** | Evaluation tools: synthetic evaluator fixture seeder (`cmd/seed`) and multi-profile diagnostic tool (`cmd/readiness`) | **VERIFIED** | `services/api/cmd/seed/main.go`, `services/api/cmd/readiness/main.go`, `services/api/internal/readiness/` | `readiness_test.go` (29/29 pass), binary compilation, dry execution | `seed` and `readiness` compile; readiness enforces `core` vs `submission` profile gates, client reuse, mutual lookup exclusion, and strict `/readyz` validation | None | None | None | Execute seeder against clean test DB |
-| **REQ-026** | Hackathon demo artifacts: completed demo script, 2-minute shot list, and recording checklist | **VERIFIED** | `docs/demo/DEMO_SCRIPT.md`, `docs/demo/SHOT_LIST.md`, `docs/demo/RECORDING_CHECKLIST.md` | Document review | Complete 120-second walkthrough script with exact voiceover, screen actions, and timings | None | None | None | Record final demo video using OBS |
+| **REQ-025** | Evaluation tools: synthetic evaluator fixture seeder (`cmd/seed`, `internal/seeder`) and multi-profile diagnostic tool (`cmd/readiness`) | **VERIFIED** | `services/api/cmd/seed/main.go`, `services/api/internal/seeder/`, `services/api/cmd/readiness/main.go`, `services/api/internal/readiness/` | `seeder_test.go` (5/5 pass), `readiness_test.go` (29/29 pass), binary compilation, dry execution | `seed` creates idempotent fixtures, handles membership, aborts on write error, and safely resets only synthetic fixtures. Readiness enforces profile gates, client reuse, mutual lookup exclusion, and strict `/readyz` validation | None | None | None | Run against clean production Postgres |
+| **REQ-026** | Hackathon demo artifacts: completed demo script, 2-minute shot list, and recording checklist | **VERIFIED** | `docs/demo/DEMO_SCRIPT.md`, `docs/demo/SHOT_LIST.md`, `docs/demo/RECORDING_CHECKLIST.md` | Document review | Complete two-track walkthrough script with exact voiceover, screen actions, and truthful fallback instructions | None | None | None | Record final demo video using OBS |
 | **REQ-027** | Hackathon final video recording upload | **NOT_IMPLEMENTED** | N/A | Inspection of repository files and remote | No video file (`.mp4`, `.webm`) or external video link exists in the repository | Video recording tool (OBS) | P2: Final video recording pending execution by team | P2: Record and upload 2-minute video prior to submission deadline | Record demo video following `docs/demo/DEMO_SCRIPT.md` | |
+| **REQ-028** | Synthetic fixture isolation & external mutation protection: server-side rejection of PayPal operations on fixtures | **VERIFIED** | `services/api/internal/payouts/service.go`, `services/api/internal/payouts/handler.go`, `services/api/internal/db/migrations/000005_fixture_provenance.up.sql` | `service_fixture_guard_test.go` (100% pass) | Submit, sync, and cancel rejected with HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`; zero outbound requests to PayPal | None | None | None | Benchmark high-concurrency guard performance |
 
 ---
 
@@ -114,7 +123,7 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 | **Open Source License** | **PRESENT & VERIFIED** | `LICENSE` file contains standard MIT License (Copyright 2026 ClaimBridge Contributors). |
 | **Accurate Setup & Test Instructions** | **PRESENT & VERIFIED** | `README.md` contains comprehensive setup instructions, port tables, environment guides, and test commands. |
 | **Environment Variable Template** | **PRESENT & VERIFIED** | `.env.example` contains only placeholders (`your_paypal_sandbox_client_id_here`). Zero real secrets tracked in git. |
-| **Required Source Files & Migrations** | **PRESENT & VERIFIED** | Complete source code across `services/api`, `services/policy`, `apps/web`. 4 up/down SQL migrations in `services/api/internal/db/migrations`. |
+| **Required Source Files & Migrations** | **PRESENT & VERIFIED** | Complete source code across `services/api`, `services/policy`, `apps/web`. 5 up/down SQL migrations in `services/api/internal/db/migrations`. |
 | **Documented PayPal Sandbox Setup** | **PRESENT & VERIFIED** | Detailed sandbox instructions documented in `README.md`, `docs/operational-instructions.md`, and `.env.example`. |
 | **Accurate AI Provider Documentation** | **PRESENT & VERIFIED** | `docs/architecture/ai-investigation-engine.md` and `docs/adr/ADR-006-ai-investigation-engine.md` document Ollama setup and prompt schemas. |
 | **Complete List of Known Issues** | **PRESENT & VERIFIED** | `docs/release/KNOWN_ISSUES.md` documents sandbox behaviors, single-approver constraints, and currency bounds. |

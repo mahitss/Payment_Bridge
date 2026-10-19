@@ -358,6 +358,11 @@ export default function PayoutCaseDetailPage() {
               <h1 className="text-xl font-bold text-white tracking-tight font-mono">
                 {pCase.reference}
               </h1>
+              {pCase.is_synthetic_fixture && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                  SIMULATED FIXTURE
+                </span>
+              )}
               <span
                 className={`px-2.5 py-0.5 rounded text-xs font-semibold tracking-wide ${
                   pCase.status === "COMPLETED"
@@ -380,8 +385,9 @@ export default function PayoutCaseDetailPage() {
             {canSync && (
               <button
                 onClick={handleSyncStatus}
-                disabled={actionLoading !== null}
-                className="px-3.5 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+                disabled={actionLoading !== null || pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture}
+                className="px-3.5 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed text-blue-400 border border-blue-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+                title={pCase.is_synthetic_fixture ? "Disabled: Synthetic Demo Fixture" : undefined}
               >
                 <RefreshCw
                   className={`w-3.5 h-3.5 ${actionLoading === "sync" ? "animate-spin" : ""}`}
@@ -399,6 +405,21 @@ export default function PayoutCaseDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* Synthetic Demo Provenance Banner */}
+        {(pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture) && (
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-3 shadow-lg shadow-amber-500/5">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-400 mt-0.5" />
+            <div className="space-y-1">
+              <div className="font-bold uppercase tracking-wider text-amber-200">
+                SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION
+              </div>
+              <p className="text-slate-300 leading-relaxed">
+                This case and its operations are local evaluation fixtures. Real PayPal submission, synchronization, and cancellation are disabled server-side to guarantee provider integrity and prevent fabricated fixture IDs from reaching external financial networks.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Banners for Alerts */}
         {errorMessage && (
@@ -482,7 +503,7 @@ export default function PayoutCaseDetailPage() {
               )}
             </div>
             <div className="text-[10px] text-slate-500">
-              Source: PayPal Sandbox REST API v1
+              Source: {pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture ? "Simulated Demo Fixture (Local State)" : "PayPal Sandbox REST API v1"}
             </div>
           </div>
         </div>
@@ -564,8 +585,9 @@ export default function PayoutCaseDetailPage() {
             {isReadyForSubmit && (
               <button
                 onClick={() => setConfirmSubmitModal(true)}
-                disabled={actionLoading !== null}
-                className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-emerald-600/20"
+                disabled={actionLoading !== null || pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture}
+                className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-emerald-600/20"
+                title={pCase.is_synthetic_fixture ? "Disabled: Synthetic Demo Fixture" : undefined}
               >
                 <Send className="w-4 h-4" />
                 <span>Submit to PayPal Sandbox</span>
@@ -576,8 +598,9 @@ export default function PayoutCaseDetailPage() {
             {canSync && (
               <button
                 onClick={handleSyncStatus}
-                disabled={actionLoading !== null}
-                className="px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition flex items-center gap-2 border border-slate-700"
+                disabled={actionLoading !== null || pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture}
+                className="px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 text-xs font-semibold transition flex items-center gap-2 border border-slate-700"
+                title={pCase.is_synthetic_fixture ? "Disabled: Synthetic Demo Fixture" : undefined}
               >
                 <RefreshCw
                   className={`w-4 h-4 ${actionLoading === "sync" ? "animate-spin" : ""}`}
@@ -590,8 +613,9 @@ export default function PayoutCaseDetailPage() {
             {canCancel && (
               <button
                 onClick={() => setConfirmCancelModal(true)}
-                disabled={actionLoading !== null}
-                className="px-4 py-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-semibold transition flex items-center gap-2"
+                disabled={actionLoading !== null || pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture}
+                className="px-4 py-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 disabled:opacity-40 disabled:cursor-not-allowed text-rose-400 border border-rose-500/30 text-xs font-semibold transition flex items-center gap-2"
+                title={pCase.is_synthetic_fixture ? "Disabled: Synthetic Demo Fixture" : undefined}
               >
                 <XCircle className="w-4 h-4" />
                 <span>Cancel Payout</span>
@@ -1026,7 +1050,7 @@ export default function PayoutCaseDetailPage() {
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
                   <span>Provider vs Local State Mapping</span>
                   <span className="text-[11px] font-mono text-emerald-400">
-                    Source: Verified via PayPal Sandbox REST API v1
+                    Source: {pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture ? "Simulated Demo State (Local Fixture)" : "Verified via PayPal Sandbox REST API v1"}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-1">
@@ -1103,7 +1127,14 @@ export default function PayoutCaseDetailPage() {
                         {op.paypal_payout_batch_id || "—"}
                       </td>
                       <td className="py-3">
-                        <span className="font-semibold text-white">{op.status}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-white">{op.status}</span>
+                          {op.is_synthetic_fixture && (
+                            <span className="px-1 py-0.2 rounded text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                              SIMULATED
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 text-slate-400">{op.initiated_by_user_id.slice(0, 8)}...</td>
                       <td className="py-3 text-slate-400">

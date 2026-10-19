@@ -320,6 +320,28 @@ func (m *MockRepository) VerifyUserOrgAccess(ctx context.Context, userID, orgID 
 	return false, "", ErrAccessDenied
 }
 
+func (m *MockRepository) AddOrganizationMember(ctx context.Context, orgID, userID, role string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, mship := range m.Memberships {
+		if mship.UserID == userID && mship.OrganizationID == orgID {
+			mship.Role = role
+			return nil
+		}
+	}
+
+	newID := crypto.GenerateUUID()
+	m.Memberships[newID] = &OrganizationMembership{
+		ID:             newID,
+		OrganizationID: orgID,
+		UserID:         userID,
+		Role:           role,
+		CreatedAt:      time.Now().UTC(),
+	}
+	return nil
+}
+
 func (m *MockRepository) RecordAuditEvent(ctx context.Context, event *AuditEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -365,6 +387,19 @@ func (m *MockRepository) GetPayoutCaseByID(ctx context.Context, orgID, caseID st
 	}
 	copied := *c
 	return &copied, nil
+}
+
+func (m *MockRepository) GetPayoutCaseByReference(ctx context.Context, orgID, reference string) (*PayoutCase, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, c := range m.Cases {
+		if c.OrganizationID == orgID && strings.EqualFold(c.Reference, reference) {
+			copied := *c
+			return &copied, nil
+		}
+	}
+	return nil, ErrPayoutCaseNotFound
 }
 
 func (m *MockRepository) ListPayoutCasesByOrg(ctx context.Context, orgID string, limit, offset int) ([]PayoutCase, int, error) {
@@ -586,4 +621,51 @@ func (m *MockRepository) ListInvestigationsByCaseID(ctx context.Context, orgID, 
 		}
 	}
 	return res, nil
+}
+
+func (m *MockRepository) DeleteSyntheticFixtures(ctx context.Context, orgID string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var deletedCount int64
+	var caseIDsToDelete []string
+	for id, c := range m.Cases {
+		if c.IsSyntheticFixture && (orgID == "" || c.OrganizationID == orgID) {
+			caseIDsToDelete = append(caseIDsToDelete, id)
+		}
+	}
+
+	for _, caseID := range caseIDsToDelete {
+		delete(m.Cases, caseID)
+		deletedCount++
+
+		// Cascade delete operations
+		var opIDsToDelete []string
+		for opID, op := range m.Operations {
+			if op.PayoutCaseID == caseID {
+				opIDsToDelete = append(opIDsToDelete, opID)
+				delete(m.OperationsByBatchID, op.SenderBatchID)
+			}
+		}
+		for _, opID := range opIDsToDelete {
+			delete(m.Operations, opID)
+			// Cascade delete snapshots
+			var keptSnapshots []*PayoutStatusSnapshot
+			for _, s := range m.Snapshots {
+				if s.PayoutOperationID != opID {
+					keptSnapshots = append(keptSnapshots, s)
+				}
+			}
+			m.Snapshots = keptSnapshots
+		}
+
+		// Cascade delete investigations
+		for invID, inv := range m.Investigations {
+			if inv.PayoutCaseID == caseID {
+				delete(m.Investigations, invID)
+			}
+		}
+	}
+
+	return deletedCount, nil
 }

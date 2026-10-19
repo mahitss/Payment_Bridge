@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS payout_cases (
     status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
     risk_score NUMERIC(5, 2) NOT NULL DEFAULT 0.0,
     dual_approval_required BOOLEAN NOT NULL DEFAULT false,
+    is_synthetic_fixture BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_payout_cases_org_reference UNIQUE (organization_id, reference)
@@ -171,6 +172,7 @@ CREATE TABLE IF NOT EXISTS payout_cases (
 CREATE INDEX IF NOT EXISTS idx_payout_cases_org ON payout_cases(organization_id);
 CREATE INDEX IF NOT EXISTS idx_payout_cases_status ON payout_cases(status);
 CREATE INDEX IF NOT EXISTS idx_payout_cases_created_at ON payout_cases(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payout_cases_synthetic ON payout_cases(is_synthetic_fixture);
 
 CREATE TABLE IF NOT EXISTS payout_operations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -194,6 +196,7 @@ CREATE TABLE IF NOT EXISTS payout_operations (
     submitted_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     cancelled_at TIMESTAMPTZ,
+    is_synthetic_fixture BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -203,6 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_payout_ops_org ON payout_operations(organization_
 CREATE INDEX IF NOT EXISTS idx_payout_ops_batch ON payout_operations(paypal_payout_batch_id);
 CREATE INDEX IF NOT EXISTS idx_payout_ops_item ON payout_operations(paypal_payout_item_id);
 CREATE INDEX IF NOT EXISTS idx_payout_ops_status ON payout_operations(status);
+CREATE INDEX IF NOT EXISTS idx_payout_ops_synthetic ON payout_operations(is_synthetic_fixture);
 
 CREATE TABLE IF NOT EXISTS payout_status_snapshots (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -212,11 +216,13 @@ CREATE TABLE IF NOT EXISTS payout_status_snapshots (
     batch_status VARCHAR(64) NOT NULL,
     item_status VARCHAR(64),
     raw_response JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_synthetic_fixture BOOLEAN NOT NULL DEFAULT false,
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_operation ON payout_status_snapshots(payout_operation_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_org ON payout_status_snapshots(organization_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_synthetic ON payout_status_snapshots(is_synthetic_fixture);
 
 -- 9. Payout Investigations (AI Investigation Engine & Grounded Auditing)
 CREATE TABLE IF NOT EXISTS payout_investigations (

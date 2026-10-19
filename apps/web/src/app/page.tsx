@@ -116,30 +116,32 @@ export default function Home() {
         </div>
       )}
 
-      {/* Evaluator Quick-Start Credentials Banner */}
-      <section className="p-5 rounded-xl bg-gradient-to-r from-blue-950/40 via-slate-900/60 to-purple-950/40 border border-blue-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs font-semibold text-blue-400">
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            <span>Judge & Evaluator Quick Start</span>
+      {/* Evaluator Quick-Start Credentials Banner (Demo Mode Only) */}
+      {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
+        <section className="p-5 rounded-xl bg-gradient-to-r from-blue-950/40 via-slate-900/60 to-purple-950/40 border border-blue-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs font-semibold text-blue-400">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>Local Evaluation Fixtures (Demo Mode Enabled)</span>
+            </div>
+            <p className="text-xs text-slate-300">
+              Pre-seeded accounts are local testing fixtures for evaluation purposes only. Normal registration and authentication remain fully active:
+            </p>
+            <div className="flex flex-wrap gap-4 text-xs font-mono text-slate-400 pt-1">
+              <span>Operator: <code className="text-blue-300">operator@claimbridge.internal</code> (Pass: <code className="text-slate-200">OperatorPass123!</code>)</span>
+              <span>Signer: <code className="text-purple-300">officer@claimbridge.internal</code> (Pass: <code className="text-slate-200">OfficerPass123!</code>)</span>
+            </div>
           </div>
-          <p className="text-xs text-slate-300">
-            Pre-seeded test accounts and clearly labeled fixtures are available for instant evaluation without manual DB setup:
-          </p>
-          <div className="flex flex-wrap gap-4 text-xs font-mono text-slate-400 pt-1">
-            <span>Operator: <code className="text-blue-300">operator@claimbridge.internal</code> (Pass: <code className="text-slate-200">OperatorPass123!</code>)</span>
-            <span>Signer: <code className="text-purple-300">officer@claimbridge.internal</code> (Pass: <code className="text-slate-200">OfficerPass123!</code>)</span>
-          </div>
-        </div>
 
-        <Link
-          href="/login"
-          className="self-start md:self-center px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shrink-0 transition"
-        >
-          <span>Sign In as Demo Operator</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
-      </section>
+          <Link
+            href="/login"
+            className="self-start md:self-center px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shrink-0 transition"
+          >
+            <span>Sign In to Demo Workspace</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </section>
+      )}
 
       {/* 4 Architectural Pillars */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">

@@ -442,6 +442,19 @@ func (r *PostgresRepository) VerifyUserOrgAccess(ctx context.Context, userID, or
 	return true, role, nil
 }
 
+func (r *PostgresRepository) AddOrganizationMember(ctx context.Context, orgID, userID, role string) error {
+	query := `
+		INSERT INTO organization_memberships (organization_id, user_id, role, created_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role
+	`
+	_, err := r.pool.Exec(ctx, query, orgID, userID, role)
+	if err != nil {
+		return fmt.Errorf("failed to add organization member: %w", err)
+	}
+	return nil
+}
+
 func (r *PostgresRepository) RecordAuditEvent(ctx context.Context, event *AuditEvent) error {
 	metaJSON, err := json.Marshal(event.Metadata)
 	if err != nil {
@@ -480,8 +493,8 @@ func (r *PostgresRepository) CreatePayoutCase(ctx context.Context, c *PayoutCase
 		INSERT INTO payout_cases (
 			organization_id, created_by_user_id, reference, recipient_email, recipient_name,
 			title, description, currency, amount_cents, status, risk_score, dual_approval_required,
-			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+			is_synthetic_fixture, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
 		RETURNING id, created_at, updated_at
 	`
 	err := r.pool.QueryRow(ctx, query,
@@ -497,6 +510,7 @@ func (r *PostgresRepository) CreatePayoutCase(ctx context.Context, c *PayoutCase
 		c.Status,
 		c.RiskScore,
 		c.DualApprovalRequired,
+		c.IsSyntheticFixture,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
 
 	if err != nil {
@@ -513,7 +527,7 @@ func (r *PostgresRepository) GetPayoutCaseByID(ctx context.Context, orgID, caseI
 	query := `
 		SELECT id, organization_id, created_by_user_id, reference, recipient_email, recipient_name,
 		       title, description, currency, amount_cents, status, risk_score, dual_approval_required,
-		       created_at, updated_at
+		       is_synthetic_fixture, created_at, updated_at
 		FROM payout_cases
 		WHERE id = $1 AND organization_id = $2
 	`
@@ -521,13 +535,36 @@ func (r *PostgresRepository) GetPayoutCaseByID(ctx context.Context, orgID, caseI
 	err := r.pool.QueryRow(ctx, query, caseID, orgID).Scan(
 		&c.ID, &c.OrganizationID, &c.CreatedByUserID, &c.Reference, &c.RecipientEmail, &c.RecipientName,
 		&c.Title, &c.Description, &c.Currency, &c.AmountCents, &c.Status, &c.RiskScore, &c.DualApprovalRequired,
-		&c.CreatedAt, &c.UpdatedAt,
+		&c.IsSyntheticFixture, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPayoutCaseNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get payout case: %w", err)
+	}
+	return &c, nil
+}
+
+func (r *PostgresRepository) GetPayoutCaseByReference(ctx context.Context, orgID, reference string) (*PayoutCase, error) {
+	query := `
+		SELECT id, organization_id, created_by_user_id, reference, recipient_email, recipient_name,
+		       title, description, currency, amount_cents, status, risk_score, dual_approval_required,
+		       is_synthetic_fixture, created_at, updated_at
+		FROM payout_cases
+		WHERE organization_id = $1 AND reference = $2
+	`
+	var c PayoutCase
+	err := r.pool.QueryRow(ctx, query, orgID, reference).Scan(
+		&c.ID, &c.OrganizationID, &c.CreatedByUserID, &c.Reference, &c.RecipientEmail, &c.RecipientName,
+		&c.Title, &c.Description, &c.Currency, &c.AmountCents, &c.Status, &c.RiskScore, &c.DualApprovalRequired,
+		&c.IsSyntheticFixture, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPayoutCaseNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get payout case by reference: %w", err)
 	}
 	return &c, nil
 }
@@ -549,7 +586,7 @@ func (r *PostgresRepository) ListPayoutCasesByOrg(ctx context.Context, orgID str
 	query := `
 		SELECT id, organization_id, created_by_user_id, reference, recipient_email, recipient_name,
 		       title, description, currency, amount_cents, status, risk_score, dual_approval_required,
-		       created_at, updated_at
+		       is_synthetic_fixture, created_at, updated_at
 		FROM payout_cases
 		WHERE organization_id = $1
 		ORDER BY created_at DESC
@@ -567,7 +604,7 @@ func (r *PostgresRepository) ListPayoutCasesByOrg(ctx context.Context, orgID str
 		err := rows.Scan(
 			&c.ID, &c.OrganizationID, &c.CreatedByUserID, &c.Reference, &c.RecipientEmail, &c.RecipientName,
 			&c.Title, &c.Description, &c.Currency, &c.AmountCents, &c.Status, &c.RiskScore, &c.DualApprovalRequired,
-			&c.CreatedAt, &c.UpdatedAt,
+			&c.IsSyntheticFixture, &c.CreatedAt, &c.UpdatedAt,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan payout case: %w", err)
@@ -604,9 +641,14 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 	query := `
 		INSERT INTO payout_operations (
 			payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
-			amount_cents, currency, status, requires_dual_approval, raw_provider_response,
-			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+			amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
+			paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
+			requires_dual_approval, approved_by_user_id, approved_at, submitted_at,
+			completed_at, cancelled_at, is_synthetic_fixture, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW()
+		)
 		RETURNING id, created_at, updated_at
 	`
 	err := r.pool.QueryRow(ctx, query,
@@ -618,8 +660,19 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 		op.AmountCents,
 		op.Currency,
 		op.Status,
-		op.RequiresDualApproval,
+		op.PayPalPayoutBatchID,
+		op.PayPalBatchStatus,
+		op.PayPalPayoutItemID,
+		op.PayPalItemStatus,
+		op.ErrorMessage,
 		rawJSON,
+		op.RequiresDualApproval,
+		op.ApprovedByUserID,
+		op.ApprovedAt,
+		op.SubmittedAt,
+		op.CompletedAt,
+		op.CancelledAt,
+		op.IsSyntheticFixture,
 	).Scan(&op.ID, &op.CreatedAt, &op.UpdatedAt)
 
 	if err != nil {
@@ -634,7 +687,7 @@ func (r *PostgresRepository) GetPayoutOperationByID(ctx context.Context, orgID, 
 		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
 		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
 		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
-		       cancelled_at, created_at, updated_at
+		       cancelled_at, is_synthetic_fixture, created_at, updated_at
 		FROM payout_operations
 		WHERE id = $1 AND organization_id = $2
 	`
@@ -645,7 +698,7 @@ func (r *PostgresRepository) GetPayoutOperationByID(ctx context.Context, orgID, 
 		&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
 		&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
 		&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
-		&op.CancelledAt, &op.CreatedAt, &op.UpdatedAt,
+		&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPayoutOperationNotFound
@@ -665,7 +718,7 @@ func (r *PostgresRepository) GetPayoutOperationBySenderBatchID(ctx context.Conte
 		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
 		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
 		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
-		       cancelled_at, created_at, updated_at
+		       cancelled_at, is_synthetic_fixture, created_at, updated_at
 		FROM payout_operations
 		WHERE sender_batch_id = $1
 	`
@@ -676,7 +729,7 @@ func (r *PostgresRepository) GetPayoutOperationBySenderBatchID(ctx context.Conte
 		&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
 		&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
 		&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
-		&op.CancelledAt, &op.CreatedAt, &op.UpdatedAt,
+		&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPayoutOperationNotFound
@@ -696,7 +749,7 @@ func (r *PostgresRepository) ListPayoutOperationsByCaseID(ctx context.Context, o
 		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
 		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
 		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
-		       cancelled_at, created_at, updated_at
+		       cancelled_at, is_synthetic_fixture, created_at, updated_at
 		FROM payout_operations
 		WHERE payout_case_id = $1 AND organization_id = $2
 		ORDER BY created_at DESC
@@ -716,7 +769,7 @@ func (r *PostgresRepository) ListPayoutOperationsByCaseID(ctx context.Context, o
 			&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
 			&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
 			&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
-			&op.CancelledAt, &op.CreatedAt, &op.UpdatedAt,
+			&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan payout operation: %w", err)
@@ -804,8 +857,8 @@ func (r *PostgresRepository) CreatePayoutStatusSnapshot(ctx context.Context, sna
 	rawJSON, _ := json.Marshal(snapshot.RawResponse)
 	query := `
 		INSERT INTO payout_status_snapshots (
-			payout_operation_id, organization_id, provider, batch_status, item_status, raw_response, recorded_at
-		) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+			payout_operation_id, organization_id, provider, batch_status, item_status, raw_response, is_synthetic_fixture, recorded_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		RETURNING id, recorded_at
 	`
 	return r.pool.QueryRow(ctx, query,
@@ -815,12 +868,13 @@ func (r *PostgresRepository) CreatePayoutStatusSnapshot(ctx context.Context, sna
 		snapshot.BatchStatus,
 		snapshot.ItemStatus,
 		rawJSON,
+		snapshot.IsSyntheticFixture,
 	).Scan(&snapshot.ID, &snapshot.RecordedAt)
 }
 
 func (r *PostgresRepository) ListPayoutStatusSnapshots(ctx context.Context, orgID, opID string) ([]PayoutStatusSnapshot, error) {
 	query := `
-		SELECT id, payout_operation_id, organization_id, provider, batch_status, item_status, raw_response, recorded_at
+		SELECT id, payout_operation_id, organization_id, provider, batch_status, item_status, raw_response, is_synthetic_fixture, recorded_at
 		FROM payout_status_snapshots
 		WHERE payout_operation_id = $1 AND organization_id = $2
 		ORDER BY recorded_at DESC
@@ -837,7 +891,7 @@ func (r *PostgresRepository) ListPayoutStatusSnapshots(ctx context.Context, orgI
 		var rawJSON []byte
 		err := rows.Scan(
 			&s.ID, &s.PayoutOperationID, &s.OrganizationID, &s.Provider,
-			&s.BatchStatus, &s.ItemStatus, &rawJSON, &s.RecordedAt,
+			&s.BatchStatus, &s.ItemStatus, &rawJSON, &s.IsSyntheticFixture, &s.RecordedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan payout snapshot: %w", err)
@@ -848,6 +902,22 @@ func (r *PostgresRepository) ListPayoutStatusSnapshots(ctx context.Context, orgI
 		snapshots = append(snapshots, s)
 	}
 	return snapshots, nil
+}
+
+func (r *PostgresRepository) DeleteSyntheticFixtures(ctx context.Context, orgID string) (int64, error) {
+	var query string
+	var args []interface{}
+	if orgID != "" {
+		query = `DELETE FROM payout_cases WHERE organization_id = $1 AND is_synthetic_fixture = true`
+		args = []interface{}{orgID}
+	} else {
+		query = `DELETE FROM payout_cases WHERE is_synthetic_fixture = true`
+	}
+	res, err := r.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete synthetic fixtures: %w", err)
+	}
+	return res.RowsAffected(), nil
 }
 
 // Investigations

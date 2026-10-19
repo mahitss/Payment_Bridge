@@ -86,3 +86,23 @@ This document establishes the factual basis for every statement made in the Clai
   - `services/api/internal/readiness/probes.go` (Guards against mock AI or fake PayPal servers passing live submission checks).
 - **Automated Test Evidence:**
   - `services/api/internal/readiness/readiness_test.go` (20 test scenarios verifying PostgreSQL down, API health failure, policy rejection, missing credentials, OAuth failures, model missing, mock provider rejection, and profile gate isolation).
+
+---
+
+### Claim 8: "Synthetic Fixture Isolation & Truthful PayPal Provenance — Demo fixtures are cryptographically and server-side isolated from live provider transactions."
+- **Verifying Source Code:**
+  - `services/api/internal/db/migrations/000005_fixture_provenance.up.sql`: Explicit `is_synthetic_fixture` boolean column and indexes on `payout_cases`, `payout_operations`, and `payout_status_snapshots`.
+  - `services/api/internal/seeder/seeder.go`: Idempotent seeder logic; sets `IsSyntheticFixture = true`; assigns unmistakable identifiers (`SIMULATED-DEMO-BATCH-W9821`, `SIMULATED-DEMO-ITEM-W9821`); records provider as `"SIMULATED_DEMO"`; states in investigation text that findings derive from simulated data. Safe reset deletes only synthetic fixture records (`is_synthetic_fixture = true`) without touching non-demo accounts or transactions.
+  - `services/api/internal/payouts/service.go`: Server-side mutation guards in `SubmitPayoutOperation`, `SyncPayoutCase`, and `CancelPayoutOperation` reject synthetic fixtures with `ErrFixtureExternalOperationForbidden` before making any outbound HTTP call.
+  - `services/api/internal/payouts/handler.go`: Maps `ErrFixtureExternalOperationForbidden` to HTTP 403 Forbidden with error code `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`.
+  - `apps/web/src/app/page.tsx`: Landing page evaluator credentials banner is gated behind `NEXT_PUBLIC_DEMO_MODE=true` and hidden by default.
+  - `apps/web/src/app/app/payouts/[id]/page.tsx`: Displays prominent `SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION` banner; disables external mutation buttons for synthetic records.
+- **Automated Test Evidence:**
+  - `services/api/internal/seeder/seeder_test.go`:
+    - `TestSeed_FirstRunCreatesAllFixturesAndMemberships`: Verifies creation of all fixture cases and adds `officer` to `demoOrg`.
+    - `TestSeed_IdempotentSecondRunCreatesNoDuplicates`: Verifies repeated seeding produces zero duplicate records.
+    - `TestReset_RemovesOnlySyntheticFixturesAndPreservesRealData`: Verifies reset purges only synthetic records and preserves non-demo cases and users.
+    - `TestSeed_WriteErrorAborts`: Verifies fail-closed abort on database write errors.
+    - `TestSeed_InactiveAccountFails`: Verifies disabled demo accounts are rejected.
+  - `services/api/internal/payouts/service_fixture_guard_test.go`:
+    - `TestFixtureExternalOperationGuards`: Asserts that `SubmitPayoutOperation`, `SyncPayoutCase`, and `CancelPayoutOperation` on synthetic fixtures return `ErrFixtureExternalOperationForbidden` and make exactly **zero outbound requests** to PayPal.

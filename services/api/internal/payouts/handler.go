@@ -216,6 +216,11 @@ func (h *Handler) handleSyncPayoutCase(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, db.ErrPayoutCaseNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "payout case not found"})
+		case errors.Is(err, ErrFixtureExternalOperationForbidden):
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": err.Error(),
+				"code":  "FIXTURE_EXTERNAL_OPERATION_FORBIDDEN",
+			})
 		case errors.Is(err, ErrNoOperationsToSync):
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		default:
@@ -351,6 +356,11 @@ func (h *Handler) handleSubmitPayoutOperation(w http.ResponseWriter, r *http.Req
 	op, err := h.service.SubmitPayoutOperation(r.Context(), user, org, existingOp.PayoutCaseID, opID)
 	if err != nil {
 		switch {
+		case errors.Is(err, ErrFixtureExternalOperationForbidden):
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": err.Error(),
+				"code":  "FIXTURE_EXTERNAL_OPERATION_FORBIDDEN",
+			})
 		case errors.Is(err, ErrOperationNotApproved):
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
 		case errors.Is(err, ErrOperationAlreadySubmitted), errors.Is(err, ErrOperationCannotBeSubmitted), errors.Is(err, ErrCaseInTerminalState):
@@ -393,6 +403,11 @@ func (h *Handler) handleCancelPayoutOperation(w http.ResponseWriter, r *http.Req
 	op, err := h.service.CancelPayoutOperation(r.Context(), user, org, opID)
 	if err != nil {
 		switch {
+		case errors.Is(err, ErrFixtureExternalOperationForbidden):
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": err.Error(),
+				"code":  "FIXTURE_EXTERNAL_OPERATION_FORBIDDEN",
+			})
 		case errors.Is(err, db.ErrPayoutOperationNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "payout operation not found"})
 		case errors.Is(err, ErrOperationAlreadyCancelled), errors.Is(err, ErrNotEligibleForCancellation):

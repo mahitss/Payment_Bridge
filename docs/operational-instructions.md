@@ -248,3 +248,42 @@ Check 3 (`ProbeAPIReadiness`) enforces strict verification of API operational re
    - Provider name and model metadata (`ollama-openai-compatible (llama3.2)`).
 6. Verify that no financial mutation occurred and financial state remains unchanged.
 
+---
+
+## Step 8: Demo Fixture Management, Idempotent Seeding, and Provenance Safeguards
+
+ClaimBridge provides deterministic, testable evaluation fixtures for local demonstration and review without polluting genuine payment channels or creating ambiguity with live provider records.
+
+### 8.1 Idempotent Seeding
+The seeder is executed from `services/api`:
+```bash
+cd services/api
+go run ./cmd/seed
+```
+- **Atomicity & Fail-Closed Behavior:** All database writes are validated. Any failure immediately terminates the process with a non-zero exit code.
+- **Idempotency:** Re-running `go run ./cmd/seed` checks existing references (`DEMO-M4421`, `DEMO-W9821`, `DEMO-V1082`) and creates zero duplicate records.
+- **Dual-Custody Membership:** The compliance officer account (`officer@claimbridge.internal`) is automatically verified as an active `ADMIN` member of the demonstration organization (`demoOrg`), ensuring dual-custody approval workflows function seamlessly in the UI.
+
+### 8.2 Safe Scoped Fixture Reset
+To reset demo data cleanly:
+```bash
+cd services/api
+go run ./cmd/seed -reset
+```
+- **Scoped Purge:** The reset command positively identifies records via `is_synthetic_fixture = true`.
+- **Zero Cross-Contamination:** Non-demo user accounts, real organizations, and genuine payout cases (`is_synthetic_fixture = false`) are strictly preserved.
+- **Dependency-Order Cleanup:** Foreign-key relationships (investigations, status snapshots, and operations) are cleaned up cleanly via foreign key cascade.
+
+### 8.3 Server-Side Mutation Protection
+All synthetic fixtures are protected server-side against accidental or malicious dispatch to PayPal:
+- **Forbidden Operations:** `SubmitPayoutOperation`, `SyncPayoutCase`, and `CancelPayoutOperation` reject synthetic fixtures with HTTP 403 Forbidden (`code: FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`).
+- **Network Safety:** Zero outbound network requests reach PayPal's servers for fixture records.
+- **UI Indicators:** The frontend displays prominent banners (`SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION`) and disables submission/cancellation buttons.
+
+### 8.4 Evaluation Demo Mode Configuration
+By default, the evaluator quick-start credentials banner on the landing page is hidden to maintain clean production semantics. To enable the banner for local evaluation:
+```bash
+# In apps/web:
+NEXT_PUBLIC_DEMO_MODE=true npm run dev
+```
+

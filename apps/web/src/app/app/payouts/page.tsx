@@ -212,9 +212,16 @@ export default function PayoutsListPage() {
                   {filteredCases.map((c) => (
                     <tr key={c.id} className="hover:bg-slate-800/30 transition">
                       <td className="py-3.5 pl-4 font-mono font-medium text-blue-400">
-                        <Link href={`/app/payouts/${c.id}`} className="hover:underline">
-                          {c.reference}
-                        </Link>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Link href={`/app/payouts/${c.id}`} className="hover:underline">
+                            {c.reference}
+                          </Link>
+                          {c.is_synthetic_fixture && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                              SIMULATED
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5">
                         <div className="font-medium text-white">{c.title}</div>

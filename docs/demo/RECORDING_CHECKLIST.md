@@ -16,30 +16,27 @@
   cd services/api && go run ./cmd/server
   # Check http://localhost:8080/healthz returns 200 OK
   ```
-- [ ] **Next.js Web Frontend Running:**
+- [ ] **Next.js Web Frontend Running (with Demo Mode for Evaluators):**
   ```bash
-  cd apps/web && npm run dev
+  # In apps/web: set NEXT_PUBLIC_DEMO_MODE=true if you want the evaluator quick-start banner visible
+  NEXT_PUBLIC_DEMO_MODE=true npm run dev
   # Check http://localhost:3000 loads without console errors
   ```
-- [ ] **AI Model Provider (Ollama):**
+- [ ] **Seed / Reset Demo Fixtures:**
   ```bash
-  ollama list
-  # Confirm llama3.2 is installed
-  ollama serve
-  # Verify http://localhost:11434 responds
+  cd services/api
+  # Seed idempotent demo fixtures and verify memberships
+  go run ./cmd/seed
+  # (Optional: To cleanly reset only synthetic fixtures without touching user accounts: go run ./cmd/seed -reset)
   ```
-- [ ] **Run Pre-Demo Readiness Diagnostic (Submission Profile):**
-  ```bash
-  cd services/api && go run ./cmd/readiness -profile=submission
-  # Must verify all 8 required gates (5 Core + PayPal Sandbox OAuth + Ollama Health + Genuine Non-Mutating Inference Probe)
-  # Ensure exit code is 0 and output reports: [STATUS: READY] FULL SUBMISSION & DEMO READINESS VERIFIED
-  # (For local core development only, use: go run ./cmd/readiness -profile=core)
-  ```
-- [ ] **Seed Test Fixtures:**
-  ```bash
-  cd services/api && go run ./cmd/seed
-  # Ensures operator@claimbridge.internal and officer@claimbridge.internal accounts exist
-  ```
+- [ ] **Decision on Recording Track:**
+  - **Track 1 (Recommended / Deterministic Fallback):**
+    - Record entirely with seeded synthetic fixtures (`DEMO-M4421`, `DEMO-W9821`, `DEMO-V1082`).
+    - No external credentials or live Ollama daemon required.
+    - Demonstrates: dual-custody policy, prompt injection defense, grounding validation, and server-side mutation protection on fixtures.
+  - **Track 2 (Optional Live PayPal Sandbox & Ollama):**
+    - Only record if `go run ./cmd/readiness -profile=submission` passes with status `[STATUS: READY]`.
+    - Creates genuine non-fixture cases and submits to PayPal Sandbox REST API.
 
 ---
 
@@ -57,12 +54,13 @@
 
 | Account Role | Email Address | Password | Intended Action in Demo |
 | :--- | :--- | :--- | :--- |
-| **Primary Operator** | `operator@claimbridge.internal` | `OperatorPass123!` | Create $350 payout; attempt self-approval (blocked). |
-| **Compliance Officer** | `officer@claimbridge.internal` | `OfficerPass123!` | Review and approve $350 payout (dual custody passed). |
+| **Primary Operator** | `operator@claimbridge.internal` | `OperatorPass123!` | Create $350 payout; attempt self-approval (blocked fail-closed). |
+| **Compliance Officer** | `officer@claimbridge.internal` | `OfficerPass123!` | Review and approve $350 payout (dual custody passed). Both users belong to `demoOrg`. |
 
 ---
 
 ## 4. Fallback Strategies During Recording
 
-- **If Ollama inference takes longer than 10 seconds:** The frontend displays an active glowing brain spinner. You can narrate: *"While Ollama runs locally on CPU, the Go backend enforces a strict 30-second bounded timeout, keeping our payment thread non-blocking."*
-- **If PayPal Sandbox API is experiencing latency:** The UI shows an explicit spinner and preserves all local operation states. You can narrate: *"ClaimBridge maintains our durable sender batch ID in PostgreSQL, ensuring that regardless of network latency, no duplicate payout can be created."*
+- **If Ollama inference takes longer than 10 seconds or is not running:** The frontend displays an active glowing brain spinner, or falls back gracefully to the deterministic model double. You can narrate: *"ClaimBridge isolates AI analysis behind an advisory boundary, with strict 30-second bounded timeouts."*
+- **Synthetic Fixture Provenance:** When displaying seeded cases, point out the **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”** banner. Explain that server-side guards block external PayPal dispatch on synthetic records, protecting external payment networks.
+- **If PayPal Sandbox API experiences latency during Track 2:** The UI preserves local operation states and displays a durable progress state. You can narrate: *"ClaimBridge maintains our durable sender batch ID in PostgreSQL, ensuring that regardless of network latency, no duplicate payout can be created."*

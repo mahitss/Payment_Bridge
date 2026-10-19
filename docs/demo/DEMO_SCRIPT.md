@@ -1,22 +1,44 @@
 # ClaimBridge — Hackathon Video Demonstration Script
 
-**Total Target Duration:** 2 minutes 35 seconds (155 seconds) — well within the 3:00 hackathon cutoff  
 **Format:** Screen recording with voiceover narration  
-**Presenter:** Single speaker (clear, measured, technical pace)  
+**Presenter:** Single speaker (measured, technical pace)  
 **Resolution:** 1080p (1920x1080), browser at 100% zoom  
+**Time Limit:** Under 3 minutes (180 seconds maximum)
 
 ---
 
-## Timeline & Scene Breakdown
+## Two Demonstration Tracks
 
-### Scene A — Problem & Context [00:00 – 00:25] (25 seconds)
+ClaimBridge supports two distinct, truthful demonstration tracks:
+
+1. **Track 1: Deterministic Simulated Workflow (Recommended / Fallback)**  
+   - Runs locally without requiring live PayPal Sandbox credentials or local Ollama daemons.  
+   - Uses pre-seeded synthetic fixtures (`DEMO-M4421`, `DEMO-W9821`, `DEMO-V1082`).  
+   - Demonstrates dual-custody approval, prompt injection defense, evidence grounding, and server-side mutation protection.  
+   - All fixture data is prominently labeled: **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”**.
+   - External provider mutations on fixtures are blocked server-side (HTTP 403) with zero outbound PayPal requests.
+
+2. **Track 2: Optional Live PayPal Sandbox & Ollama Verification**  
+   - Performed *only* after `go run ./cmd/readiness -profile=submission` reports `[STATUS: READY]`.  
+   - Requires valid PayPal Sandbox OAuth credentials (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`) and an active Ollama instance (`llama3.2`).  
+   - Operates exclusively on genuine non-fixture cases.  
+   - Live submission, live polling, and item cancellation execute real REST calls against `https://api-m.sandbox.paypal.com`.
+
+---
+
+## Track 1: Deterministic Simulated Workflow Walkthrough
+
+**Total Target Duration:** 2 minutes 30 seconds (150 seconds)
+
+### Scene A — Problem & Architecture [00:00 – 00:25] (25 seconds)
 
 **Visual:**
 - Open browser on ClaimBridge Landing Page (`http://localhost:3000`).
-- Slowly scroll past the four architectural pillars (Go Gateway, Rust Policy Engine, AI Investigation, PayPal REST Boundary).
+- Ensure `NEXT_PUBLIC_DEMO_MODE=true` is set if using the evaluator credential banner, or demonstrate standard login.
+- Scroll past the four architectural pillars (Go Gateway, Rust Policy Engine, AI Investigation, PayPal REST Boundary).
 
 **Spoken Narration:**
-> "In multi-party disbursement systems—like warranty reimbursements or marketplace payouts—between 2 and 5 percent of payouts fail or stall in unclaimed states.
+> "In multi-party disbursement systems—such as warranty claims, vendor reimbursements, or marketplace payouts—disbursements frequently stall in unclaimed, rejected, or ambiguous provider states.
 > 
 > Operators today face a dangerous dilemma: manual dashboard swiveling with cryptic errors, or naive AI chatbots that risk fund depletion through prompt injection and hallucinated payments.
 > 
@@ -24,11 +46,10 @@
 
 ---
 
-### Scene B — Authentication & Payout Intake [00:25 – 00:55] (30 seconds)
+### Scene B — Authentication & Payout Policy Enforcement [00:25 – 00:55] (30 seconds)
 
 **Visual:**
-- Click **Sign In as Demo Operator** from the quick-start banner.
-- Log in with `operator@claimbridge.internal` / `OperatorPass123!`.
+- Sign in with evaluator account `operator@claimbridge.internal` / `OperatorPass123!`.
 - Land on the Overview Dashboard (`/app`).
 - Navigate to **New Payout** (`/app/payouts/new`).
 - Enter Recipient: `claimant.unclaimed@example.com`, Amount: `$350.00` USD, Risk Score: `25.0`.
@@ -37,40 +58,45 @@
 **Spoken Narration:**
 > "Logging in as our primary operator, we enter our authenticated workspace.
 > 
-> When creating a payout case, all calculations occur strictly in integer minor units to eliminate floating-point rounding hazards.
+> When creating a payout case, all calculations occur strictly in integer minor units—cents—to eliminate floating-point rounding hazards.
 > 
-> As we enter $350.00, our Rust policy engine instantly detects that this exceeds the $250 threshold, enforcing mandatory dual-custody authorization."
+> As we enter $350.00, our Rust policy engine detects that this exceeds the $250 threshold, enforcing mandatory dual-custody authorization."
 
 ---
 
-### Scene C — Dual-Custody Approval & Policy Precedence [00:55 – 01:25] (30 seconds)
+### Scene C — Dual-Custody Approval & Separation of Duties [00:55 – 01:25] (30 seconds)
 
 **Visual:**
 - Submit the case. Land on Case Details (`/app/payouts/[id]`).
-- Click **Initiate Payout Operation**. Operation shows status `AWAITING_APPROVAL`.
-- Try to click **Approve Payout Operation** as the creator.
-- Show the error alert: `Self-approval forbidden: dual-custody requires a distinct authorized approver`.
+- Click **Initiate Sandbox Payout Operation**. Operation shows status `AWAITING_APPROVAL`.
+- Highlight that the self-approval button is disabled or, if clicked, returns HTTP 403: `Self-approval forbidden: dual-custody requires a distinct authorized approver`.
 - Click the user profile icon, sign out, and sign in as `officer@claimbridge.internal` / `OfficerPass123!`.
-- Return to the case and click **Approve Payout Operation**. Status transitions to `APPROVED`.
+- Return to the case and approve the operation. Status transitions to `APPROVED`.
 
 **Spoken Narration:**
-> "Under separation-of-duties rules, the initiating officer is strictly forbidden from self-approving. The system rejects the attempt fail-closed with HTTP 403.
+> "Under strict separation-of-duties rules, the initiating officer is strictly forbidden from self-approving. The system rejects the attempt fail-closed with HTTP 403.
 > 
-> Logging in as our compliance officer, Dana Vance, we review the case and approve the operation. The payout is now unlocked for dispatch."
+> Logging in as our compliance officer, Dana Vance, who shares membership in the organization, we review the case and approve the operation. The payout is now unlocked for dispatch."
 
 ---
 
-### Scene D — PayPal REST Sandbox Execution & Status Sync [01:25 – 01:50] (25 seconds)
+### Scene D — Synthetic Fixture Integrity & Mutation Guard [01:25 – 01:50] (25 seconds)
 
 **Visual:**
-- Click **Submit to PayPal Sandbox**.
-- Show the assigned PayPal Batch ID: `PAYPAL-BATCH-...` and Item ID: `PAYPAL-ITEM-...`.
-- Click **Synchronize Status**. The provider status is queried directly from PayPal REST Sandbox, showing item status `UNCLAIMED`.
+- Navigate to the Payout Cases Registry (`/app/payouts`).
+- Open the seeded demo case `DEMO-W9821` (`Warranty Replacement Claim #9821`).
+- Point out the prominent banner:  
+  **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”**.
+- Point out the synthetic identifiers (`SIMULATED-DEMO-BATCH-W9821`, `SIMULATED-DEMO-ITEM-W9821`) and provider status marked as simulated.
+- Show that external mutating buttons (Submit to PayPal Sandbox, Sync, Cancel) are disabled with safe indicators.
+- Mention that backend policy guards enforce this server-side: fixture records are permanently blocked from generating outbound PayPal requests.
 
 **Spoken Narration:**
-> "When we submit, ClaimBridge dispatches the pre-persisted, durable sender batch ID directly to the PayPal Payouts REST API in sandbox mode.
+> "Here on our seeded investigation case, ClaimBridge enforces strict provenance boundaries.
 > 
-> Clicking Synchronize pulls live status snapshots from PayPal, confirming the payment reached PayPal, but is currently sitting in UNCLAIMED status because the recipient has not yet accepted it."
+> Notice the clear banner: this is simulated demo data, not a live PayPal transaction. All identifiers are unmistakably synthetic.
+> 
+> Crucially, our backend server-side guards block any external mutation on synthetic records with HTTP 403, guaranteeing zero outbound requests to PayPal and preventing test IDs from polluting live networks."
 
 ---
 
@@ -78,30 +104,43 @@
 
 **Visual:**
 - Scroll down to the **AI Payout Investigation Engine** card.
-- Click **Run AI Investigation**.
-- Show the animated pending state, followed by the generated report.
-- Point out:
-  1. Amber advisory notice: AI suggestions have zero direct execution authority.
-  2. Grounded Evidence References: clickable pills linking to the exact Case UUID, Operation UUID, and PayPal Item ID.
-  3. Recommendation: `REVIEW_CANCELLATION_ELIGIBILITY` with rule `RULE-PAYPAL-CANCEL-UNCLAIMED-ONLY`.
+- Click **Run Investigation**.
+- Show the animated processing state, followed by the generated report.
+- Highlight:
+  1. Amber advisory notice: AI suggestions have zero direct financial execution authority.
+  2. Grounded Evidence References: clickable chips linking to verified case and snapshot records.
+  3. Recommendation: `REVIEW_CANCELLATION_ELIGIBILITY` validated against Rust policy rules.
 
 **Spoken Narration:**
-> "Now, we trigger our AI Investigation Engine. Running locally on Ollama Llama 3.2, the model correlates the PayPal status with case records.
+> "Now, we trigger our AI Investigation Engine. The model correlates historical status snapshots with case evidence.
 > 
-> Notice: AI advice is strictly advisory. Every finding is mathematically verified against the snapshot identifiers—if the model hallucinated a fake batch ID, our Go backend would reject it fail-closed with HTTP 422.
+> Notice: AI advice is strictly advisory. Every cited identifier is mathematically verified against persisted records—if the model hallucinated an ungrounded ID, our Go backend would reject it fail-closed with HTTP 422.
 > 
-> The model identifies that the item is UNCLAIMED and recommends reviewing cancellation eligibility."
+> The model identifies that the item is UNCLAIMED and recommends reviewing cancellation eligibility, which our Rust policy engine validates."
 
 ---
 
-### Scene F — Controlled Recovery & Closing [02:20 – 02:35] (15 seconds)
+### Scene F — Verified Automation & Closing [02:20 – 02:35] (15 seconds)
 
 **Visual:**
-- Click **Cancel Payout Item**. Confirm the cancellation.
-- Status updates to `CANCELLED` via PayPal REST API.
-- Switch to terminal showing `go run ./cmd/acceptance` with all 32 scenarios green.
+- Switch to terminal showing:
+  - `go run ./cmd/acceptance` with all 32 scenarios green in the simulated test environment.
+  - `go test ./internal/seeder ./internal/payouts` confirming idempotent seeding and fixture guards.
 
 **Spoken Narration:**
-> "With one click, the operator executes a verified PayPal REST cancellation, cleanly recovering the funds.
+> "ClaimBridge bridges the flexibility of AI with the rigorous determinism required in financial infrastructure.
 > 
-> With 32 automated acceptance tests passing and zero browser secrets, ClaimBridge unites the power of AI with the unbreakable guarantees of PayPal. Thank you!"
+> With 32 automated simulated acceptance tests passing, verified dual custody, and fail-closed PayPal safety boundaries, ClaimBridge is ready. Thank you!"
+
+---
+
+## Track 2: Optional Live PayPal Sandbox & Ollama Execution
+
+*(Only record this track when `go run ./cmd/readiness -profile=submission` succeeds with real PayPal OAuth and local Ollama)*
+
+1. **Pre-flight Verification:** Show terminal executing `go run ./cmd/readiness -profile=submission` reporting `[STATUS: READY]`.
+2. **Intake & Approval:** Create a fresh, non-fixture payout case for `$260.00` USD, initiate operation, and execute distinct officer dual-approval.
+3. **Live Sandbox Submission:** Click **Submit to PayPal Sandbox**. The browser displays genuine PayPal-assigned batch and item IDs from `api-m.sandbox.paypal.com`.
+4. **Live Polling:** Click **Sync Latest Status** to retrieve live provider status updates directly from PayPal Sandbox REST API v1.
+5. **Live Ollama Inference:** Run investigation with model-backed inference from local `llama3.2`.
+6. **Controlled Cancellation:** If and only if the item is verified in `UNCLAIMED` status, click **Cancel Payout** to execute a real PayPal Sandbox cancellation.

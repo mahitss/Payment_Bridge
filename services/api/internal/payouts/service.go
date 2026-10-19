@@ -15,21 +15,22 @@ import (
 )
 
 var (
-	ErrInvalidAmount              = errors.New("amount must be a positive integer in minor units (cents)")
-	ErrAmountExceedsCeiling       = errors.New("amount exceeds maximum allowed payout ceiling ($500.00 USD)")
-	ErrUnsupportedCurrency        = errors.New("unsupported currency: only USD is supported in sandbox milestone")
-	ErrInvalidRecipientEmail      = errors.New("invalid recipient email address")
-	ErrInvalidRecipientName       = errors.New("recipient name cannot be empty")
-	ErrInvalidTitle               = errors.New("title cannot be empty")
-	ErrSelfApprovalForbidden      = errors.New("self-approval forbidden: dual-custody requires a distinct authorized approver")
-	ErrOperationNotApproved       = errors.New("operation requires approval before submission")
-	ErrOperationAlreadySubmitted  = errors.New("operation is already in-flight or submitted")
-	ErrNotEligibleForCancellation = errors.New("operation is not eligible for cancellation; only unclaimed payouts can be cancelled")
-	ErrNoOperationsToSync         = errors.New("no payout operations found for this case to synchronize")
-	ErrActiveOperationExists      = errors.New("payout case already has an active operation in progress")
-	ErrOperationCannotBeSubmitted = errors.New("operation cannot be submitted from current status")
-	ErrCaseInTerminalState        = errors.New("cannot perform operation on case in terminal status")
-	ErrOperationAlreadyCancelled  = errors.New("payout operation is already cancelled")
+	ErrInvalidAmount                     = errors.New("amount must be a positive integer in minor units (cents)")
+	ErrAmountExceedsCeiling              = errors.New("amount exceeds maximum allowed payout ceiling ($500.00 USD)")
+	ErrUnsupportedCurrency               = errors.New("unsupported currency: only USD is supported in sandbox milestone")
+	ErrInvalidRecipientEmail             = errors.New("invalid recipient email address")
+	ErrInvalidRecipientName              = errors.New("recipient name cannot be empty")
+	ErrInvalidTitle                      = errors.New("title cannot be empty")
+	ErrSelfApprovalForbidden             = errors.New("self-approval forbidden: dual-custody requires a distinct authorized approver")
+	ErrOperationNotApproved              = errors.New("operation requires approval before submission")
+	ErrOperationAlreadySubmitted         = errors.New("operation is already in-flight or submitted")
+	ErrNotEligibleForCancellation        = errors.New("operation is not eligible for cancellation; only unclaimed payouts can be cancelled")
+	ErrNoOperationsToSync                = errors.New("no payout operations found for this case to synchronize")
+	ErrActiveOperationExists             = errors.New("payout case already has an active operation in progress")
+	ErrOperationCannotBeSubmitted        = errors.New("operation cannot be submitted from current status")
+	ErrCaseInTerminalState               = errors.New("cannot perform operation on case in terminal status")
+	ErrOperationAlreadyCancelled         = errors.New("payout operation is already cancelled")
+	ErrFixtureExternalOperationForbidden = errors.New("cannot perform external PayPal operation on synthetic demo fixture: demo fixtures are strictly isolated from live financial destinations")
 )
 
 // Service encapsulates business logic for Payout Cases, Operations, and PayPal Sandbox integration.
@@ -200,6 +201,7 @@ func (s *Service) InitiatePayoutOperation(ctx context.Context, user *db.User, or
 		Currency:             pCase.Currency,
 		Status:               status,
 		RequiresDualApproval: pCase.DualApprovalRequired,
+		IsSyntheticFixture:   pCase.IsSyntheticFixture,
 	}
 
 	if err := s.repo.CreatePayoutOperation(ctx, op); err != nil {
@@ -282,6 +284,11 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 	op, err := s.repo.GetPayoutOperationByID(ctx, org.ID, opID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Synthetic fixture boundary: demo fixtures cannot be submitted to live PayPal
+	if pCase.IsSyntheticFixture || op.IsSyntheticFixture {
+		return nil, ErrFixtureExternalOperationForbidden
 	}
 
 	// Invariant check: operation must be in a submittable state
@@ -420,6 +427,11 @@ func (s *Service) SyncPayoutCase(ctx context.Context, orgID, caseID string) (*db
 		return pCase, &op, nil
 	}
 
+	// Synthetic fixture boundary: demo fixtures cannot be synchronized with live PayPal
+	if pCase.IsSyntheticFixture || op.IsSyntheticFixture {
+		return pCase, &op, ErrFixtureExternalOperationForbidden
+	}
+
 	batchResp, err := s.paypalClient.GetPayoutBatch(ctx, *op.PayPalPayoutBatchID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to query paypal payout batch: %w", err)
@@ -505,6 +517,11 @@ func (s *Service) CancelPayoutOperation(ctx context.Context, user *db.User, org 
 
 	if op.Status == "CANCELLED" {
 		return nil, ErrOperationAlreadyCancelled
+	}
+
+	// Synthetic fixture boundary: demo fixtures cannot be cancelled or sent to live PayPal
+	if op.IsSyntheticFixture {
+		return nil, ErrFixtureExternalOperationForbidden
 	}
 
 	// If local prepared or awaiting approval, cancel immediately

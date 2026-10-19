@@ -65,7 +65,7 @@ claim-bridge/
 │   │       ├── config/      # Validated configuration & sandbox assertion
 │   │       ├── crypto/      # CSPRNG tokens, SHA-256 hashes, email normalization
 │   │       ├── db/          # PostgreSQL migrations & thread-safe mock repository
-│   │       │   └── migrations/ # 000001_auth, 000002_claims, 000003_payouts, 000004_investigations
+│   │       │   └── migrations/ # 000001_auth, 000002_claims, 000003_payouts, 000004_investigations, 000005_fixture_provenance
 │   │       ├── email/       # Mailpit SMTP & thread-safe mock mailer
 │   │       ├── investigations/ # AI snapshot aggregator, grounding check & audit persistence
 │   │       ├── logger/      # Structured JSON logging with stream redactions
@@ -106,6 +106,7 @@ claim-bridge/
 10. **Strict Sandbox Assertion**: The Go API gateway immediately terminates at startup if `api-m.paypal.com` or any production host is configured.
 11. **Integer Minor Unit Currency**: Money is calculated, compared, and persisted exclusively in integer minor units (cents) to avoid floating-point rounding hazards.
 12. **Multi-Tenant Data Isolation**: Every case, operation, investigation, and audit event is hard-isolated by organization ID across database indexes, foreign keys, and service boundaries.
+13. **Synthetic Fixture Provenance & Mutation Guard**: All demo fixtures are isolated via explicit `is_synthetic_fixture` markers, unmistakable identifiers (`SIMULATED-DEMO-...`), and server-side guards blocking external PayPal API dispatch. Safe reset purges only synthetic records without deleting non-demo data.
 
 ---
 
@@ -159,6 +160,8 @@ cargo clippy -- -D warnings
 ```bash
 cd services/api
 go test ./...
+# Seed idempotent demo fixtures (safe repeated execution)
+go run ./cmd/seed
 go run ./cmd/server
 ```
 
@@ -167,7 +170,8 @@ go run ./cmd/server
 cd apps/web
 npm install
 npm run build
-npm run dev
+# Set NEXT_PUBLIC_DEMO_MODE=true if you want the evaluator quick-start banner visible on the landing page
+NEXT_PUBLIC_DEMO_MODE=true npm run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
@@ -196,7 +200,7 @@ To run the AI investigation engine locally with zero API fees:
 
 ## Automated Acceptance Test Suite (32 Scenarios)
 
-Execute the end-to-end automated runner that verifies all 32 acceptance scenarios across Missions 001 through 005:
+Execute the end-to-end automated runner that verifies all 32 acceptance scenarios across Missions 001 through 005 in a deterministic simulated test harness (using test doubles that make zero external network requests):
 
 ```bash
 cd services/api

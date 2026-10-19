@@ -48,10 +48,12 @@ type Repository interface {
 	GetOrganizationMemberships(ctx context.Context, userID string) ([]OrganizationMembershipWithOrg, error)
 	GetOrganizationByID(ctx context.Context, orgID string) (*Organization, error)
 	VerifyUserOrgAccess(ctx context.Context, userID, orgID string) (bool, string, error)
+	AddOrganizationMember(ctx context.Context, orgID, userID, role string) error
 
 	// Payout Cases
 	CreatePayoutCase(ctx context.Context, c *PayoutCase) error
 	GetPayoutCaseByID(ctx context.Context, orgID, caseID string) (*PayoutCase, error)
+	GetPayoutCaseByReference(ctx context.Context, orgID, reference string) (*PayoutCase, error)
 	ListPayoutCasesByOrg(ctx context.Context, orgID string, limit, offset int) ([]PayoutCase, int, error)
 	UpdatePayoutCaseStatus(ctx context.Context, orgID, caseID, status string) error
 
@@ -71,6 +73,9 @@ type Repository interface {
 	CreateInvestigation(ctx context.Context, inv *PayoutInvestigation) error
 	GetInvestigationByID(ctx context.Context, orgID, investigationID string) (*PayoutInvestigation, error)
 	ListInvestigationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutInvestigation, error)
+
+	// Fixture Lifecycle & Clean Reset
+	DeleteSyntheticFixtures(ctx context.Context, orgID string) (int64, error)
 
 	// Audit Logging
 	RecordAuditEvent(ctx context.Context, event *AuditEvent) error

@@ -12,6 +12,7 @@ export interface PayoutCase {
   status: "DRAFT" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "DENIED" | "FAILED";
   risk_score: number;
   dual_approval_required: boolean;
+  is_synthetic_fixture?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -46,8 +47,21 @@ export interface PayoutOperation {
   submitted_at?: string;
   completed_at?: string;
   cancelled_at?: string;
+  is_synthetic_fixture?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface PayoutStatusSnapshot {
+  id: string;
+  payout_operation_id: string;
+  organization_id: string;
+  provider: string;
+  batch_status: string;
+  item_status?: string;
+  raw_response: Record<string, any>;
+  is_synthetic_fixture?: boolean;
+  recorded_at: string;
 }
 
 export interface ConnectionStatus {
