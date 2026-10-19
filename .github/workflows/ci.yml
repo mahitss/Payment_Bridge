@@ -243,6 +243,12 @@ jobs:
           path: services/api/api.log
           retention-days: 7
 
+      - name: Print Diagnostic Logs on Failure
+        if: failure()
+        run: |
+          echo "=== RECENT API LOGS ==="
+          tail -n 100 services/api/api.log 2>/dev/null || true
+
   security-checks:
     name: Security & Secret Audit
     runs-on: ubuntu-latest

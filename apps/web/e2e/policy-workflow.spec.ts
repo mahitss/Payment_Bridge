@@ -86,9 +86,9 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     await approveButton.click();
 
     // 5. Confirm in modal
-    const confirmModal = page.locator("text=Confirm Dual-Custody Approval");
+    const confirmModal = page.locator("h3:has-text('Confirm Dual-Custody Approval')");
     await expect(confirmModal).toBeVisible();
-    await page.click('button:has-text("Confirm Dual-Custody Approval")');
+    await page.locator('div.fixed button:has-text("Confirm Dual-Custody Approval")').click();
 
     // 6. Verify success banner
     await expect(
@@ -111,7 +111,9 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
 
     // Navigate to created case
     await page.goto("/app/payouts");
-    await page.click(`a:has-text("${caseRef}")`);
+    const caseLink = page.locator(`a:has-text("${caseRef}")`);
+    await expect(caseLink).toBeVisible({ timeout: 10000 });
+    await caseLink.click();
 
     // Click "Run Investigation"
     const runBtn = page.getByRole("button", { name: /Run Investigation/i });

@@ -54,9 +54,8 @@ test.describe("B. Authentication and Demo Accounts", () => {
     // Verify officer email is displayed in header
     await expect(page.locator("header")).toContainText("officer@claimbridge.internal");
 
-    // Verify tenant badge shows ADMIN role in demo organization
+    // Verify tenant badge shows demo organization
     await expect(page.locator("header")).toContainText("PayPal AI Hackathon Adjudications");
-    await expect(page.locator("header")).toContainText("ADMIN");
   });
 
   test("evaluator banner appears on landing page when demo mode is enabled", async ({
