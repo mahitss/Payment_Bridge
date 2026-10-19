@@ -167,8 +167,11 @@ func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSandboxStatus(w http.ResponseWriter, r *http.Request) {
 	if s.paypalClient == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "PayPal client not initialized",
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"status":      "unconfigured",
+			"error":       "PayPal client not initialized",
+			"paypal_env":  s.cfg.PayPalEnv,
+			"token_valid": false,
 		})
 		return
 	}
@@ -177,15 +180,19 @@ func (s *Server) handleSandboxStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.WarnContext(r.Context(), "PayPal sandbox status check failed", slog.String("error", err.Error()))
 		statusMsg := "Authentication failed"
+		statusType := "disconnected"
 		if errors.Is(err, paypal.ErrMissingCredentials) {
 			statusMsg = "Credentials not set in environment (PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET missing)"
+			statusType = "unconfigured"
 		} else if errors.Is(err, paypal.ErrUnauthorized) {
 			statusMsg = "Invalid credentials rejected by PayPal sandbox"
 		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
-			"status":   "disconnected",
-			"error":    statusMsg,
-			"endpoint": s.cfg.PayPalBaseURL,
+			"status":      statusType,
+			"error":       statusMsg,
+			"endpoint":    s.cfg.PayPalBaseURL,
+			"paypal_env":  s.cfg.PayPalEnv,
+			"token_valid": false,
 		})
 		return
 	}
