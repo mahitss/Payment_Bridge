@@ -17,27 +17,108 @@ import {
   Sparkles,
   KeyRound,
   FileText,
+  Activity,
+  AlertTriangle,
+  XCircle,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
+interface ProbeState {
+  gateway: "online" | "offline";
+  sandbox: "authenticated" | "blocked" | "rejected" | "error" | "unknown" | "unreachable";
+  message: string;
+  timestamp: string;
+}
+
 export default function Home() {
-  const [apiStatus, setApiStatus] = useState<string | null>(null);
+  const [probeState, setProbeState] = useState<ProbeState | null>(null);
   const [loading, setLoading] = useState(false);
   const { user, loading: authLoading } = useAuth();
 
   const checkGatewayHealth = async () => {
     setLoading(true);
+    const timeStr = new Date().toLocaleTimeString();
     try {
-      const res = await fetch("/api/v1/sandbox/status", { credentials: "include" });
-      if (res.ok) {
-        const json = await res.json();
-        setApiStatus(`Gateway Live & Sandbox Connected: ${JSON.stringify(json)}`);
-      } else {
-        const json = await res.json().catch(() => ({}));
-        setApiStatus(`Gateway Online (Sandbox Status: ${json.status || res.status})`);
+      // Step 1: Probe Gateway Health
+      const healthRes = await fetch("/healthz");
+      if (!healthRes.ok) {
+        setProbeState({
+          gateway: "offline",
+          sandbox: "unreachable",
+          message: "API Gateway reported unhealthy status or is restarting.",
+          timestamp: timeStr,
+        });
+        return;
+      }
+
+      // Step 2: Probe PayPal Sandbox Status
+      try {
+        const sandboxRes = await fetch("/api/v1/sandbox/status", { credentials: "include" });
+        const json = await sandboxRes.json().catch(() => null);
+
+        if (sandboxRes.ok) {
+          // Strictly validate the response contract
+          if (
+            json &&
+            json.status === "authenticated" &&
+            json.token_valid === true &&
+            json.paypal_env === "sandbox"
+          ) {
+            setProbeState({
+              gateway: "online",
+              sandbox: "authenticated",
+              message: "API Gateway is live and healthy. PayPal Sandbox OAuth2 authentication verified with official endpoint.",
+              timestamp: timeStr,
+            });
+          } else {
+            setProbeState({
+              gateway: "online",
+              sandbox: "unknown",
+              message: "API Gateway is live, but PayPal Sandbox status response was incomplete, malformed, or contradictory.",
+              timestamp: timeStr,
+            });
+          }
+        } else {
+          // Non-200 responses
+          const errStr = json?.error || "";
+          if (errStr.includes("Credentials not set") || errStr.includes("missing")) {
+            setProbeState({
+              gateway: "online",
+              sandbox: "blocked",
+              message: "API Gateway is live and healthy. PayPal Sandbox is unconfigured/blocked (PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET unset in .env).",
+              timestamp: timeStr,
+            });
+          } else if (errStr.includes("Invalid credentials") || sandboxRes.status === 401) {
+            setProbeState({
+              gateway: "online",
+              sandbox: "rejected",
+              message: "API Gateway is live, but PayPal Sandbox rejected credentials with 401 Unauthorized.",
+              timestamp: timeStr,
+            });
+          } else {
+            setProbeState({
+              gateway: "online",
+              sandbox: "error",
+              message: `API Gateway is live, but PayPal Sandbox returned provider error (HTTP ${sandboxRes.status}).`,
+              timestamp: timeStr,
+            });
+          }
+        }
+      } catch {
+        setProbeState({
+          gateway: "online",
+          sandbox: "unreachable",
+          message: "API Gateway is live, but could not query sandbox route.",
+          timestamp: timeStr,
+        });
       }
     } catch {
-      setApiStatus("Gateway Offline (Start via 'go run ./cmd/server' in services/api)");
+      setProbeState({
+        gateway: "offline",
+        sandbox: "unreachable",
+        message: "API Gateway is offline. Start the service via 'go run ./cmd/server' in services/api.",
+        timestamp: timeStr,
+      });
     } finally {
       setLoading(false);
     }
@@ -55,12 +136,12 @@ export default function Home() {
             <h1 className="text-2xl font-bold tracking-tight text-white">
               ClaimBridge
             </h1>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              PayPal AI Hackathon 2026 • Verified Release
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              PayPal AI Hackathon 2026 • Sandbox Prototype
             </span>
           </div>
           <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
-            ClaimBridge helps payout operators investigate unresolved payouts using verified PayPal status data, evidence-grounded AI explanations, and controlled recovery workflows.
+            ClaimBridge helps payout operators investigate unresolved payouts using provider status records, evidence-grounded AI explanations, and deterministic safety policy enforcement.
           </p>
         </div>
 
@@ -70,7 +151,7 @@ export default function Home() {
             disabled={loading}
             className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-2"
           >
-            <Server className="w-3.5 h-3.5 text-emerald-400" />
+            <Server className="w-3.5 h-3.5 text-blue-400" />
             {loading ? "Probing..." : "Probe Gateway"}
           </button>
 
@@ -104,15 +185,72 @@ export default function Home() {
         </div>
       </header>
 
-      {apiStatus && (
-        <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between text-xs font-mono">
-          <span className="text-slate-300">{apiStatus}</span>
-          <button
-            onClick={() => setApiStatus(null)}
-            className="text-xs text-slate-500 hover:text-slate-300 ml-4 font-sans"
-          >
-            Dismiss
-          </button>
+      {probeState && (
+        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3 text-xs shadow-lg">
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-blue-400" />
+              <span className="font-semibold text-white uppercase tracking-wider text-[11px]">System Diagnostic Probe</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] text-slate-500 font-mono">{probeState.timestamp}</span>
+              <button
+                onClick={() => setProbeState(null)}
+                className="text-xs text-slate-500 hover:text-slate-300 font-sans transition"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 flex items-center justify-between">
+              <span className="text-slate-400 font-medium">API Gateway:</span>
+              {probeState.gateway === "online" ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Online &amp; Reachable
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                  Offline
+                </span>
+              )}
+            </div>
+
+            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 flex items-center justify-between">
+              <span className="text-slate-400 font-medium">PayPal Sandbox:</span>
+              {probeState.sandbox === "authenticated" ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  OAuth Verified
+                </span>
+              ) : probeState.sandbox === "blocked" ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Unconfigured / Blocked
+                </span>
+              ) : probeState.sandbox === "rejected" ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <XCircle className="w-3.5 h-3.5" />
+                  Auth Rejected
+                </span>
+              ) : probeState.sandbox === "unreachable" ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                  Unreachable
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  Provider Error / Unknown
+                </span>
+              )}
+            </div>
+          </div>
+
+          <p className="text-slate-300 text-xs leading-relaxed font-mono bg-slate-950/50 p-2.5 rounded border border-slate-800/60">
+            {probeState.message}
+          </p>
         </div>
       )}
 

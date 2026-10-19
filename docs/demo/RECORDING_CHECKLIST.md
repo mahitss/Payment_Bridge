@@ -61,6 +61,6 @@
 
 ## 4. Fallback Strategies During Recording
 
-- **If Ollama inference takes longer than 10 seconds or is not running:** The frontend displays an active glowing brain spinner, or falls back gracefully to the deterministic model double. You can narrate: *"ClaimBridge isolates AI analysis behind an advisory boundary, with strict 30-second bounded timeouts."*
-- **Synthetic Fixture Provenance:** When displaying seeded cases, point out the **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”** banner. Explain that server-side guards block external PayPal dispatch on synthetic records, protecting external payment networks.
+- **When presenting offline without Ollama:** Open and inspect the pre-seeded synthetic investigation on `DEMO-W9821` (`SIMULATED DEMO INVESTIGATION`). Explain that ClaimBridge presents persisted forensic findings rather than faking live inference during offline evaluation. If "Run Investigation" is clicked while Ollama is offline, the system honestly reports that the investigation assistant is offline (`AI_UNAVAILABLE`) while core financial and dual-custody workflows remain fully functional.
+- **Synthetic Fixture Provenance:** When displaying seeded cases, point out the **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”** banner. Explain that server-side guards block external PayPal dispatch on synthetic records (HTTP 403), protecting external payment networks.
 - **If PayPal Sandbox API experiences latency during Track 2:** The UI preserves local operation states and displays a durable progress state. You can narrate: *"ClaimBridge maintains our durable sender batch ID in PostgreSQL, ensuring that regardless of network latency, no duplicate payout can be created."*

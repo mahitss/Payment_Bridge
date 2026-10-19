@@ -80,43 +80,49 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 
 ---
 
-### Scene D — Synthetic Fixture Integrity & Mutation Guard [01:25 – 01:50] (25 seconds)
+### Scene D — Synthetic Fixture Provenance & Mutation Guard [01:25 – 01:50] (25 seconds)
 
 **Visual:**
-- Navigate to the Payout Cases Registry (`/app/payouts`).
-- Open the seeded demo case `DEMO-W9821` (`Warranty Replacement Claim #9821`).
-- Point out the prominent banner:  
+- Navigate back to the Payout Cases Registry (`/app/payouts`).
+- Point out the list: distinguish the newly created case (`APPROVED`, local non-fixture) from the pre-seeded fixture cases tagged with the amber `SIMULATED` badge.
+- Open the pre-seeded synthetic demo case `DEMO-W9821` (`Warranty Replacement Claim #9821`).
+- Point out the prominent alert banner:  
   **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”**.
-- Point out the synthetic identifiers (`SIMULATED-DEMO-BATCH-W9821`, `SIMULATED-DEMO-ITEM-W9821`) and provider status marked as simulated.
-- Show that external mutating buttons (Submit to PayPal Sandbox, Sync, Cancel) are disabled with safe indicators.
-- Mention that backend policy guards enforce this server-side: fixture records are permanently blocked from generating outbound PayPal requests.
+- Point out the synthetic identifiers (`SIMULATED-DEMO-BATCH-W9821`, `SIMULATED-DEMO-ITEM-W9821`) and provider status panels explicitly marked as simulated.
+- Show that external mutating buttons (Submit to PayPal Sandbox, Sync, Cancel) are disabled with safe indicators (`Disabled: Synthetic Demo Fixture`).
+- Explain that backend API mutation guards enforce this server-side: fixture records are permanently blocked from generating outbound PayPal requests with HTTP 403.
 
 **Spoken Narration:**
-> "Here on our seeded investigation case, ClaimBridge enforces strict provenance boundaries.
+> "Returning to our payout registry, we distinguish our newly created case from our pre-seeded evaluation fixtures.
 > 
-> Notice the clear banner: this is simulated demo data, not a live PayPal transaction. All identifiers are unmistakably synthetic.
+> Opening our warranty fixture, DEMO-W9821, ClaimBridge enforces strict provenance boundaries.
 > 
-> Crucially, our backend server-side guards block any external mutation on synthetic records with HTTP 403, guaranteeing zero outbound requests to PayPal and preventing test IDs from polluting live networks."
+> Notice the prominent banner: this is simulated demo data, not a live PayPal transaction. All provider IDs are unmistakably synthetic.
+> 
+> Crucially, our UI disables external action buttons, and our Go backend guards reject any fixture mutation attempt fail-closed with HTTP 403, guaranteeing zero outbound requests to PayPal and preventing test IDs from polluting live networks."
 
 ---
 
-### Scene E — AI Forensic Investigation with Evidence Grounding [01:50 – 02:20] (30 seconds)
+### Scene E — Forensic Investigation & Grounded Evidence Boundary [01:50 – 02:20] (30 seconds)
 
 **Visual:**
-- Scroll down to the **AI Payout Investigation Engine** card.
-- Click **Run Investigation**.
-- Show the animated processing state, followed by the generated report.
+- Scroll down to the **AI Payout Investigation Engine** card on `DEMO-W9821`.
+- Point out the `Simulated Evaluation Fixture` badge on the panel.
+- Inspect the existing pre-seeded synthetic investigation report (`SIMULATED DEMO INVESTIGATION`).
 - Highlight:
-  1. Amber advisory notice: AI suggestions have zero direct financial execution authority.
-  2. Grounded Evidence References: clickable chips linking to verified case and snapshot records.
+  1. Advisory notice: AI suggestions have zero direct financial execution authority.
+  2. Grounded Evidence References: verified citations linking to persisted case and status snapshot records.
   3. Recommendation: `REVIEW_CANCELLATION_ELIGIBILITY` validated against Rust policy rules.
+- Clarify honest offline behavior: if "Run Investigation" is clicked when Ollama is offline, ClaimBridge displays an honest `AI_UNAVAILABLE` notice without corrupting case state or faking model outputs.
 
 **Spoken Narration:**
-> "Now, we trigger our AI Investigation Engine. The model correlates historical status snapshots with case evidence.
+> "Scrolling to our investigation panel, we inspect the pre-seeded synthetic investigation report.
 > 
-> Notice: AI advice is strictly advisory. Every cited identifier is mathematically verified against persisted records—if the model hallucinated an ungrounded ID, our Go backend would reject it fail-closed with HTTP 422.
+> In this offline demonstration, ClaimBridge presents persisted forensic findings rather than faking live model responses. If an operator requests fresh analysis without a running Ollama daemon, ClaimBridge honestly reports the assistant is offline—never fabricating artificial outputs.
 > 
-> The model identifies that the item is UNCLAIMED and recommends reviewing cancellation eligibility, which our Rust policy engine validates."
+> Every recommendation is strictly advisory. Every cited identifier is mathematically validated against database snapshots—hallucinated IDs are rejected fail-closed with HTTP 422.
+> 
+> The recommendation identifies that the item is UNCLAIMED, validated by our Rust policy engine, while financial controls remain firmly in human hands."
 
 ---
 
@@ -125,12 +131,13 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 **Visual:**
 - Switch to terminal showing:
   - `go run ./cmd/acceptance` with all 32 scenarios green in the simulated test environment.
-  - `go test ./internal/seeder ./internal/payouts` confirming idempotent seeding and fixture guards.
+  - `go test -v ./internal/seeder ./internal/payouts` confirming idempotent seeding, PostgreSQL reset safety, and fixture guards.
+  - Browser Playwright regression suite passing across health, auth, fixture integrity, and dual-custody workflows.
 
 **Spoken Narration:**
 > "ClaimBridge bridges the flexibility of AI with the rigorous determinism required in financial infrastructure.
 > 
-> With 32 automated simulated acceptance tests passing, verified dual custody, and fail-closed PayPal safety boundaries, ClaimBridge is ready. Thank you!"
+> With automated browser regression tests, 32 simulated acceptance scenarios, verified dual custody, and fail-closed PayPal safety boundaries, ClaimBridge is dependable. Thank you!"
 
 ---
 

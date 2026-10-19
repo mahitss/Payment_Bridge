@@ -287,3 +287,44 @@ By default, the evaluator quick-start credentials banner on the landing page is 
 NEXT_PUBLIC_DEMO_MODE=true npm run dev
 ```
 
+---
+
+## Step 9: Automated End-to-End Browser Testing with Playwright
+
+ClaimBridge includes an automated Playwright browser test suite in `apps/web/e2e/` that verifies the entire system end-to-end against real browser sessions.
+
+### 9.1 Prerequisites
+Ensure the Go API server and Next.js frontend are running locally:
+```bash
+# Terminal 1: Database (PostgreSQL)
+docker compose -f infra/docker-compose.yml up -d
+
+# Terminal 2: Seed evaluation fixtures
+cd services/api && go run ./cmd/seed -reset
+
+# Terminal 3: Start Go API Gateway
+cd services/api && go run ./cmd/server
+
+# Terminal 4: Start Web Frontend with Demo Mode
+cd apps/web && NEXT_PUBLIC_DEMO_MODE=true npm run dev
+```
+
+### 9.2 Running Browser Tests
+From the `apps/web` directory:
+```bash
+cd apps/web
+
+# Install Chromium browser (first-time only)
+npx playwright install chromium
+
+# Run all end-to-end browser tests
+npm run test:e2e
+```
+
+### 9.3 Scenarios Verified by E2E Suite
+1. **Health & Landing Page Truthfulness (`e2e/health.spec.ts`):** Verifies "Sandbox Prototype" branding, lack of false release claims, API Gateway reachability probe, and partitioned PayPal Sandbox OAuth status.
+2. **Authentication & Roles (`e2e/auth.spec.ts`):** Tests protected route redirect to `/login`, invalid credential rejection, seeded operator login, compliance officer login, and demo evaluator banner visibility.
+3. **Synthetic Fixture Integrity (`e2e/fixtures.spec.ts`):** Asserts `DEMO-W9821` displays the `SIMULATED` badge, prominent provenance alert banner, pre-seeded synthetic investigation report viewable offline without Ollama, and disabled PayPal mutation controls.
+4. **Policy Enforcement & Dual-Custody Workflow (`e2e/policy-workflow.spec.ts`):** Verifies operator creating a $350.00 case, self-approval prevention fail-closed, distinct compliance officer approval, that approved operations are not auto-submitted, and honest offline AI error handling.
+5. **Server-Side Mutation Guards (`e2e/mutation-guards.spec.ts`):** Direct HTTP API requests attempting to submit, sync, or cancel a fixture operation return HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN` with zero outbound PayPal calls.
+

@@ -1,6 +1,7 @@
 # ClaimBridge — Video Demo Shot List & Visual Cue Sheet
 
-**Total Duration:** 2 minutes 35 seconds  
+**Demonstration Track:** Track 1 — Deterministic Offline / Simulated Workflow (Reproducible & Zero-Budget)  
+**Total Duration:** 2 minutes 30 seconds  
 **Target Video Resolution:** 1920x1080 @ 60fps  
 **Audio:** Voiceover (Mono/Stereo 48kHz, -14 LUFS)  
 
@@ -10,16 +11,15 @@
 
 | Shot # | Timecode | Screen / View | Visual Focus & On-Screen Action | Mouse / Audio Cues |
 | :--- | :--- | :--- | :--- | :--- |
-| **01** | `00:00 - 00:12` | Landing Page (`/`) | Full view of ClaimBridge header, title badge: "PayPal AI Hackathon 2026 • Verified Release". | Smooth mouse scroll over value proposition. Narration opens with problem statement. |
-| **02** | `00:12 - 00:25` | Landing Page (`/`) | 4 architectural pillars: Go Gateway, Rust Engine, AI Investigation, PayPal REST Boundary. | Hover briefly over each pillar card to show subtle glowing border effect. |
-| **03** | `00:25 - 00:35` | Landing Page Quick-Start Banner | Click "Sign In as Demo Operator". Quick redirect to `/login`. Pre-filled or paste `operator@claimbridge.internal`. | Click "Sign In". Immediate entry into `/app`. |
-| **04** | `00:35 - 00:45` | Dashboard (`/app`) | Overview dashboard showing live PayPal status card, settled metrics, and recent cases table. | Click "New Payout" button in header navigation. |
-| **05** | `00:45 - 00:55` | Intake Form (`/app/payouts/new`) | Type recipient email and amount: `$350.00`. | Point cursor to Rust policy preview badge: "Dual-Approval Mandatory (Amount > $250.00)". Click Submit. |
-| **06** | `00:55 - 01:10` | Case Details (`/app/payouts/[id]`) | Click "Initiate Payout Operation". Status changes to `AWAITING_APPROVAL`. Click "Approve Payout Operation". | Red alert banner appears: "Self-approval forbidden: dual-custody requires a distinct authorized approver". |
-| **07** | `01:10 - 01:25` | Login Screen & Case Details | Sign out. Sign in as `officer@claimbridge.internal`. Return to case details. Click "Approve Payout Operation". | Status badge turns emerald: `APPROVED`. |
-| **08** | `01:25 - 01:38` | Case Details | Click "Submit to PayPal Sandbox". Status transitions to `SUBMITTED`. | PayPal Payout Batch ID appears: `PAYPAL-BATCH-...`. |
-| **09** | `01:38 - 01:50` | Case Details | Click "Synchronize Status". | PayPal REST Sandbox queries item status. Item badge updates to amber: `UNCLAIMED`. |
-| **10** | `01:50 - 02:05` | Case Details (AI Panel) | Scroll down to AI Investigation card. Click "Run AI Investigation". | Animated glowing brain spinner while Ollama Llama 3.2 processes evidence snapshot. |
-| **11** | `02:05 - 02:20` | Case Details (AI Results) | Report appears: Summary, Findings with clickable evidence pills, Missing Information, and Recommended Actions. | Mouse highlights the evidence reference pills (`case_id`, `batch_id`) and the amber advisory disclaimer. |
-| **12** | `02:20 - 02:30` | Case Details (Recovery) | Click "Cancel Payout Item". Confirmation modal appears. Click Confirm. | Item status immediately reconciles to `CANCELLED` via PayPal REST API. |
-| **13** | `02:30 - 02:35` | Terminal Split Screen | Terminal running `go run ./cmd/acceptance` showing `All 32 acceptance scenarios PASSED successfully!`. | Fade out on ClaimBridge GitHub repository URL. |
+| **01** | `00:00 - 00:12` | Landing Page (`/`) | Full view of ClaimBridge header, title badge: "PayPal AI Hackathon 2026 • Sandbox Prototype". | Smooth mouse scroll over value proposition. Narration opens with problem statement. |
+| **02** | `00:12 - 00:25` | Landing Page (`/`) | Click "Probe Gateway" button to showcase diagnostic card: API Gateway Online & Reachable, PayPal Sandbox authentication status distinctly partitioned. | Point out honest status differentiation without leaking secrets. |
+| **03** | `00:25 - 00:35` | Landing Page Quick-Start Banner | Click "Sign In to Demo Workspace". Redirect to `/login`. Sign in as `operator@claimbridge.internal` / `OperatorPass123!`. | Click "Sign In". Immediate entry into `/app`. |
+| **04** | `00:35 - 00:45` | Dashboard (`/app`) | Overview dashboard showing tenant badge (`Demo Claims Corp`) and quick metrics. | Click "New Payout" in header navigation. |
+| **05** | `00:45 - 00:55` | Intake Form (`/app/payouts/new`) | Type recipient email and amount: `$350.00`. | Highlight Rust policy preview badge: "Dual-Approval Mandatory (Amount > $250.00)". Click Create. |
+| **06** | `00:55 - 01:10` | Case Details (`/app/payouts/[id]`) | Click "Initiate Sandbox Payout Operation". Status changes to `AWAITING_APPROVAL`. Point out "Self-approval blocked by policy" notice. | Verify self-approval button is disabled fail-closed. |
+| **07** | `01:10 - 01:25` | Login Screen & Case Details | Sign out. Sign in as distinct compliance officer `officer@claimbridge.internal` / `OfficerPass123!`. Return to case details. | Click "Approve Operation (Distinct Officer)". Status badge turns to `Internal: APPROVED`. Note that ordinary cases are not auto-submitted. |
+| **08** | `01:25 - 01:38` | Payout Cases Registry (`/app/payouts`) | Open seeded fixture case `DEMO-W9821` (`Warranty Replacement Claim #9821`). | Point out amber `SIMULATED` badge on registry row. |
+| **09** | `01:38 - 01:50` | Case Details (Synthetic Fixture) | Prominent banner: "SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION". Synthetic IDs (`SIMULATED-DEMO-...`). | Hover over disabled Submit, Sync, and Cancel buttons showing tooltip: "Disabled: Synthetic Demo Fixture". Server guards enforce HTTP 403. |
+| **10** | `01:50 - 02:05` | Case Details (AI Panel) | Scroll down to AI Investigation card showing "Simulated Evaluation Fixture" indicator. | Inspect persisted synthetic investigation report (`SIMULATED DEMO INVESTIGATION`). |
+| **11** | `02:05 - 02:20` | Case Details (Grounded Citations) | Point out grounded citation chips (`[CASE:DEMO-W9821]`, `[SNAPSHOT:SNAP-W9821-1]`), advisory notice, and policy validation. | Explain honest offline behavior: if "Run Investigation" is clicked without Ollama, returns honest `AI_UNAVAILABLE` rather than faking outputs. |
+| **12** | `02:20 - 02:35` | Terminal Verification | Terminal running `go run ./cmd/acceptance` (32 scenarios passed), seeder PostgreSQL test, and Playwright E2E browser tests. | Conclude on determinism, safety boundaries, and release readiness. |

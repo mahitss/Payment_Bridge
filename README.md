@@ -216,34 +216,41 @@ go run ./cmd/acceptance
 
 ## Hackathon Demo Script (Under 3 Minutes)
 
-This script provides an exact walkthrough for recording the 3-minute hackathon submission video:
+ClaimBridge features a reproducible, zero-budget **Offline Simulated Walkthrough (Track 1)** that requires neither live PayPal credentials nor local Ollama daemons, alongside an **Optional Live Sandbox Track (Track 2)** when verified:
 
-### [00:00 - 00:30] Introduction & Problem Statement
-- **Visual:** Open ClaimBridge landing page (`/`).
+### [00:00 - 00:25] Introduction & Truthful System Probing
+- **Visual:** Open ClaimBridge landing page (`/`). Point out the **Sandbox Prototype** badge.
+- **Action:** Click **Probe Gateway**. Show discrete verification cards: API Gateway online, PayPal Sandbox status distinctly partitioned without leaking secrets.
 - **Narrative:** "Automated payout systems face critical risks: LLMs hallucinating fund transfers, duplicate disbursements during flaky network retries, and leaked credentials. ClaimBridge solves this by decoupling non-deterministic AI investigation from deterministic, fail-closed Rust policy enforcement."
 
-### [00:30 - 01:15] Dual-Custody Payout & PayPal Sandbox Execution
-- **Visual:** Log in to ClaimBridge (`/login`). Navigate to **New Payout** (`/app/payouts/new`).
+### [00:25 - 01:25] Dual-Custody Payout & Separation of Duties
+- **Visual:** Log in as demo operator (`operator@claimbridge.internal` / `OperatorPass123!`). Navigate to **New Payout** (`/app/payouts/new`).
 - **Action:** Enter a payout for $350.00 USD (exceeds $250.00 threshold). Point out the real-time Rust policy indicator: `Dual-Approval Required`.
 - **Action:** Submit case. Show the active operation in `AWAITING_APPROVAL`.
-- **Action:** Demonstrate self-approval attempt by the creator — show the system strictly blocking with `ERR_SELF_APPROVAL_FORBIDDEN`.
-- **Action:** Switch to a distinct authorized officer account. Approve the payout and click **Submit to PayPal Sandbox**.
-- **Result:** Show the assigned PayPal Batch ID and status synchronized live from PayPal Sandbox REST API.
+- **Action:** Demonstrate self-approval blocked fail-closed for the creator.
+- **Action:** Switch to distinct compliance officer (`officer@claimbridge.internal`). Approve the payout.
+- **Result:** Operation transitions to `APPROVED`. Ordinary cases are not automatically submitted as a side effect.
 
-### [01:15 - 02:15] AI Investigation Engine with Grounded Evidence
-- **Visual:** Navigate to Case Details (`/app/payouts/[id]`).
-- **Action:** Click **Run AI Investigation** (with optional live PayPal sync).
+### [01:25 - 01:50] Synthetic Fixture Provenance & Mutation Guards
+- **Visual:** Navigate to Payout Cases Registry (`/app/payouts`) and open pre-seeded fixture `DEMO-W9821`.
+- **Action:** Point out the prominent banner: **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”**.
+- **Action:** Show disabled external buttons (`Submit to PayPal Sandbox`, `Sync`, `Cancel`) with tooltip: `Disabled: Synthetic Demo Fixture`.
+- **Action:** Explain backend API mutation guards: fixture requests are rejected with HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN` with zero outbound PayPal requests.
+
+### [01:50 - 02:20] AI Forensic Investigation & Grounded Evidence Boundary
+- **Visual:** Scroll to the **AI Payout Investigation Engine** card on `DEMO-W9821`.
+- **Action:** Inspect the pre-seeded synthetic investigation report (`SIMULATED DEMO INVESTIGATION`).
 - **Highlight:**
-  1. **Forensic Summary:** Clear explanation grounded in real provider data.
-  2. **Immutable Facts vs AI Advisory Opinions:** Visual separation with amber warning badges indicating recommendations have zero direct financial execution power.
-  3. **Evidence Reference Chips:** Clickable references linking to persisted case IDs, operation IDs, and PayPal batch IDs.
-  4. **Grounding Safety:** Explain how fabricated IDs are rejected fail-closed with HTTP 422.
-  5. **Policy Precedence:** Show how the Rust policy engine validates recommendations (e.g. blocking cancellation on non-unclaimed items).
+  1. **Persisted Offline Inspection:** Explains how ClaimBridge presents verified pre-seeded findings without faking live model responses during offline evaluation.
+  2. **Honest Offline Handling:** If "Run Investigation" is clicked without a running Ollama daemon, the system honestly reports `AI_UNAVAILABLE` while financial operations remain operational.
+  3. **Evidence Citations:** Verified references linking to persisted case and status snapshot records.
+  4. **Grounding Safety:** Fabricated IDs are rejected fail-closed with HTTP 422. AI recommendations are strictly advisory and cannot override Rust safety policies.
 
-### [02:15 - 03:00] Security Invariants, Tests & Release Gates
+### [02:20 - 02:35] Automation, Regression Suite & Release Gates
 - **Visual:** Terminal split screen showing:
   - `cargo test` passing 17/17 deterministic policy tests.
   - `go run ./cmd/acceptance` running all 32 end-to-end acceptance scenarios.
+  - `npm run test:e2e` running Playwright browser regression tests.
   - Next.js production build with 15/15 standalone routes.
 - **Narrative:** "ClaimBridge enforces integer minor-unit math, multi-tenant isolation, 1MB request limits, and prompt injection defense. AI proposes, policy decides, and PayPal settles securely."
 

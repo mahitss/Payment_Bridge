@@ -647,9 +647,16 @@ export default function PayoutCaseDetailPage() {
                     <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                       Grounded Evidence
                     </span>
+                    {pCase.is_synthetic_fixture && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Simulated Evaluation Fixture
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-400">
-                    Forensic root-cause analysis grounded in immutable case and provider records.
+                    {pCase.is_synthetic_fixture
+                      ? "Forensic root-cause analysis based on pre-seeded synthetic evaluation records (isolated from live provider networks)."
+                      : "Forensic root-cause analysis grounded in immutable case and provider records."}
                   </p>
                 </div>
               </div>

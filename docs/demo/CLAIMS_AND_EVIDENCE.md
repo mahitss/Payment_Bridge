@@ -106,3 +106,26 @@ This document establishes the factual basis for every statement made in the Clai
     - `TestSeed_InactiveAccountFails`: Verifies disabled demo accounts are rejected.
   - `services/api/internal/payouts/service_fixture_guard_test.go`:
     - `TestFixtureExternalOperationGuards`: Asserts that `SubmitPayoutOperation`, `SyncPayoutCase`, and `CancelPayoutOperation` on synthetic fixtures return `ErrFixtureExternalOperationForbidden` and make exactly **zero outbound requests** to PayPal.
+  - `services/api/internal/seeder/seeder_postgres_test.go`:
+    - `TestSeeder_PostgresIntegration`: Verifies migrations, idempotent seeding (zero duplicates), scoped reset, and non-fixture preservation against a real disposable PostgreSQL database.
+
+---
+
+### Claim 9: "Truthful Diagnostic Probe — API Gateway reachability is strictly partitioned from PayPal Sandbox OAuth authentication."
+- **Verifying Source Code:**
+  - `apps/web/src/app/page.tsx` (`checkGatewayHealth()` probes `/healthz` for gateway and parses `/api/v1/sandbox/status` validating contract: `status === "authenticated"`, `token_valid === true`, `paypal_env === "sandbox"`).
+  - Diagnostic UI renders discrete status pills (API Reachable vs PayPal Authenticated / Blocked / Unreachable) with zero secret dumps.
+- **Automated Test Evidence:**
+  - `apps/web/e2e/health.spec.ts`: Asserts prototype badge is rendered, "Verified Release" is absent, and diagnostic probe partitions states without raw token leaks.
+
+---
+
+### Claim 10: "End-to-End Browser Regression & Workflow Verification — Validates full stack in real browser sessions."
+- **Verifying Source Code:**
+  - `apps/web/playwright.config.ts` and `apps/web/e2e/*.spec.ts`.
+- **Automated Test Evidence:**
+  - `apps/web/e2e/health.spec.ts`: Startup, landing page claims, and diagnostic health probe.
+  - `apps/web/e2e/auth.spec.ts`: Protected route redirects, invalid credentials, operator & officer logins, demo mode banner.
+  - `apps/web/e2e/fixtures.spec.ts`: DEMO-W9821 registry visibility, prominent provenance banner, offline synthetic investigation view, and disabled action buttons.
+  - `apps/web/e2e/policy-workflow.spec.ts`: $350 case creation, dual-custody detection, self-approval blockage, distinct officer approval, and no auto-submission side effect.
+  - `apps/web/e2e/mutation-guards.spec.ts`: Direct API rejection (HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`) on fixture submit, sync, and cancel.
