@@ -79,6 +79,7 @@ claim-bridge/
 │       └── tests/           # Deterministic unit & boundary test suite
 ├── docs/                    # PRD, Architecture, Threat Model, Acceptance Criteria, ADRs
 │   ├── release/             # Traceability, Acceptance Plan, Security Review, Runbooks
+│   ├── submission/          # Verification Matrix, Judging Map, Technical Specs
 │   ├── architecture/        # Deep-dive architecture specifications
 │   └── adr/                 # Architecture Decision Records (ADR-001 through ADR-006)
 ├── infra/                   # Local infrastructure definitions
@@ -211,6 +212,24 @@ go run ./cmd/acceptance
 - **Scenarios 01–12 (Auth & Multi-Tenancy):** Registration, single-use email verification, HttpOnly session cookies, protected routes, session persistence, logout revocation, password reset with replay rejection, unauthenticated route blocking, tenant isolation, reboot persistence.
 - **Scenarios 13–24 (Payouts & PayPal Integration):** Live sandbox OAuth probe, single-officer case creation, dual-custody case creation, fail-closed $500 ceiling rejection, durable operation initiation, self-approval prevention (HTTP 403), dual approval by distinct officer, PayPal REST submission, live status synchronization, unclaimed cancellation, cross-tenant case blocking, ambiguous network timeout quarantine (`RECONCILIATION_REQUIRED`).
 - **Scenarios 25–32 (AI Investigations & Security):** Grounded investigation with evidence linking, insufficient evidence handling, fabricated evidence ID rejection (HTTP 422), policy precedence over AI recommendations, AI downtime graceful degradation (HTTP 503), cross-tenant investigation blocking, investigation persistence across reboots, prompt injection text neutralization.
+
+---
+
+## Authoritative Verification Matrix & CI Baseline
+
+ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock tests from live external provider runtime:
+
+- **Authoritative Verification Matrix:** See [`docs/submission/VERIFICATION_MATRIX.md`](docs/submission/VERIFICATION_MATRIX.md) for full mapping of requirements to source files, exact tests, evidence tiers, and local reproduction steps.
+- **Continuous Integration Baseline:** Verified green build on `main` branch across all 5 jobs in GitHub Actions ([Run 39309065322](https://github.com/mahitss/Payment_Bridge/actions/runs/39309065322)):
+  - Rust Policy Engine: 17/17 deterministic unit tests passing, zero Clippy warnings.
+  - Go API Gateway: 11/11 packages passing with race detection (`go test -race ./...`).
+  - Next.js Web Frontend: ESLint clean, 15/15 standalone production routes built.
+  - Acceptance Suite: 32/32 scenarios passing in simulated deterministic test harness.
+  - Playwright Browser Suite: 18/18 end-to-end tests passing in Chromium against live frontend, API gateway, and PostgreSQL.
+- **External Integration Gating:**
+  - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied.
+  - Genuine Local Ollama Inference: Implemented and unit/mock verified; live runtime is gated by local daemon availability and reported honestly as `BLOCKED` when offline.
+- **Demo Video Status:** Demo script, shot list, and recording checklist are complete in `docs/demo/`; final video recording and upload is pending team recording session.
 
 ---
 

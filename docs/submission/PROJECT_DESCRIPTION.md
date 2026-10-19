@@ -11,7 +11,7 @@ ClaimBridge leverages local and server-side LLMs (such as Ollama Llama 3.2) to s
 ## 2. Technical Submission Overview
 
 ### Problem Statement
-In automated claims, warranty reimbursements, and marketplace disbursements, between 2% and 5% of payouts stall in ambiguous states (unclaimed funds, closed recipient accounts, or network drops during batch submission). Traditional dashboards fail to explain root causes, while naive AI agents risk fund depletion through prompt injection and hallucinated disbursements.
+In automated claims, warranty reimbursements, and marketplace disbursements, payouts frequently stall in ambiguous states (such as unclaimed funds, closed recipient accounts, or network drops during batch submission). Traditional dashboards fail to explain root causes, while naive AI agents risk fund depletion through prompt injection and hallucinated disbursements.
 
 ### Solution & Core Workflow
 1. **Intake & Evaluation:** Operator creates a payout case in integer minor units (cents). The Rust policy engine verifies invariants ($500 ceiling, risk limits) and flags whether dual-custody approval is mandatory.

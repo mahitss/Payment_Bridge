@@ -11,7 +11,7 @@
 ClaimBridge serves **payout operations officers, claims adjudicators, marketplace treasurers, and insurance settlement analysts** responsible for disbursing multi-party outbound payments using the PayPal Payouts API.
 
 ### The Real-World Pain Point: Unresolved & Unclaimed Payouts
-In automated disbursement workflows (warranty reimbursements, insurance claims, freelance marketplaces, gig economy platforms), between **2% and 5% of payouts do not immediately settle**. They enter ambiguous or delayed states:
+In automated disbursement workflows (warranty reimbursements, insurance claims, freelance marketplaces, gig economy platforms), outbound payouts frequently do not immediately settle. They enter ambiguous or delayed states:
 - `UNCLAIMED`: The recipient does not yet have an active PayPal account linked to their email, or missed the 30-day PayPal claim window.
 - `ONHOLD` / `BLOCKED`: Compliance, risk, or country-specific recipient limitations prevent instant crediting.
 - `RECONCILIATION_REQUIRED`: Transient network drops occur during batch submission before an HTTP 201 response is acknowledged.

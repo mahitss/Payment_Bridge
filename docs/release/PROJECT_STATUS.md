@@ -1,29 +1,33 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 1.9 (Mission 015 CI Recovery, Dependency Lockfile Integrity, and End-to-End Test Stabilization Baseline)  
-**Date of Audit:** October 19, 2026  
+**Document Version:** 2.0 (Mission 016 Evidence-Verified Release Readiness, Claim Audit, and Demo Hardening Baseline)  
+**Date of Audit:** October 20, 2026  
 **Auditor:** Staff Application Security & Senior Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
+**Verified CI Workflow:** [Run 39309065322](https://github.com/mahitss/Payment_Bridge/actions/runs/39309065322) (5/5 jobs green)  
+**Baseline Commit:** `73d26583368c72eeef46a122f6d05c5baa51f96c`  
 **Security & Reliability Standard:** Fail-Closed Deterministic Enforcement / OWASP ASVS v4.0.3 L2  
 
 ---
 
 ## 1. Executive Summary
 
-This audit establishes CI recovery, dependency lockfile integrity, and end-to-end test stabilization following the Mission 014 baseline:
-1. **Frontend Dependency Lockfile Integrity Restored:**
-   - Identified missing `@emnapi/core`, `@emnapi/runtime`, and version-mismatched `@emnapi/wasi-threads` entries in `apps/web/package-lock.json` caused by SWC WASM binding dependencies (`@unrs/resolver-binding-wasm32-wasi`).
-   - Regenerated lockfile entries deterministically using `npm install --package-lock-only` without modifying package manager arguments, framework versions, or bypassing integrity checks.
-   - Formally verified that clean `npm ci` succeeds from a fresh checkout in 0 errors and audits 432 packages cleanly.
-2. **Tenant Membership & Organization Alignment:**
-   - Reconciled tenant naming: `seeder.go` defines `DemoOrgName = "PayPal AI Hackathon Adjudications"`. Updated E2E authentication expectations and demo documentation from `Demo Claims Corp` to `PayPal AI Hackathon Adjudications`.
-   - Added `CreateUser` directly to the `db.Repository` interface (implemented in both PostgreSQL and mock stores), enabling `officerUser` to be created directly and assigned to `demoOrg` as `ADMIN` without creating a detached personal workspace that prevented reviewing demo payouts.
-3. **End-to-End Test Contract Stabilization (`apps/web/e2e`):**
-   - Corrected `fixtures.spec.ts` evidence label locator from `Citations` to `Evidence:`.
-   - Updated `policy-workflow.spec.ts` to execute `test.describe.serial` and explicitly click "Initiate Sandbox Payout Operation", properly transitioning newly created cases from `DRAFT` to `AWAITING_APPROVAL` before asserting self-approval guards.
-4. **CI Service Orchestration Hardening (`.github/workflows/ci.yml`):**
-   - Added bounded readiness polling for disposable PostgreSQL (`pg_isready`), Go API Gateway (`/healthz`), and Next.js frontend (`localhost:3000`), with immediate fail-closed exit codes if any service fails to start within 30 seconds.
-   - Enforced `NEXT_PUBLIC_DEMO_MODE=true` during Next.js build time in CI so demo indicators are correctly embedded into the client bundle.
-5. **Absolute Financial Safety:** Zero payouts created, approved, submitted, or cancelled through PayPal during this mission. All existing security invariants, synthetic fixture guards, and race tests preserved intact.
+This audit establishes evidence-verified release readiness, claim audit, and demo hardening across the entire ClaimBridge project:
+1. **Audited Factual Claims Across Project:**
+   - Cleansed uncited numerical claims (specifically removing the uncited "2% and 5%" stalled disbursement claim in `docs/submission/JUDGING_CRITERIA_MAP.md`, `docs/submission/PRODUCT_DIFFERENTIATION.md`, and `docs/submission/PROJECT_DESCRIPTION.md`).
+   - Replaced ungrounded statistics with qualitative, factual problem descriptions.
+2. **Authoritative Verification Matrix Created:**
+   - Authored `docs/submission/VERIFICATION_MATRIX.md` rigorously classifying every major hackathon claim into 5 distinct evidence tiers: `UNIT`, `MOCK_INTEG`, `DB_INTEG`, `BROWSER_E2E`, and `EXTERNAL_RUNTIME`.
+   - Distinctly documented what has been verified, what remains blocked on external credentials, and what evaluators can reproduce locally.
+3. **Readiness Tooling Verified (`cmd/readiness` & `internal/readiness`):**
+   - Verified 29/29 readiness test cases. Tested live readiness runner with `-profile=core` and `-profile=submission`.
+   - Formally proved that mock AI providers cannot satisfy submission profile gates, missing credentials safely return `BLOCKED`, sandbox endpoint assertions remain strictly enforced (`https://api-m.sandbox.paypal.com`), and zero secrets leak in outputs.
+4. **Offline Demo Experience Hardened:**
+   - Fully verified Track 1 (Offline Simulated Walkthrough) using pre-seeded fixture `DEMO-W9821`.
+   - Confirmed server-side mutation guards reject external PayPal operations on fixtures with HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN` and zero outbound requests.
+   - Confirmed offline AI investigation panel renders persisted evidence citations and returns honest `AI_UNAVAILABLE` error when model daemon is offline.
+5. **Absolute Financial Safety:**
+   - Exactly zero real PayPal payouts created, approved, submitted, mutated, or cancelled during this mission.
+   - All deterministic safety policies, $500 ceiling, and dual-custody approval invariants verified intact.
 
 ---
 
