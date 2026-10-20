@@ -223,6 +223,16 @@ jobs:
             exit 1
           fi
 
+      - name: Provision Media Inspection Tool (ffprobe)
+        run: |
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            echo "Installing ffmpeg/ffprobe deterministically..."
+            sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
+          else
+            echo "ffprobe is already installed."
+          fi
+          ffprobe -version | head -n 1
+
       - name: Run Playwright Browser Tests
         working-directory: apps/web
         run: |
@@ -425,31 +435,20 @@ jobs:
             exit $status
           }
 
+      - name: Provision Media Inspection Tool (ffprobe)
+        run: |
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            echo "Installing ffmpeg/ffprobe deterministically..."
+            sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
+          else
+            echo "ffprobe is already installed."
+          fi
+          ffprobe -version | head -n 1
+
       - name: Verify and Report Demo Video Recording Artifact
         working-directory: apps/web
         run: |
-          echo "Verifying recorded demo video artifact from Compose evaluator run..."
-          video_file="test-results/demo-recording/claimbridge-demo-walkthrough.webm"
-          if [ ! -f "$video_file" ]; then
-            echo "Error: Demo recording video file not found at $video_file" >&2
-            ls -la test-results/demo-recording/ 2>/dev/null || true
-            exit 1
-          fi
-          video_size=$(wc -c < "$video_file")
-          echo "Found video file: $video_file ($video_size bytes)"
-          if [ "$video_size" -lt 10000 ]; then
-            echo "Error: Video file is empty or corrupted ($video_size bytes)" >&2
-            exit 1
-          fi
-          echo "### Offline Demo Walkthrough Video Artifact" >> $GITHUB_STEP_SUMMARY
-          echo "- **File:** \`$video_file\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **File Size:** $video_size bytes" >> $GITHUB_STEP_SUMMARY
-          if command -v ffprobe >/dev/null 2>&1; then
-            duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$video_file" 2>/dev/null || echo "unknown")
-            echo "- **Measured Duration:** ${duration}s" >> $GITHUB_STEP_SUMMARY
-            echo "Recorded video duration: ${duration}s"
-          fi
-          echo "Demo video artifact verified: non-empty ($video_size bytes) and finalized."
+          node scripts/verify-recording-artifact.mjs
 
       - name: Upload Demo Walkthrough Video Artifact
         uses: actions/upload-artifact@v4

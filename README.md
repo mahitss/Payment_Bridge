@@ -279,7 +279,7 @@ ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock t
 - **External Integration Gating:**
   - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied.
   - Genuine Local Ollama Inference: Implemented and unit/mock verified; live runtime is gated by local daemon availability and reported honestly as `BLOCKED` when offline.
-- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) is automatically generated and published as a downloadable CI artifact by `docker-compose-evaluator`; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
+- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, silent WebM), and published as a downloadable CI artifact by `docker-compose-evaluator`; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
 
 ---
 

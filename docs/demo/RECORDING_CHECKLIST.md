@@ -33,6 +33,8 @@
   E2E_BASE_URL=http://localhost:3000 npx playwright test e2e/demo-recording.spec.ts
   # Output artifact generated at:
   # apps/web/test-results/demo-recording/claimbridge-demo-walkthrough.webm
+  # Verify media integrity and duration (120s - 175s, 1920x1080):
+  node scripts/verify-recording-artifact.mjs
   ```
   *(See [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](./VIDEO_ARTIFACT_GUIDE.md) for full guide on downloading the CI-generated artifact, adding voiceover, and publishing to the public video platform.)*
 

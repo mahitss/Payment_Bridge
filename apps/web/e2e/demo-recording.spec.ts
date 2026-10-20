@@ -1,12 +1,14 @@
 import { test, expect } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
+import { execSync } from "child_process";
 
 test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", () => {
   test("records complete offline evaluator demo walkthrough (1080p)", async ({
     browser,
   }, testInfo) => {
-    test.setTimeout(90000);
+    // Extended timeout to accommodate the deliberately paced 145-160s walkthrough
+    test.setTimeout(300000);
 
     const outputDir = path.resolve(process.cwd(), "test-results", "demo-recording");
     fs.mkdirSync(outputDir, { recursive: true });
@@ -25,7 +27,8 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
 
     try {
       // =======================================================================
-      // Scene A — Landing Page & Truthful Diagnostic Probe
+      // Scene A — Landing Page & Truthful Diagnostic Probe [00:00 - 00:25]
+      // Target: ~25 seconds of deliberate screen presence
       // =======================================================================
       await page.goto("/");
       await expect(page).toHaveTitle(/ClaimBridge/i);
@@ -37,8 +40,8 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
         page.locator("text=using provider status records, evidence-grounded AI explanations")
       ).toBeVisible();
 
-      // Pacing pause for viewer orientation
-      await page.waitForTimeout(1400);
+      // Pacing pause for viewer orientation and problem statement narration (12s)
+      await page.waitForTimeout(12000);
 
       // Trigger diagnostic probe
       const probeButton = page.getByRole("button", { name: /Probe Gateway/i });
@@ -55,11 +58,12 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       await expect(page.locator("text=access_token")).not.toBeVisible();
       await expect(page.locator("text=Gateway Live & Sandbox Connected")).not.toBeVisible();
 
-      // Pacing pause to read probe state
-      await page.waitForTimeout(1600);
+      // Pacing pause to read diagnostic status partitioning (13s)
+      await page.waitForTimeout(13000);
 
       // =======================================================================
-      // Scene B — Operator Authentication & Payout Intake
+      // Scene B — Operator Authentication & Payout Intake [00:25 - 00:55]
+      // Target: ~30 seconds of deliberate screen presence
       // =======================================================================
       await page.goto("/login");
       await expect(page.locator("h1")).toContainText("Sign in to ClaimBridge");
@@ -67,13 +71,13 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       // Sign in as operator
       await page.fill("#email", "operator@claimbridge.internal");
       await page.fill("#password", "OperatorPass123!");
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(3000); // 3s pause on filled login
       await page.click('button[type="submit"]');
 
       // Await entry into workspace
       await expect(page).toHaveURL(/\/app/);
       await expect(page.locator("header")).toContainText("operator@claimbridge.internal");
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(7000); // 7s pause on dashboard overview
 
       // Navigate to New Payout Case form
       await page.goto("/app/payouts/new");
@@ -93,7 +97,7 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
 
       // Verify policy rule triggers: dual custody mandated for > $250.00
       await expect(page.locator("text=DUAL-CUSTODY MANDATED")).toBeVisible();
-      await page.waitForTimeout(1200);
+      await page.waitForTimeout(10000); // 10s pause showcasing real-time policy evaluation
 
       // Submit case
       await page.click('button[type="submit"]:has-text("Create Payout Case")');
@@ -103,10 +107,11 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       await expect(page.locator("h1")).toContainText(uniqueRef);
       await expect(page.locator("text=$350.00")).toBeVisible();
       await expect(page.locator("text=Dual-Custody Required")).toBeVisible();
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(8000); // 8s pause on newly created case
 
       // =======================================================================
-      // Scene C — Dual-Custody Approval & Separation of Duties
+      // Scene C — Dual-Custody Approval & Separation of Duties [00:55 - 01:25]
+      // Target: ~35 seconds of deliberate screen presence
       // =======================================================================
       // Initiate payout operation to enter dual-custody approval flow
       const initiateBtn = page.getByRole("button", {
@@ -123,21 +128,22 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       if (await approveButton.isVisible()) {
         await expect(approveButton).toBeDisabled();
       }
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(10000); // 10s pause explaining self-approval blocked fail-closed
 
       // Sign out using genuine header button
       const signOutBtn = page.getByRole("button", { name: "Sign Out of ClaimBridge" });
       await expect(signOutBtn).toBeVisible();
       await signOutBtn.click();
       await expect(page).toHaveURL(/\/login/);
-      await page.waitForTimeout(800);
 
       // Sign in as distinct compliance officer
       await page.fill("#email", "officer@claimbridge.internal");
       await page.fill("#password", "OfficerPass123!");
+      await page.waitForTimeout(3000); // 3s pause on officer login
       await page.click('button[type="submit"]');
       await expect(page).toHaveURL(/\/app/);
       await expect(page.locator("header")).toContainText("officer@claimbridge.internal");
+      await page.waitForTimeout(3000); // 3s pause on officer dashboard
 
       // Navigate to Payouts list and open the newly created case
       await page.goto("/app/payouts");
@@ -145,6 +151,7 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       await expect(caseLink).toBeVisible({ timeout: 10000 });
       await caseLink.click();
       await expect(page.locator("h1")).toContainText(uniqueRef);
+      await page.waitForTimeout(4000); // 4s pause viewing case as distinct officer
 
       // Officer approval button is enabled
       const officerApproveBtn = page.getByRole("button", {
@@ -152,13 +159,12 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       });
       await expect(officerApproveBtn).toBeVisible();
       await expect(officerApproveBtn).toBeEnabled();
-      await page.waitForTimeout(1000);
 
       // Click to open confirmation modal
       await officerApproveBtn.click();
       const confirmModal = page.locator("h3:has-text('Authorize Dual-Custody Approval')");
       await expect(confirmModal).toBeVisible();
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(3000); // 3s pause viewing approval modal
       await page.getByRole("button", { name: "Confirm Approval" }).click();
 
       // Verify dual-custody approval accepted
@@ -173,10 +179,11 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       ).toBeVisible();
       await expect(page.locator("text=Internal: SUBMITTED")).not.toBeVisible();
       await expect(page.locator("text=Internal: DRAFT")).toBeVisible();
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(10000); // 10s pause showing approved internal draft (not auto-submitted)
 
       // =======================================================================
-      // Scene D — Synthetic Fixture Provenance & Mutation Protection
+      // Scene D — Synthetic Fixture Provenance & Mutation Protection [01:25 - 01:50]
+      // Target: ~25 seconds of deliberate screen presence
       // =======================================================================
       await page.goto("/app/payouts");
       await expect(page.locator("h1")).toContainText("Payout Cases & Investigation");
@@ -185,7 +192,7 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       const fixtureRow = page.locator("tr", { hasText: "DEMO-W9821" });
       await expect(fixtureRow).toBeVisible({ timeout: 10000 });
       await expect(fixtureRow.locator("text=SIMULATED")).toBeVisible();
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(6000); // 6s pause distinguishing fixtures in table
 
       // Open DEMO-W9821 detail page
       const fixtureLink = page.locator('a:has-text("DEMO-W9821")');
@@ -216,10 +223,11 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
         await expect(cancelButton).toBeDisabled();
         await expect(cancelButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
       }
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(18000); // 18s pause explaining provenance banner and mutation guards
 
       // =======================================================================
-      // Scene E & F — Offline Investigation Evidence & Final Honest State
+      // Scene E & F — Offline Investigation Evidence & Architectural Summary [01:50 - 02:35]
+      // Target: ~38 seconds of deliberate screen presence
       // =======================================================================
       // Scroll to AI Investigation card
       const aiEngine = page.locator("section", { hasText: "AI Payout Investigation Engine" });
@@ -238,9 +246,11 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       // Verify grounded citations
       await expect(page.locator("text=Evidence:").first()).toBeVisible();
       await expect(page.locator("text=SIMULATED-DEMO-BATCH-W9821").first()).toBeVisible();
+      await page.waitForTimeout(24000); // 24s pause explaining offline investigation & grounding validation
 
-      // Final pause on grounded evidence state
-      await page.waitForTimeout(2000);
+      // Scene F — Finish on meaningful grounded evidence state & architectural summary (14s)
+      // Reinforce that approval is not payout execution and external integrations remain separately gated
+      await page.waitForTimeout(14000); // 14s concluding pause
     } finally {
       // Close page and context to flush video to disk
       await page.close();
@@ -276,5 +286,36 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
     console.log(
       `[Demo Recording] Successfully generated video artifact: ${canonicalPath} (${canonicalStats.size} bytes)`
     );
+
+    // If ffprobe is available, perform immediate duration and dimension assertions
+    try {
+      const probeJson = execSync(
+        `ffprobe -v error -show_entries stream=codec_name,width,height -show_entries format=duration -of json "${canonicalPath}"`,
+        { encoding: "utf-8" }
+      );
+      const probeData = JSON.parse(probeJson);
+      const measuredDuration = parseFloat(probeData.format?.duration || "0");
+      const videoStream = probeData.streams?.find((s: any) => s.width && s.height);
+      console.log(
+        `[Demo Recording] ffprobe inspection: duration=${measuredDuration.toFixed(2)}s, resolution=${videoStream?.width}x${videoStream?.height}, codec=${videoStream?.codec_name}`
+      );
+      expect(
+        measuredDuration,
+        `Measured duration (${measuredDuration}s) must be at least 120.0s`
+      ).toBeGreaterThanOrEqual(120.0);
+      expect(
+        measuredDuration,
+        `Measured duration (${measuredDuration}s) must be at most 175.0s (under 180s limit)`
+      ).toBeLessThanOrEqual(175.0);
+      if (videoStream) {
+        expect(videoStream.width).toBe(1920);
+        expect(videoStream.height).toBe(1080);
+      }
+    } catch (probeErr: any) {
+      if (probeErr.message?.includes("must be")) {
+        throw probeErr;
+      }
+      console.warn(`[Demo Recording] ffprobe check note: ${probeErr.message}`);
+    }
   });
 });

@@ -1,6 +1,6 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 2.3 (Mission 019 Reproducible Demo Video, Claim-Accurate Narration, and Submission Readiness)  
-**Date of Audit:** October 20, 2026  
+**Document Version:** 2.4 (Mission 020 Properly Paced, Measured, Submission-Ready Demo Recording)  
+**Date of Audit:** October 21, 2026  
 **Auditor:** Staff Application Security & Senior Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
 **Verified CI Workflow:** [Run 39474119122](https://github.com/mahitss/Payment_Bridge/actions/runs/39474119122) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E, Docker Compose Offline Evaluator Verification with verified demo video artifact)  
@@ -92,7 +92,7 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 ### P2 (Major Feature Gaps / Pending Live External Validations / Secondary Deficiencies)
 1. **DEF-001 (PayPal Sandbox OAuth Handshake Blocked on Credentials):** `BLOCKED_EXTERNAL_DEPENDENCY`. Smoke-test CLI and PayPal REST client hardened with multi-path `.env` resolution, exit code semantics (0: success, 1: lookup failure, 2: auth failure, 3: blocked credentials), and token redaction. Verified 100% with mock unit suite. Executed in live runtime: returned Exit Code 3 (`BLOCKED: PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET unset`). Unblocking requires operator sandbox keys in `.env`.
 2. **DEF-002 (Local Ollama Model Inference Blocked on Local Service Launch):** `BLOCKED_LOCAL_DEPENDENCY`. Driver, dual-mode deployment networking (host & docker-compose), granular readiness probe (`CheckHealth`), and sensitive logging sanitization verified 100% with unit suite. Executed in live runtime: returned `BLOCKED: Daemon unreachable at http://127.0.0.1:11434`. Unblocking requires operator running `ollama serve && ollama pull llama3.2`.
-3. **DEF-003 (Hackathon Demo Video File Not Yet Uploaded):** `UNRESOLVED`. Demo script and shot list complete; recording scheduled prior to final submission.
+3. **DEF-003 (Hackathon Demo Video File Not Yet Uploaded):** `CI_ARTIFACT_VERIFIED; PUBLIC_VIDEO_PENDING`. Deterministic 1080p recording spec captured and verified in CI against media quality gates (1920×1080, 120s–175s duration, silent WebM); published as `claimbridge-offline-demo-recording` artifact. Public hosting upload pending team voiceover and final publication.
 4. **DEF-008 (Global Server Timeout Truncating AI Inferences):** `VERIFIED_FIXED`. Refactored `timeoutMiddleware` to apply route-aware timeouts (30s+ for AI investigations, 15s for PayPal operations). Verified by server test suite and Scenario 24/25–32 passes.
 
 ### P3 (Non-Critical Presentation, Usability, and Documentation Improvements)
@@ -114,7 +114,7 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 | **Complete List of Known Issues** | **PRESENT & VERIFIED** | `docs/release/KNOWN_ISSUES.md` documents sandbox behaviors, single-approver constraints, and currency bounds. |
 | **Reproducible Route to Running Project** | **PRESENT & VERIFIED** | `infra/docker-compose.full.yml` and `cmd/readiness` provide clear, reproducible paths to running locally. |
 | **Public Repository Visibility** | **VERIFIED PUBLIC** | Queried GitHub API for `mahitss/Payment_Bridge`: `"visibility": "public"`, `"private": false`. |
-| **Demo Video Upload** | **NOT UPLOADED** | Demo script and recording checklist ready; recording pending execution by hackathon team. |
+| **Demo Video Upload** | **CI ARTIFACT VERIFIED; PUBLIC VIDEO PENDING** | Demo walkthrough artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) verified by CI media quality gate; public video upload pending team voiceover and hosting. |
 
 ---
 
@@ -122,4 +122,4 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 
 1. **Supply Sandbox Credentials & Execute Live Smoke Test:** Populate valid developer sandbox keys in `.env` and run `go run ./cmd/paypal-smoke` to verify live handshake with PayPal sandbox servers.
 2. **Launch Local Ollama & Run Live AI Investigation:** Execute `ollama serve` and pull `llama3.2`, then trigger a real case investigation via the web UI or API to verify live local inference.
-3. **Record and Submit Demo Video:** Follow `docs/demo/DEMO_SCRIPT.md` to record the 120-second walkthrough and finalize the submission package.
+3. **Record Voiceover and Submit Demo Video:** Download the verified 1080p walkthrough artifact from GitHub Actions, record and layer the ~2-minute voiceover following `docs/demo/DEMO_SCRIPT.md` and `docs/demo/VIDEO_ARTIFACT_GUIDE.md`, upload to YouTube/Vimeo, and record the public link in the submission form.

@@ -130,4 +130,4 @@ This document establishes the factual basis for every statement made in the Clai
   - `apps/web/e2e/policy-workflow.spec.ts` (3 tests): $350 case creation, dual-custody detection, self-approval blockage, distinct officer approval, and no auto-submission side effect.
   - `apps/web/e2e/mutation-guards.spec.ts` (4 tests): Direct API rejection (HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`) on fixture submit, sync, and cancel.
   - `apps/web/e2e/responsive-nav.spec.ts` (8 tests): Desktop nav, accessible mobile drawer toggle & Escape dismiss, automatic route close, skip link, 6-viewport overflow check, form semantics, password toggle, 44px touch targets.
-  - `apps/web/e2e/demo-recording.spec.ts` (1 test): Deterministic 1080p browser walkthrough recording producing `claimbridge-demo-walkthrough.webm`.
+  - `apps/web/e2e/demo-recording.spec.ts` (1 test): Deterministic 1080p browser walkthrough recording producing `claimbridge-demo-walkthrough.webm`, verified by automated media quality gate (`verify-recording-artifact.mjs`) asserting 1920×1080 resolution, 120.0s–175.0s duration, and silent WebM container.

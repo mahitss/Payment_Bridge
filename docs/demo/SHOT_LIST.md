@@ -1,9 +1,9 @@
 # ClaimBridge — Video Demo Shot List & Visual Cue Sheet
 
 **Demonstration Track:** Track 1 — Deterministic Offline / Simulated Workflow (Reproducible & Zero-Budget)  
-**Total Duration:** 2 minutes 30 seconds  
-**Target Video Resolution:** 1920x1080 @ 60fps  
-**Audio:** Voiceover (Mono/Stereo 48kHz, -14 LUFS)  
+**Total Duration:** ~2 minutes 30 seconds (Raw capture: 145–160s, verified between 120s and 175s)  
+**Target Video Resolution:** 1920x1080  
+**Audio:** Automated recording is silent; Voiceover to be layered in post-production (Mono/Stereo 48kHz, -14 LUFS)  
 
 ---
 

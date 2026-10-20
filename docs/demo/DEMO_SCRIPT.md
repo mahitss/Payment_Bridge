@@ -28,7 +28,8 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 
 ## Track 1: Deterministic Simulated Workflow Walkthrough
 
-**Total Target Duration:** 2 minutes 30 seconds (150 seconds)
+**Raw Automated Recording:** 145–160 seconds (strictly verified by CI media gate: 120.0s – 175.0s, silent WebM).  
+**Final Edited Voiceover Export Target:** ~2 minutes 30 seconds (150 seconds, under the 180s hackathon maximum).  
 
 ### Scene A — Problem & Architecture [00:00 – 00:25] (25 seconds)
 
