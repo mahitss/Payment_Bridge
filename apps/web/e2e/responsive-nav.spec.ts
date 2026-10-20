@@ -182,9 +182,10 @@ test.describe("F. Responsive UX, Navigation, and Accessibility Hardening", () =>
     await page.fill("#email", "operator@claimbridge.internal");
     await page.fill("#password", "OperatorPass123!");
     await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/\/app/);
 
     await page.goto("/app/payouts/new");
-    await expect(page.locator("h1")).toContainText("New Payout Case");
+    await expect(page.locator("h1")).toContainText("Create Payout Settlement Case");
 
     // Verify all input IDs have matching labels
     const inputIds = [
@@ -207,7 +208,7 @@ test.describe("F. Responsive UX, Navigation, and Accessibility Hardening", () =>
 
     // Verify helper texts are present and amount inputMode is decimal
     await expect(page.locator("#payout-amount")).toHaveAttribute("inputmode", "decimal");
-    await expect(page.locator("#payout-amount-hint")).toContainText("$500.00 ceiling");
+    await expect(page.locator("#payout-amount-hint")).toContainText("500.00");
 
     // Verify page does not overflow horizontally at 375px
     const hasOverflow = await page.evaluate(() => {

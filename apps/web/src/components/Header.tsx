@@ -59,9 +59,6 @@ export default function Header() {
 
   return (
     <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
-      <a href="#main-content" className="skip-link">
-        Skip to main content
-      </a>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-4 sm:gap-6">
           <Link
