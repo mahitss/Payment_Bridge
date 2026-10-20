@@ -140,7 +140,7 @@ docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml
 
 # Confirm API Gateway and database readiness
 curl -s http://localhost:8080/readyz
-# Expected output: {"database":"ready","environment":"sandbox","paypal_configured":false,"status":"ready"}
+# Expected output: {"database":"connected","paypal_creds_available":false,"paypal_env":"sandbox","service":"claimbridge-api","status":"ready",...}
 ```
 
 #### Service Endpoints:

@@ -394,13 +394,15 @@ jobs:
           curl -fsSL http://127.0.0.1:8080/healthz | grep -q '"status":"ok"'
           
           echo "Verifying /readyz contract directly on API..."
-          curl -fsSL http://127.0.0.1:8080/readyz | grep -q '"database":"ready"'
+          curl -fsSL http://127.0.0.1:8080/readyz | grep -q '"database":"connected"'
+          curl -fsSL http://127.0.0.1:8080/readyz | grep -q '"status":"ready"'
 
           echo "Verifying Next.js reverse-proxy rewrite to /healthz..."
           curl -fsSL http://127.0.0.1:3000/healthz | grep -q '"service":"claimbridge-api"'
 
           echo "Verifying Next.js reverse-proxy rewrite to /readyz..."
-          curl -fsSL http://127.0.0.1:3000/readyz | grep -q '"database":"ready"'
+          curl -fsSL http://127.0.0.1:3000/readyz | grep -q '"database":"connected"'
+          curl -fsSL http://127.0.0.1:3000/readyz | grep -q '"status":"ready"'
 
           echo "Verifying build-time NEXT_PUBLIC_DEMO_MODE compilation in HTML..."
           landing_html=$(curl -fsSL http://127.0.0.1:3000/)
@@ -434,7 +436,7 @@ jobs:
 
           echo "Verifying API is healthy and database is connected after restart..."
           for i in {1..30}; do
-            if curl -fsSL http://127.0.0.1:8080/readyz | grep -q '"database":"ready"'; then
+            if curl -fsSL http://127.0.0.1:8080/readyz | grep -q '"database":"connected"'; then
               echo "API is healthy and database is connected after restart."
               break
             fi
