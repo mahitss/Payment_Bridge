@@ -194,11 +194,11 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
 
       // Verify prominent synthetic alert banner
       const banner = page.locator("text=SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION");
-      await expect(banner).toBeVisible({ timeout: 10000 });
+      await expect(banner.first()).toBeVisible({ timeout: 10000 });
       await expect(
-        page.locator("text=This case and its operations are local evaluation fixtures.")
+        page.locator("text=This case and its operations are local evaluation fixtures.").first()
       ).toBeVisible();
-      await expect(page.locator("text=SIMULATED FIXTURE")).toBeVisible();
+      await expect(page.locator("text=SIMULATED FIXTURE").first()).toBeVisible();
 
       // Verify external mutation controls are safely disabled on synthetic fixtures
       const syncButton = page.getByRole("button", { name: "Sync with PayPal" });
@@ -223,21 +223,21 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       // =======================================================================
       // Scroll to AI Investigation card
       const aiEngine = page.locator("section", { hasText: "AI Payout Investigation Engine" });
-      await expect(aiEngine).toBeVisible({ timeout: 10000 });
-      await aiEngine.scrollIntoViewIfNeeded();
+      await expect(aiEngine.first()).toBeVisible({ timeout: 10000 });
+      await aiEngine.first().scrollIntoViewIfNeeded();
 
       // Verify Simulated Evaluation Fixture indicator
-      await expect(aiEngine.locator("text=Simulated Evaluation Fixture")).toBeVisible();
+      await expect(aiEngine.locator("text=Simulated Evaluation Fixture").first()).toBeVisible();
 
       // Verify pre-seeded synthetic findings
       const preSeededFinding = page.locator(
         "text=Simulated scenario: recipient has not claimed the transfer"
       );
-      await expect(preSeededFinding).toBeVisible();
+      await expect(preSeededFinding.first()).toBeVisible();
 
       // Verify grounded citations
-      await expect(page.locator("text=Evidence:")).toBeVisible();
-      await expect(page.locator("text=SIMULATED-DEMO-BATCH-W9821")).toBeVisible();
+      await expect(page.locator("text=Evidence:").first()).toBeVisible();
+      await expect(page.locator("text=SIMULATED-DEMO-BATCH-W9821").first()).toBeVisible();
 
       // Final pause on grounded evidence state
       await page.waitForTimeout(2000);
