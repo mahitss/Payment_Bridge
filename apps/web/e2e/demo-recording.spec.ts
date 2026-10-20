@@ -179,7 +179,7 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       // Scene D — Synthetic Fixture Provenance & Mutation Protection
       // =======================================================================
       await page.goto("/app/payouts");
-      await expect(page.locator("h1")).toContainText("Payout Cases Registry");
+      await expect(page.locator("h1")).toContainText("Payout Cases & Investigation");
 
       // Locate seeded fixture DEMO-W9821
       const fixtureRow = page.locator("tr", { hasText: "DEMO-W9821" });
