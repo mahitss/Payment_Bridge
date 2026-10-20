@@ -101,7 +101,7 @@ export default function PayoutsListPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <Header />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-6">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-6 outline-none">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -119,18 +119,18 @@ export default function PayoutsListPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/app/payouts/new"
-              className="px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
+              className="min-h-[44px] px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
             >
-              <PlusCircle className="w-4 h-4" />
+              <PlusCircle className="w-4 h-4" aria-hidden="true" />
               <span>Create Payout Case</span>
             </Link>
             <button
               onClick={fetchCases}
               disabled={loadingCases}
-              className="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700 text-xs flex items-center gap-1.5"
-              title="Refresh"
+              aria-label="Refresh payout cases"
+              className="min-h-[44px] min-w-[44px] p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700 text-xs flex items-center justify-center gap-1.5"
             >
-              <RefreshCw className={`w-4 h-4 ${loadingCases ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 ${loadingCases ? "animate-spin" : ""}`} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -138,23 +138,26 @@ export default function PayoutsListPage() {
         {/* Filter & Search Bar */}
         <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col sm:flex-row gap-3 items-center justify-between">
           <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-500" aria-hidden="true" />
             <input
               type="text"
+              id="payout-search"
+              aria-label="Search payout cases by reference, recipient, or title"
               placeholder="Search reference, recipient, title..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
+              className="w-full min-h-[40px] pl-9 pr-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
             />
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-xs text-slate-400">Status:</span>
+            <Filter className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+            <label htmlFor="status-filter" className="text-xs text-slate-400">Status:</label>
             <select
+              id="status-filter"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs text-white focus:outline-none focus:border-blue-500 transition"
+              className="min-h-[40px] px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs text-white focus:outline-none focus:border-blue-500 transition"
             >
               <option value="ALL">All Statuses</option>
               <option value="DRAFT">Draft</option>
@@ -169,13 +172,13 @@ export default function PayoutsListPage() {
         {/* Payout Table Section */}
         <section className="rounded-xl bg-slate-900/40 border border-slate-800 overflow-hidden">
           {loadingCases ? (
-            <div className="py-20 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <div className="py-20 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs" role="status" aria-live="polite">
+              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
               <span>Querying database records...</span>
             </div>
           ) : filteredCases.length === 0 ? (
-            <div className="p-12 text-center space-y-3">
-              <CreditCard className="w-10 h-10 text-slate-600 mx-auto" />
+            <div className="p-12 text-center space-y-3" role="status" aria-live="polite">
+              <CreditCard className="w-10 h-10 text-slate-600 mx-auto" aria-hidden="true" />
               <div>
                 <p className="text-sm font-semibold text-slate-300">No matching payout cases</p>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
@@ -187,25 +190,30 @@ export default function PayoutsListPage() {
               {cases.length === 0 && (
                 <Link
                   href="/app/payouts/new"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition"
+                  className="inline-flex items-center gap-2 min-h-[44px] px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition"
                 >
-                  <PlusCircle className="w-3.5 h-3.5" />
+                  <PlusCircle className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Create Case</span>
                 </Link>
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            <div
+              className="overflow-x-auto focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+              tabIndex={0}
+              role="region"
+              aria-label="Payout settlement cases table"
+            >
+              <table className="w-full text-left text-xs" aria-label="Payout cases">
                 <thead>
                   <tr className="border-b border-slate-800 bg-slate-900/70 text-slate-400 uppercase tracking-wider font-semibold">
-                    <th className="py-3 pl-4">Case Reference</th>
-                    <th className="py-3">Title & Recipient</th>
-                    <th className="py-3">Amount (Minor Units)</th>
-                    <th className="py-3">Dual-Custody Policy</th>
-                    <th className="py-3">Case Status</th>
-                    <th className="py-3">Created Date</th>
-                    <th className="py-3 text-right pr-4">Action</th>
+                    <th scope="col" className="py-3 pl-4">Case Reference</th>
+                    <th scope="col" className="py-3">Title & Recipient</th>
+                    <th scope="col" className="py-3">Amount (Minor Units)</th>
+                    <th scope="col" className="py-3">Dual-Custody Policy</th>
+                    <th scope="col" className="py-3">Case Status</th>
+                    <th scope="col" className="py-3">Created Date</th>
+                    <th scope="col" className="py-3 text-right pr-4">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -213,7 +221,7 @@ export default function PayoutsListPage() {
                     <tr key={c.id} className="hover:bg-slate-800/30 transition">
                       <td className="py-3.5 pl-4 font-mono font-medium text-blue-400">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <Link href={`/app/payouts/${c.id}`} className="hover:underline">
+                          <Link href={`/app/payouts/${c.id}`} className="hover:underline inline-block py-1">
                             {c.reference}
                           </Link>
                           {c.is_synthetic_fixture && (
@@ -235,12 +243,12 @@ export default function PayoutsListPage() {
                       <td className="py-3.5">
                         {c.dual_approval_required ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            <Lock className="w-2.5 h-2.5" />
+                            <Lock className="w-2.5 h-2.5" aria-hidden="true" />
                             Dual-Approval Required
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 className="w-2.5 h-2.5" />
+                            <CheckCircle2 className="w-2.5 h-2.5" aria-hidden="true" />
                             Single Officer
                           </span>
                         )}
@@ -266,10 +274,10 @@ export default function PayoutsListPage() {
                       <td className="py-3.5 text-right pr-4">
                         <Link
                           href={`/app/payouts/${c.id}`}
-                          className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition font-medium border border-slate-700 inline-flex items-center gap-1 text-[11px]"
+                          className="min-h-[36px] px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition font-medium border border-slate-700 inline-flex items-center gap-1 text-[11px]"
                         >
                           <span>Inspect</span>
-                          <ArrowRight className="w-3 h-3" />
+                          <ArrowRight className="w-3 h-3" aria-hidden="true" />
                         </Link>
                       </td>
                     </tr>
@@ -281,7 +289,7 @@ export default function PayoutsListPage() {
 
           {/* Pagination Footer */}
           {totalCases > pageSize && (
-            <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between text-xs text-slate-400">
+            <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
               <span>
                 Showing {page * pageSize + 1} -{" "}
                 {Math.min((page + 1) * pageSize, totalCases)} of {totalCases} cases
@@ -290,21 +298,21 @@ export default function PayoutsListPage() {
                 <button
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
-                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition flex items-center gap-1"
+                  className="min-h-[36px] px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition flex items-center gap-1"
                 >
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Previous</span>
                 </button>
-                <span className="font-mono text-slate-300">
+                <span className="font-mono text-slate-300 px-2">
                   Page {page + 1} of {totalPages}
                 </span>
                 <button
                   onClick={() => setPage((p) => p + 1)}
                   disabled={(page + 1) * pageSize >= totalCases}
-                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition flex items-center gap-1"
+                  className="min-h-[36px] px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition flex items-center gap-1"
                 >
                   <span>Next</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
                 </button>
               </div>
             </div>

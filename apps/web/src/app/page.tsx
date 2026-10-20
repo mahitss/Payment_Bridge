@@ -125,13 +125,13 @@ export default function Home() {
   };
 
   return (
-    <main className="max-w-6xl mx-auto px-6 py-10 space-y-10">
+    <main id="main-content" tabIndex={-1} className="max-w-6xl mx-auto px-6 py-10 space-y-10 outline-none">
       {/* Header */}
       <header className="border-b border-slate-800 pb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3 mb-2 flex-wrap">
             <span className="p-2 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30">
-              <ShieldCheck className="w-6 h-6" />
+              <ShieldCheck className="w-6 h-6" aria-hidden="true" />
             </span>
             <h1 className="text-2xl font-bold tracking-tight text-white">
               ClaimBridge
@@ -149,35 +149,35 @@ export default function Home() {
           <button
             onClick={checkGatewayHealth}
             disabled={loading}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-2"
+            className="min-h-[44px] px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-2"
           >
-            <Server className="w-3.5 h-3.5 text-blue-400" />
+            <Server className="w-3.5 h-3.5 text-blue-400" aria-hidden="true" />
             {loading ? "Probing..." : "Probe Gateway"}
           </button>
 
           {!authLoading && user ? (
             <Link
               href="/app"
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+              className="min-h-[44px] px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
             >
-              <User className="w-3.5 h-3.5" />
+              <User className="w-3.5 h-3.5" aria-hidden="true" />
               <span>Enter Workspace</span>
-              <ArrowRight className="w-3.5 h-3.5 ml-1" />
+              <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
             </Link>
           ) : (
             <div className="flex items-center gap-2">
               <Link
                 href="/login"
-                className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5"
+                className="min-h-[44px] px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5"
               >
-                <LogIn className="w-3.5 h-3.5" />
+                <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Sign In</span>
               </Link>
               <Link
                 href="/register"
-                className="px-3.5 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+                className="min-h-[44px] px-3.5 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
               >
-                <UserPlus className="w-3.5 h-3.5" />
+                <UserPlus className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Register</span>
               </Link>
             </div>
@@ -186,10 +186,10 @@ export default function Home() {
       </header>
 
       {probeState && (
-        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3 text-xs shadow-lg">
+        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3 text-xs shadow-lg" role="status" aria-live="polite">
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
             <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-blue-400" />
+              <Activity className="w-4 h-4 text-blue-400" aria-hidden="true" />
               <span className="font-semibold text-white uppercase tracking-wider text-[11px]">System Diagnostic Probe</span>
             </div>
             <div className="flex items-center gap-3">

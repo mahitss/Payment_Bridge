@@ -58,9 +58,9 @@ export default function AccountSettingsPage() {
           <div className="flex items-center gap-4">
             <Link
               href="/app"
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1.5 text-xs border border-slate-700"
+              className="min-h-[44px] px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1.5 text-xs border border-slate-700"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               <span>Back to App</span>
             </Link>
             <span className="h-4 w-px bg-slate-800" />
@@ -69,16 +69,16 @@ export default function AccountSettingsPage() {
 
           <button
             onClick={logout}
-            className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition text-xs flex items-center gap-1.5"
+            className="min-h-[44px] px-3.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition text-xs flex items-center gap-1.5"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Sign Out</span>
           </button>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-4xl w-full mx-auto px-6 py-8 space-y-6">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-4xl w-full mx-auto px-6 py-8 space-y-6 outline-none">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Account & Security</h1>
           <p className="text-xs text-slate-400 mt-1">

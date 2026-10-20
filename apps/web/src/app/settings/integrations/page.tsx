@@ -86,12 +86,12 @@ export default function IntegrationsSettingsPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <Header />
 
-      <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-8 space-y-6">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-5xl w-full mx-auto px-6 py-8 space-y-6 outline-none">
         <Link
           href="/app"
-          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition font-medium"
+          className="inline-flex items-center gap-1.5 min-h-[36px] text-xs text-slate-400 hover:text-white transition font-medium"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4" aria-hidden="true" />
           <span>Back to Overview</span>
         </Link>
 
@@ -112,9 +112,9 @@ export default function IntegrationsSettingsPage() {
           <button
             onClick={probeConnection}
             disabled={probing}
-            className="px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
+            className="min-h-[44px] px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
           >
-            <RefreshCw className={`w-4 h-4 ${probing ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-4 h-4 ${probing ? "animate-spin" : ""}`} aria-hidden="true" />
             <span>{probing ? "Probing Sandbox..." : "Test Connection Now"}</span>
           </button>
         </div>
@@ -130,7 +130,7 @@ export default function IntegrationsSettingsPage() {
                     : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
                 }`}
               >
-                <PlugZap className="w-5 h-5" />
+                <PlugZap className="w-5 h-5" aria-hidden="true" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -158,8 +158,12 @@ export default function IntegrationsSettingsPage() {
           </div>
 
           {errorMsg && (
-            <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2.5">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2.5"
+            >
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" aria-hidden="true" />
               <span>{errorMsg}</span>
             </div>
           )}

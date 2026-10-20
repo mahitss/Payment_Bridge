@@ -118,7 +118,7 @@ export default function AppDashboardPage() {
       <Header />
 
       {/* Main Dashboard Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-8">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-8 outline-none">
         {/* Welcome & Quick Action Banner */}
         <div className="p-6 rounded-2xl bg-gradient-to-r from-blue-950/40 via-slate-900 to-slate-900 border border-blue-900/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -139,18 +139,18 @@ export default function AppDashboardPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/app/payouts/new"
-              className="px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
+              className="min-h-[44px] px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
             >
-              <PlusCircle className="w-4 h-4" />
+              <PlusCircle className="w-4 h-4" aria-hidden="true" />
               <span>Create Payout Case</span>
             </Link>
             <button
               onClick={fetchDashboardData}
               disabled={loadingData}
-              className="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700 text-xs flex items-center gap-1.5"
-              title="Refresh Dashboard"
+              aria-label="Refresh Dashboard"
+              className="min-h-[44px] min-w-[44px] p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700 text-xs flex items-center justify-center gap-1.5"
             >
-              <RefreshCw className={`w-4 h-4 ${loadingData ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 ${loadingData ? "animate-spin" : ""}`} aria-hidden="true" />
             </button>
           </div>
         </div>

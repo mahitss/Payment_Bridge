@@ -44,13 +44,13 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <main className="max-w-md mx-auto px-4 py-16">
+    <main id="main-content" tabIndex={-1} className="max-w-md mx-auto px-4 py-16 outline-none">
       <div className="text-center mb-8">
         <Link
           href="/"
           className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition text-xs mb-6"
         >
-          <ShieldCheck className="w-4 h-4 text-blue-400" />
+          <ShieldCheck className="w-4 h-4 text-blue-400" aria-hidden="true" />
           <span>ClaimBridge Auth</span>
         </Link>
         <h1 className="text-2xl font-bold tracking-tight text-white mb-2">
@@ -63,9 +63,9 @@ export default function ForgotPasswordPage() {
 
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-8 backdrop-blur-sm shadow-xl">
         {submitted ? (
-          <div className="text-center py-4 space-y-4">
+          <div className="text-center py-4 space-y-4" role="status" aria-live="polite">
             <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-8 h-8" />
+              <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-white mb-1">Check Your Inbox</h2>
@@ -76,7 +76,7 @@ export default function ForgotPasswordPage() {
 
             <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-400 space-y-1 text-left mt-4">
               <div className="font-semibold text-slate-300 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-blue-400" />
+                <Mail className="w-3.5 h-3.5 text-blue-400" aria-hidden="true" />
                 <span>Local Mailpit Testing</span>
               </div>
               <p>
@@ -95,24 +95,28 @@ export default function ForgotPasswordPage() {
             <div className="pt-4 flex flex-col gap-2">
               <Link
                 href="/reset-password"
-                className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition flex items-center justify-center gap-2"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition flex items-center justify-center gap-2"
               >
                 <span>Have a reset token? Enter it here</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </Link>
               <Link
                 href="/login"
-                className="w-full py-2 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition text-center"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition flex items-center justify-center"
               >
                 Back to Login
               </Link>
             </div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             {error && (
-              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-start gap-2"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
                 <span>{error}</span>
               </div>
             )}
@@ -122,11 +126,13 @@ export default function ForgotPasswordPage() {
                 Work Email Address
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" aria-hidden="true" />
                 <input
                   id="email"
                   type="email"
                   required
+                  autoComplete="email"
+                  inputMode="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="auditor@organization.com"
@@ -138,17 +144,17 @@ export default function ForgotPasswordPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+              className="w-full min-h-[44px] py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                   <span>Issuing Reset Token...</span>
                 </>
               ) : (
                 <>
                   <span>Send Password Reset Link</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="w-4 h-4" aria-hidden="true" />
                 </>
               )}
             </button>
@@ -156,9 +162,9 @@ export default function ForgotPasswordPage() {
             <div className="pt-2 text-center">
               <Link
                 href="/login"
-                className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-300 transition"
+                className="inline-flex items-center gap-1.5 py-2 px-3 text-xs text-slate-400 hover:text-slate-300 transition"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Return to Login</span>
               </Link>
             </div>

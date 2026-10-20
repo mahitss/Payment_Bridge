@@ -63,8 +63,12 @@ function LoginForm() {
     <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-8 backdrop-blur-sm shadow-xl">
       <form onSubmit={handleLogin} className="space-y-4">
         {error && (
-          <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start gap-2"
+          >
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" aria-hidden="true" />
             <div>
               <span>{error}</span>
               {isUnverified && (
@@ -91,15 +95,17 @@ function LoginForm() {
             Email Address
           </label>
           <div className="relative">
-            <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+            <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" aria-hidden="true" />
             <input
               id="email"
               type="email"
               required
+              autoComplete="email"
+              inputMode="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
-              className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
+              className="w-full pl-9 pr-3 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
             />
           </div>
         </div>
@@ -112,29 +118,34 @@ function LoginForm() {
             </label>
             <Link
               href="/forgot-password"
-              className="text-xs text-blue-400 hover:text-blue-300 transition"
+              className="text-xs text-blue-400 hover:text-blue-300 transition focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
             >
               Forgot password?
             </Link>
           </div>
           <div className="relative">
-            <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+            <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" aria-hidden="true" />
             <input
               id="password"
               type={showPassword ? "text" : "password"}
               required
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="w-full pl-9 pr-10 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
+              className="w-full pl-9 pr-12 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition"
-              aria-label="Toggle password visibility"
+              className="absolute right-2 top-2 p-1.5 min-w-[36px] min-h-[36px] text-slate-400 hover:text-slate-200 transition rounded focus-visible:ring-2 focus-visible:ring-blue-500 flex items-center justify-center"
+              aria-label={showPassword ? "Hide password" : "Show password"}
             >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showPassword ? (
+                <EyeOff className="w-4 h-4" aria-hidden="true" />
+              ) : (
+                <Eye className="w-4 h-4" aria-hidden="true" />
+              )}
             </button>
           </div>
         </div>
@@ -143,10 +154,19 @@ function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full mt-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-medium text-sm rounded-lg transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+          className="w-full mt-2 min-h-[44px] py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-medium text-sm rounded-lg transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 focus-visible:ring-2 focus-visible:ring-blue-500"
         >
-          {loading ? "Signing in..." : "Sign In"}
-          {!loading && <ArrowRight className="w-4 h-4" />}
+          {loading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+              <span>Signing in...</span>
+            </>
+          ) : (
+            <>
+              <span>Sign In</span>
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </>
+          )}
         </button>
       </form>
 

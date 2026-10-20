@@ -72,9 +72,9 @@ function ResetPasswordForm() {
 
   if (success) {
     return (
-      <div className="text-center py-6 space-y-4">
+      <div className="text-center py-6 space-y-4" role="status" aria-live="polite">
         <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
-          <CheckCircle2 className="w-8 h-8" />
+          <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
         </div>
         <div>
           <h2 className="text-xl font-bold text-white mb-1">Password Updated</h2>
@@ -85,10 +85,10 @@ function ResetPasswordForm() {
         <div className="pt-4">
           <Link
             href="/login"
-            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition shadow-lg shadow-blue-600/20"
+            className="inline-flex items-center justify-center gap-2 min-h-[44px] px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition shadow-lg shadow-blue-600/20"
           >
             <span>Sign In with New Password</span>
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-4 h-4" aria-hidden="true" />
           </Link>
         </div>
       </div>
@@ -96,10 +96,14 @@ function ResetPasswordForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
       {error && (
-        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-start gap-2"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
@@ -112,6 +116,7 @@ function ResetPasswordForm() {
           id="token"
           type="text"
           required
+          autoComplete="off"
           value={token}
           onChange={(e) => setToken(e.target.value)}
           placeholder="Paste single-use reset token..."
@@ -124,12 +129,13 @@ function ResetPasswordForm() {
           New Password
         </label>
         <div className="relative">
-          <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+          <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" aria-hidden="true" />
           <input
             id="new-password"
             type={showPassword ? "text" : "password"}
             required
             minLength={8}
+            autoComplete="new-password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             placeholder="At least 8 characters"
@@ -138,9 +144,10 @@ function ResetPasswordForm() {
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3.5 top-3 text-slate-500 hover:text-slate-300 transition"
+            className="absolute right-2.5 top-2.5 p-1 text-slate-500 hover:text-slate-300 transition rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            aria-label={showPassword ? "Hide password" : "Show password"}
           >
-            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
           </button>
         </div>
       </div>
@@ -150,11 +157,12 @@ function ResetPasswordForm() {
           Confirm New Password
         </label>
         <div className="relative">
-          <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+          <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" aria-hidden="true" />
           <input
             id="confirm-password"
             type={showPassword ? "text" : "password"}
             required
+            autoComplete="new-password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="Re-type new password"
@@ -166,23 +174,23 @@ function ResetPasswordForm() {
       <button
         type="submit"
         disabled={loading}
-        className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+        className="w-full min-h-[44px] py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
       >
         {loading ? (
           <>
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
             <span>Resetting Password...</span>
           </>
         ) : (
           <>
             <span>Set New Password & Invalidate Sessions</span>
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-4 h-4" aria-hidden="true" />
           </>
         )}
       </button>
 
       <div className="pt-2 text-center">
-        <Link href="/forgot-password" className="text-xs text-slate-400 hover:text-slate-300 underline">
+        <Link href="/forgot-password" className="text-xs text-slate-400 hover:text-slate-300 underline inline-block py-1">
           Need a new reset token?
         </Link>
       </div>
@@ -192,13 +200,13 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <main className="max-w-md mx-auto px-4 py-16">
+    <main id="main-content" tabIndex={-1} className="max-w-md mx-auto px-4 py-16 outline-none">
       <div className="text-center mb-8">
         <Link
           href="/"
           className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition text-xs mb-6"
         >
-          <ShieldCheck className="w-4 h-4 text-blue-400" />
+          <ShieldCheck className="w-4 h-4 text-blue-400" aria-hidden="true" />
           <span>ClaimBridge Auth</span>
         </Link>
         <h1 className="text-2xl font-bold tracking-tight text-white mb-2">
@@ -213,7 +221,7 @@ export default function ResetPasswordPage() {
         <Suspense
           fallback={
             <div className="text-center py-8 text-slate-400 text-sm">
-              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-500" />
+              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-500" aria-hidden="true" />
               Loading...
             </div>
           }

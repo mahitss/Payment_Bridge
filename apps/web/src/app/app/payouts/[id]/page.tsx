@@ -67,6 +67,18 @@ export default function PayoutCaseDetailPage() {
   const [expandedRawResponse, setExpandedRawResponse] = useState<boolean>(false);
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setConfirmSubmitModal(false);
+        setConfirmApproveModal(false);
+        setConfirmCancelModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
     if (!loading && !user) {
       router.push(`/login?returnTo=/app/payouts/${caseId}`);
     }
@@ -305,17 +317,17 @@ export default function PayoutCaseDetailPage() {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
         <Header />
-        <main className="flex-1 max-w-4xl w-full mx-auto px-6 py-12 text-center space-y-4">
-          <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto" />
+        <main id="main-content" tabIndex={-1} className="flex-1 max-w-4xl w-full mx-auto px-6 py-12 text-center space-y-4 outline-none">
+          <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto" aria-hidden="true" />
           <h1 className="text-lg font-bold text-white">Payout Case Not Found</h1>
           <p className="text-xs text-slate-400">
             This case may not exist or does not belong to your active organization.
           </p>
           <Link
             href="/app/payouts"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+            className="inline-flex items-center gap-2 min-h-[44px] px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-4 h-4" aria-hidden="true" />
             <span>Return to Cases</span>
           </Link>
         </main>
@@ -343,15 +355,15 @@ export default function PayoutCaseDetailPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <Header />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-6">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-6 outline-none">
         {/* Back Link & Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <Link
               href="/app/payouts"
-              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition font-medium mb-1"
+              className="inline-flex items-center gap-1.5 min-h-[36px] text-xs text-slate-400 hover:text-white transition font-medium mb-1"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               <span>Back to Payout Cases</span>
             </Link>
             <div className="flex items-center gap-3">
@@ -386,11 +398,13 @@ export default function PayoutCaseDetailPage() {
               <button
                 onClick={handleSyncStatus}
                 disabled={actionLoading !== null || pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture}
-                className="px-3.5 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed text-blue-400 border border-blue-500/30 text-xs font-semibold transition flex items-center gap-1.5"
+                aria-label="Sync status with PayPal Sandbox"
+                className="min-h-[44px] px-3.5 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed text-blue-400 border border-blue-500/30 text-xs font-semibold transition flex items-center gap-1.5"
                 title={pCase.is_synthetic_fixture ? "Disabled: Synthetic Demo Fixture" : undefined}
               >
                 <RefreshCw
                   className={`w-3.5 h-3.5 ${actionLoading === "sync" ? "animate-spin" : ""}`}
+                  aria-hidden="true"
                 />
                 <span>Sync with PayPal</span>
               </button>
@@ -398,10 +412,10 @@ export default function PayoutCaseDetailPage() {
             <button
               onClick={fetchCaseDetails}
               disabled={loadingData}
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700 text-xs"
-              title="Refresh"
+              aria-label="Refresh case details"
+              className="min-h-[44px] min-w-[44px] p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700 text-xs flex items-center justify-center"
             >
-              <RefreshCw className={`w-4 h-4 ${loadingData ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 ${loadingData ? "animate-spin" : ""}`} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -409,7 +423,7 @@ export default function PayoutCaseDetailPage() {
         {/* Synthetic Demo Provenance Banner */}
         {(pCase.is_synthetic_fixture || latestOp?.is_synthetic_fixture) && (
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-3 shadow-lg shadow-amber-500/5">
-            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-400 mt-0.5" />
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-400 mt-0.5" aria-hidden="true" />
             <div className="space-y-1">
               <div className="font-bold uppercase tracking-wider text-amber-200">
                 SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION
@@ -423,15 +437,23 @@ export default function PayoutCaseDetailPage() {
 
         {/* Banners for Alerts */}
         {errorMessage && (
-          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5"
+          >
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" aria-hidden="true" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {successMessage && (
-          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5">
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+          <div
+            role="status"
+            aria-live="polite"
+            className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5"
+          >
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" aria-hidden="true" />
             <span>{successMessage}</span>
           </div>
         )}
@@ -1161,11 +1183,16 @@ export default function PayoutCaseDetailPage() {
 
       {/* Confirmation Modal: Submit Payout to PayPal Sandbox */}
       {confirmSubmitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="submit-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        >
           <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-3 text-emerald-400">
-              <Send className="w-5 h-5" />
-              <h3 className="text-base font-bold text-white">
+              <Send className="w-5 h-5" aria-hidden="true" />
+              <h3 id="submit-modal-title" className="text-base font-bold text-white">
                 Confirm PayPal Sandbox Payout
               </h3>
             </div>
@@ -1191,18 +1218,18 @@ export default function PayoutCaseDetailPage() {
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setConfirmSubmitModal(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSubmitOperation}
                 disabled={actionLoading === "submit"}
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center gap-2"
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center gap-2"
               >
                 {actionLoading === "submit" ? (
                   <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true" />
                     <span>Submitting to Sandbox...</span>
                   </>
                 ) : (
@@ -1216,11 +1243,16 @@ export default function PayoutCaseDetailPage() {
 
       {/* Confirmation Modal: Approve Payout Operation */}
       {confirmApproveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="approve-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        >
           <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-3 text-emerald-400">
-              <CheckCircle2 className="w-5 h-5" />
-              <h3 className="text-base font-bold text-white">
+              <CheckCircle2 className="w-5 h-5" aria-hidden="true" />
+              <h3 id="approve-modal-title" className="text-base font-bold text-white">
                 Authorize Dual-Custody Approval
               </h3>
             </div>
@@ -1230,14 +1262,14 @@ export default function PayoutCaseDetailPage() {
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setConfirmApproveModal(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleApproveOperation}
                 disabled={actionLoading === "approve"}
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center gap-2"
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center gap-2"
               >
                 {actionLoading === "approve" ? (
                   <span>Recording Approval...</span>
@@ -1252,11 +1284,16 @@ export default function PayoutCaseDetailPage() {
 
       {/* Confirmation Modal: Cancel Payout */}
       {confirmCancelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        >
           <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-3 text-rose-400">
-              <XCircle className="w-5 h-5" />
-              <h3 className="text-base font-bold text-white">
+              <XCircle className="w-5 h-5" aria-hidden="true" />
+              <h3 id="cancel-modal-title" className="text-base font-bold text-white">
                 Cancel Payout Operation
               </h3>
             </div>
@@ -1271,14 +1308,14 @@ export default function PayoutCaseDetailPage() {
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setConfirmCancelModal(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
               >
                 Close
               </button>
               <button
                 onClick={handleCancelOperation}
                 disabled={actionLoading === "cancel"}
-                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition flex items-center gap-2"
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition flex items-center gap-2"
               >
                 {actionLoading === "cancel" ? (
                   <span>Cancelling...</span>

@@ -1,10 +1,10 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 2.1 (Mission 017 Containerized Demo Reliability, Compose Integration Verification, and Offline Evaluator Quick Start Baseline)  
+**Document Version:** 2.2 (Mission 018 Responsive UX, Accessibility Hardening, and Release Baseline Consistency)  
 **Date of Audit:** October 20, 2026  
 **Auditor:** Staff Application Security & Senior Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
-**Verified CI Workflow:** [Run 39386834830](https://github.com/mahitss/Payment_Bridge/actions/runs/39386834830) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E 18/18, Docker Compose Offline Evaluator Verification)  
-**Baseline Commit:** `9c81450`  
+**Verified CI Workflow:** [Run 39388808668](https://github.com/mahitss/Payment_Bridge/actions/runs/39388808668) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E, Docker Compose Offline Evaluator Verification)  
+**Baseline Commit:** `47154a7` (`47154a7061f0a79c0be75c1de296fb3ef3e3f341`)  
 **Security & Reliability Standard:** Fail-Closed Deterministic Enforcement / OWASP ASVS v4.0.3 L2  
 
 ---

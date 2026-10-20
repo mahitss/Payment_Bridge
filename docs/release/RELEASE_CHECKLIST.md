@@ -4,7 +4,7 @@
 **Target Event:** PayPal AI Hackathon  
 **Lead Verification Engineer:** Senior AI Systems & Security Engineer  
 **Signoff Date:** 2026-10-20  
-**CI Baseline:** Commit `9c81450` (Workflow Run [39386834830](https://github.com/mahitss/Payment_Bridge/actions/runs/39386834830): 6/6 jobs green, including `docker-compose-evaluator` with 18/18 Playwright test pass against Compose)  
+**CI Baseline:** Commit `47154a7` (Workflow Run [39388808668](https://github.com/mahitss/Payment_Bridge/actions/runs/39388808668): 6/6 jobs green, including `docker-compose-evaluator` with complete Playwright test pass against Compose)  
 
 ---
 
@@ -25,7 +25,7 @@
 | **G-11** | **Open Source License Included** | MIT License committed at repository root (`LICENSE`) | **PASSED** |
 | **G-12** | **Complete Documentation & Runbooks** | PRD, Threat Model, ADRs 001–006, Traceability, Verification Matrix, and Runbooks present | **PASSED** |
 | **G-13** | **Synthetic Fixture Safeguards** | Server-side mutation guards reject fixture submit/sync/cancel with HTTP 403; 0 outbound PayPal requests | **PASSED** |
-| **G-14** | **One-Command Docker Evaluator Stack** | CI job `docker-compose-evaluator` builds multi-stage images, initializes PostgreSQL with migrations, executes idempotent seeder, compiles evaluator banner, and verifies complete Playwright 18/18 browser suite against Compose | **PASSED** |
+| **G-14** | **One-Command Docker Evaluator Stack** | CI job `docker-compose-evaluator` builds multi-stage images, initializes PostgreSQL with migrations, executes idempotent seeder, compiles evaluator banner, and verifies complete Playwright browser suite against Compose | **PASSED** |
 
 ---
 
@@ -106,26 +106,34 @@ $ npm run build
 ✓ Standalone bundle optimized
 
 $ npx playwright test
-Running 18 tests using 1 worker
-  ✓  1 [chromium] › health.spec.ts:3:7 › Diagnostic Health Probe › loads landing page with Prototype badge (1.2s)
-  ✓  2 [chromium] › health.spec.ts:10:7 › Diagnostic Health Probe › verifies absence of unverified release badges (0.4s)
-  ✓  3 [chromium] › health.spec.ts:18:7 › Diagnostic Health Probe › executes diagnostic probe and displays discrete status (1.5s)
-  ✓  4 [chromium] › auth.spec.ts:3:7 › Authentication & Evaluator Access › unauthenticated access redirects to login (0.5s)
-  ✓  5 [chromium] › auth.spec.ts:10:7 › Authentication & Evaluator Access › invalid credentials displays alert (0.7s)
-  ✓  6 [chromium] › auth.spec.ts:19:7 › Authentication & Evaluator Access › logs in as demo operator (1.1s)
-  ✓  7 [chromium] › auth.spec.ts:32:7 › Authentication & Evaluator Access › logs in as compliance officer (1.0s)
-  ✓  8 [chromium] › auth.spec.ts:45:7 › Authentication & Evaluator Access › landing page reveals evaluator credentials in demo mode (0.6s)
-  ✓  9 [chromium] › fixtures.spec.ts:3:7 › Synthetic Demo Fixture Inspection › DEMO-W9821 visible in payouts registry (1.0s)
-  ✓ 10 [chromium] › fixtures.spec.ts:13:7 › Synthetic Demo Fixture Inspection › DEMO-W9821 displays prominent simulated demo banner (0.8s)
-  ✓ 11 [chromium] › fixtures.spec.ts:24:7 › Synthetic Demo Fixture Inspection › DEMO-W9821 renders pre-seeded investigation (0.7s)
-  ✓ 12 [chromium] › fixtures.spec.ts:37:7 › Synthetic Demo Fixture Inspection › external action buttons disabled on synthetic fixture (0.7s)
-  ✓ 13 [chromium] › policy-workflow.spec.ts:7:7 › Policy Engine Workflow › creates $350 case requiring dual approval (1.4s)
-  ✓ 14 [chromium] › policy-workflow.spec.ts:24:7 › Policy Engine Workflow › creator cannot self-approve payout operation (1.2s)
-  ✓ 15 [chromium] › policy-workflow.spec.ts:41:7 › Policy Engine Workflow › distinct officer can approve without auto-dispatching (1.8s)
-  ✓ 16 [chromium] › mutation-guards.spec.ts:8:7 › Server-Side Mutation Protection › rejects submit on synthetic fixture (403) (0.6s)
-  ✓ 17 [chromium] › mutation-guards.spec.ts:22:7 › Server-Side Mutation Protection › rejects sync on synthetic fixture (403) (0.5s)
-  ✓ 18 [chromium] › mutation-guards.spec.ts:36:7 › Server-Side Mutation Protection › rejects cancel on synthetic fixture (403) (0.5s)
-18 passed (16.2s)
+Running 26 tests using 1 worker
+  ✓  1 [chromium] › health.spec.ts:3:7 › Diagnostic Health Probe › loads landing page with Prototype badge
+  ✓  2 [chromium] › health.spec.ts:10:7 › Diagnostic Health Probe › verifies absence of unverified release badges
+  ✓  3 [chromium] › health.spec.ts:18:7 › Diagnostic Health Probe › executes diagnostic probe and displays discrete status
+  ✓  4 [chromium] › auth.spec.ts:3:7 › Authentication & Evaluator Access › unauthenticated access redirects to login
+  ✓  5 [chromium] › auth.spec.ts:10:7 › Authentication & Evaluator Access › invalid credentials displays alert
+  ✓  6 [chromium] › auth.spec.ts:19:7 › Authentication & Evaluator Access › logs in as demo operator
+  ✓  7 [chromium] › auth.spec.ts:32:7 › Authentication & Evaluator Access › logs in as compliance officer
+  ✓  8 [chromium] › auth.spec.ts:45:7 › Authentication & Evaluator Access › landing page reveals evaluator credentials in demo mode
+  ✓  9 [chromium] › fixtures.spec.ts:3:7 › Synthetic Demo Fixture Inspection › DEMO-W9821 visible in payouts registry
+  ✓ 10 [chromium] › fixtures.spec.ts:13:7 › Synthetic Demo Fixture Inspection › DEMO-W9821 displays prominent simulated demo banner
+  ✓ 11 [chromium] › fixtures.spec.ts:24:7 › Synthetic Demo Fixture Inspection › DEMO-W9821 renders pre-seeded investigation
+  ✓ 12 [chromium] › fixtures.spec.ts:37:7 › Synthetic Demo Fixture Inspection › external action buttons disabled on synthetic fixture
+  ✓ 13 [chromium] › policy-workflow.spec.ts:7:7 › Policy Engine Workflow › creates $350 case requiring dual approval
+  ✓ 14 [chromium] › policy-workflow.spec.ts:24:7 › Policy Engine Workflow › creator cannot self-approve payout operation
+  ✓ 15 [chromium] › policy-workflow.spec.ts:41:7 › Policy Engine Workflow › distinct officer can approve without auto-dispatching
+  ✓ 16 [chromium] › mutation-guards.spec.ts:8:7 › Server-Side Mutation Protection › rejects submit on synthetic fixture (403)
+  ✓ 17 [chromium] › mutation-guards.spec.ts:22:7 › Server-Side Mutation Protection › rejects sync on synthetic fixture (403)
+  ✓ 18 [chromium] › mutation-guards.spec.ts:36:7 › Server-Side Mutation Protection › rejects cancel on synthetic fixture (403)
+  ✓ 19 [chromium] › responsive-nav.spec.ts:4:7 › Responsive UX › desktop navigation exposes all primary workspace links and marks active route
+  ✓ 20 [chromium] › responsive-nav.spec.ts:43:7 › Responsive UX › mobile drawer opens, exposes destinations with proper ARIA, closes via toggle and Escape
+  ✓ 21 [chromium] › responsive-nav.spec.ts:90:7 › Responsive UX › mobile drawer closes automatically upon selecting a navigation link
+  ✓ 22 [chromium] › responsive-nav.spec.ts:116:7 › Responsive UX › skip link is discoverable and navigates to main content
+  ✓ 23 [chromium] › responsive-nav.spec.ts:127:7 › Responsive UX › no horizontal document overflow across representative viewports
+  ✓ 24 [chromium] › responsive-nav.spec.ts:150:7 › Responsive UX › authentication form accessibility: explicit labels, autocomplete, and password toggle
+  ✓ 25 [chromium] › responsive-nav.spec.ts:175:7 › Responsive UX › new payout form accessibility: explicit label bindings and policy guidance on mobile
+  ✓ 26 [chromium] › responsive-nav.spec.ts:219:7 › Responsive UX › primary interactive controls maintain usable touch targets at 320px width
+26 passed
 ======================================================================
 ```
 
