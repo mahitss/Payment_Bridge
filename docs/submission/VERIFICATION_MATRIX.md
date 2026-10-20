@@ -1,8 +1,8 @@
 # ClaimBridge — Authoritative Verification Matrix
 
 **Document Purpose:** Definitive, evidence-audited verification matrix for the PayPal AI Hackathon evaluation.  
-**Baseline Commit:** `0e968d1c39b0f4d456954d5e1d2eb3ad0c63b4e4`  
-**CI Workflow Run:** [Run 39314456794](https://github.com/mahitss/Payment_Bridge/actions/runs/39314456794) (5/5 jobs passed: Rust Policy, Go API, Frontend Web, Security Audit, Playwright E2E 18/18)  
+**Baseline Commit:** `9c81450`  
+**CI Workflow Run:** [Run 39386834830](https://github.com/mahitss/Payment_Bridge/actions/runs/39386834830) (6/6 jobs passed: Rust Policy, Go API, Frontend Web, Security Audit, Playwright E2E 18/18, Docker Compose Offline Evaluator Verification)  
 **Evaluation Standard:** Zero-Trust Factual Integrity. Code existence or mock tests are strictly distinguished from real external provider verification.
 
 ---
