@@ -25,6 +25,17 @@
   # 4. In a separate terminal, start Next.js frontend with demo banner
   cd apps/web && NEXT_PUBLIC_DEMO_MODE=true npm run dev
   ```
+
+- [ ] **Method 3: Automated Playwright Walkthrough Recording (Deterministic 1080p CI Artifact):**
+  ```bash
+  # Run the dedicated demo recording spec against a running instance
+  cd apps/web
+  E2E_BASE_URL=http://localhost:3000 npx playwright test e2e/demo-recording.spec.ts
+  # Output artifact generated at:
+  # apps/web/test-results/demo-recording/claimbridge-demo-walkthrough.webm
+  ```
+  *(See [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](./VIDEO_ARTIFACT_GUIDE.md) for full guide on downloading the CI-generated artifact, adding voiceover, and publishing to the public video platform.)*
+
 - [ ] **Decision on Recording Track:**
   - **Track 1 (Recommended / Deterministic Fallback):**
     - Record entirely with seeded synthetic fixtures (`DEMO-M4421`, `DEMO-W9821`, `DEMO-V1082`).

@@ -16,7 +16,7 @@
 | **AI Investigation & Evidence Grounding** | `services/api/internal/ai/schema.go`, `services/api/internal/ai/prompt.go`, `services/api/internal/investigations/service.go` | Set-membership verification algorithm rejects hallucinated evidence IDs (Scenario 27 PASS with HTTP 422). Prompt injection neutralized (Scenario 32 PASS). |
 | **Data Integrity & Multi-Tenancy** | `services/api/internal/db/postgres.go`, `services/api/internal/db/migrations/` | PostgreSQL 16 schema with 5 atomic SQL migrations (auth, claims, payouts, investigations, fixture provenance). All queries strictly scoped by `organization_id`. Money stored in integer minor cents (BIGINT). |
 | **Acceptance Suite** | `services/api/cmd/acceptance/main.go` | 32/32 automated end-to-end scenarios pass in sequence in simulated deterministic test harness (`go run ./cmd/acceptance`). |
-| **Browser End-to-End Suite** | `apps/web/playwright.config.ts`, `apps/web/e2e/` | 18/18 Playwright browser tests pass across 5 spec files (`health`, `auth`, `fixtures`, `policy-workflow`, `mutation-guards`) in CI and locally. |
+| **Browser End-to-End Suite** | `apps/web/playwright.config.ts`, `apps/web/e2e/` | 27/27 Playwright browser tests pass across 7 spec files (`health`, `auth`, `fixtures`, `policy-workflow`, `mutation-guards`, `responsive-nav`, `demo-recording`) in CI and locally, capturing a verified 1080p demo walkthrough. |
 
 ---
 
@@ -64,4 +64,4 @@
 | **Scene D: Provider Execution & Fixture Guards** | Track 1: Server-side blocked fixture mutations<br>Track 2: Optional live PayPal Sandbox submission | Track 1 (Recommended): External mutation buttons disabled on `DEMO-W9821`; API returns HTTP 403 with 0 outbound requests.<br>Track 2: Requires real credentials; returns `BLOCKED` when unset. |
 | **Scene E: AI Forensic Investigation** | Grounded investigation panel | Explanation of `UNCLAIMED` item, evidence links, missing information callout; honest `AI_UNAVAILABLE` notice when Ollama offline. |
 | **Scene F: Safe Cancellation** | Controlled recovery workflow | Track 1: Policy validation verified on simulated fixture.<br>Track 2: Native cancellation of unclaimed item via PayPal REST when verified. |
-| **Demo Video Upload** | 2-minute video presentation | **PENDING**: Script, shot list, and checklist complete; video recording and upload pending team execution. |
+| **Demo Video Upload** | 2-minute video presentation | **VIDEO ARTIFACT GENERATED; PUBLIC VIDEO PENDING**: Deterministic 1080p walkthrough captured in CI (`claimbridge-offline-demo-recording` artifact); public hosting upload pending team presentation session. |

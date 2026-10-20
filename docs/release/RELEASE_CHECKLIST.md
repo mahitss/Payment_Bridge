@@ -4,7 +4,7 @@
 **Target Event:** PayPal AI Hackathon  
 **Lead Verification Engineer:** Senior AI Systems & Security Engineer  
 **Signoff Date:** 2026-10-20  
-**CI Baseline:** Commit `055cead` (Workflow Run [39399517437](https://github.com/mahitss/Payment_Bridge/actions/runs/39399517437): 6/6 jobs green, including `docker-compose-evaluator` with complete Playwright test pass against Compose)  
+**CI Baseline:** Commit `bc2fe85` (Workflow Run [39400542343](https://github.com/mahitss/Payment_Bridge/actions/runs/39400542343): 6/6 jobs green, including `docker-compose-evaluator` with complete Playwright test pass against Compose)  
 
 ---
 
@@ -106,7 +106,7 @@ $ npm run build
 ✓ Standalone bundle optimized
 
 $ npx playwright test
-Running 26 tests using 1 worker
+Running 27 tests using 1 worker
   ✓  1 [chromium] › health.spec.ts:3:7 › Diagnostic Health Probe › loads landing page with Prototype badge
   ✓  2 [chromium] › health.spec.ts:10:7 › Diagnostic Health Probe › verifies absence of unverified release badges
   ✓  3 [chromium] › health.spec.ts:18:7 › Diagnostic Health Probe › executes diagnostic probe and displays discrete status
@@ -133,7 +133,8 @@ Running 26 tests using 1 worker
   ✓ 24 [chromium] › responsive-nav.spec.ts:150:7 › Responsive UX › authentication form accessibility: explicit labels, autocomplete, and password toggle
   ✓ 25 [chromium] › responsive-nav.spec.ts:175:7 › Responsive UX › new payout form accessibility: explicit label bindings and policy guidance on mobile
   ✓ 26 [chromium] › responsive-nav.spec.ts:219:7 › Responsive UX › primary interactive controls maintain usable touch targets at 320px width
-26 passed
+  ✓ 27 [chromium] › demo-recording.spec.ts:11:7 › Deterministic Demo Walkthrough Recording › captures 1080p end-to-end verified walkthrough artifact
+27 passed
 ======================================================================
 ```
 
@@ -144,4 +145,4 @@ Running 26 tests using 1 worker
 All Release Gate items are satisfied. ClaimBridge is certified **SUBMISSION READY** for the PayPal AI Hackathon:
 - **Offline Simulated Evaluation (Track 1):** 100% verified and functional with zero budget, zero external credentials, and zero cloud dependencies.
 - **Live Sandbox Track (Track 2):** Server client and diagnostic probes 100% verified; live handshake remains reported honestly as `BLOCKED` until operator provides developer credentials in `.env`.
-- **Demo Video:** Script, visual shot list, and recording checklist 100% verified; video file upload is `PENDING` team recording session.
+- **Demo Video:** Script, visual shot list, recording checklist, and deterministic CI recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) 100% verified; public video hosting upload is `PENDING` team voiceover and YouTube/Vimeo publication (refer to [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](../demo/VIDEO_ARTIFACT_GUIDE.md)).

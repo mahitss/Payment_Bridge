@@ -123,9 +123,11 @@ This document establishes the factual basis for every statement made in the Clai
 ### Claim 10: "End-to-End Browser Regression & Workflow Verification — Validates full stack in real browser sessions."
 - **Verifying Source Code:**
   - `apps/web/playwright.config.ts` and `apps/web/e2e/*.spec.ts`.
-- **Automated Test Evidence:**
-  - `apps/web/e2e/health.spec.ts`: Startup, landing page claims, and diagnostic health probe.
-  - `apps/web/e2e/auth.spec.ts`: Protected route redirects, invalid credentials, operator & officer logins, demo mode banner.
-  - `apps/web/e2e/fixtures.spec.ts`: DEMO-W9821 registry visibility, prominent provenance banner, offline synthetic investigation view, and disabled action buttons.
-  - `apps/web/e2e/policy-workflow.spec.ts`: $350 case creation, dual-custody detection, self-approval blockage, distinct officer approval, and no auto-submission side effect.
-  - `apps/web/e2e/mutation-guards.spec.ts`: Direct API rejection (HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`) on fixture submit, sync, and cancel.
+- **Automated Test Evidence (27/27 Tests Across 7 Spec Files):**
+  - `apps/web/e2e/health.spec.ts` (3 tests): Startup, landing page claims, and diagnostic health probe.
+  - `apps/web/e2e/auth.spec.ts` (5 tests): Protected route redirects, invalid credentials, operator & officer logins, demo mode banner.
+  - `apps/web/e2e/fixtures.spec.ts` (3 tests): DEMO-W9821 registry visibility, prominent provenance banner, offline synthetic investigation view, and disabled action buttons.
+  - `apps/web/e2e/policy-workflow.spec.ts` (3 tests): $350 case creation, dual-custody detection, self-approval blockage, distinct officer approval, and no auto-submission side effect.
+  - `apps/web/e2e/mutation-guards.spec.ts` (4 tests): Direct API rejection (HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`) on fixture submit, sync, and cancel.
+  - `apps/web/e2e/responsive-nav.spec.ts` (8 tests): Desktop nav, accessible mobile drawer toggle & Escape dismiss, automatic route close, skip link, 6-viewport overflow check, form semantics, password toggle, 44px touch targets.
+  - `apps/web/e2e/demo-recording.spec.ts` (1 test): Deterministic 1080p browser walkthrough recording producing `claimbridge-demo-walkthrough.webm`.

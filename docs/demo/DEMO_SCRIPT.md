@@ -51,9 +51,9 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 **Visual:**
 - Sign in with evaluator account `operator@claimbridge.internal` / `OperatorPass123!`.
 - Land on the Overview Dashboard (`/app`).
-- Navigate to **New Payout** (`/app/payouts/new`).
-- Enter Recipient: `claimant.unclaimed@example.com`, Amount: `$350.00` USD, Risk Score: `25.0`.
-- Highlight the live policy preview badge: `Dual-Approval Mandatory (Amount > $250.00)`.
+- Navigate to **New Payout** (`/app/payouts/new`), heading: `Create Payout Settlement Case`.
+- Enter Case Reference (unique), Title, Recipient: `claimant-demo@sandbox.example.com`, Amount: `$350.00` USD, Risk Score: `25.0`.
+- Highlight the live policy preview badge: `DUAL-CUSTODY MANDATED (Amount > $250.00)`.
 
 **Spoken Narration:**
 > "Logging in as our primary operator, we enter our authenticated workspace.
@@ -69,14 +69,16 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 **Visual:**
 - Submit the case. Land on Case Details (`/app/payouts/[id]`).
 - Click **Initiate Sandbox Payout Operation**. Operation shows status `AWAITING_APPROVAL`.
-- Highlight that the self-approval button is disabled or, if clicked, returns HTTP 403: `Self-approval forbidden: dual-custody requires a distinct authorized approver`.
-- Click the user profile icon, sign out, and sign in as `officer@claimbridge.internal` / `OfficerPass123!`.
-- Return to the case and approve the operation. Status transitions to `APPROVED`.
+- Highlight that self-approval is blocked fail-closed for the initiator: `Self-approval blocked by policy`.
+- Click the header sign-out button (`Sign Out of ClaimBridge`), and sign in as distinct compliance officer `officer@claimbridge.internal` / `OfficerPass123!`.
+- Navigate to `/app/payouts`, locate the case, open it, and click **Approve Operation (Distinct Officer)**.
+- Confirm in modal (`Authorize Dual-Custody Approval`).
+- Verify status transitions to `Approved by officer` and remains in internal `DRAFT` status without automatically submitting to PayPal.
 
 **Spoken Narration:**
 > "Under strict separation-of-duties rules, the initiating officer is strictly forbidden from self-approving. The system rejects the attempt fail-closed with HTTP 403.
 > 
-> Logging in as our compliance officer, Dana Vance, who shares membership in the organization, we review the case and approve the operation. The payout is now unlocked for dispatch."
+> Logging in as our compliance officer, Dana Vance, who shares membership in the organization, we review the case and approve the operation. The payout is now unlocked for manual dispatch—crucially, approval does not automatically trigger an external money transfer."
 
 ---
 
@@ -111,7 +113,7 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 - Inspect the existing pre-seeded synthetic investigation report (`SIMULATED DEMO INVESTIGATION`).
 - Highlight:
   1. Advisory notice: AI suggestions have zero direct financial execution authority.
-  2. Grounded Evidence References: verified citations linking to persisted case and status snapshot records.
+  2. Grounded Evidence References: verified citations linking to persisted case and status snapshot records (`[CASE:DEMO-W9821]`, `[SNAPSHOT:SNAP-W9821-1]`).
   3. Recommendation: `REVIEW_CANCELLATION_ELIGIBILITY` validated against Rust policy rules.
 - Clarify honest offline behavior: if "Run Investigation" is clicked when Ollama is offline, ClaimBridge displays an honest `AI_UNAVAILABLE` notice without corrupting case state or faking model outputs.
 
@@ -132,7 +134,7 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 - Switch to terminal showing:
   - `go run ./cmd/acceptance` with all 32 scenarios green in the simulated test environment.
   - `go test -v ./internal/seeder ./internal/payouts` confirming idempotent seeding, PostgreSQL reset safety, and fixture guards.
-  - Browser Playwright regression suite passing across health, auth, fixture integrity, and dual-custody workflows.
+  - Browser Playwright regression suite passing 27/27 tests across 7 spec files including deterministic walkthrough recording.
 
 **Spoken Narration:**
 > "ClaimBridge bridges the flexibility of AI with the rigorous determinism required in financial infrastructure.

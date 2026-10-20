@@ -269,17 +269,17 @@ go run ./cmd/acceptance
 ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock tests from live external provider runtime:
 
 - **Authoritative Verification Matrix:** See [`docs/submission/VERIFICATION_MATRIX.md`](docs/submission/VERIFICATION_MATRIX.md) for full mapping of requirements to source files, exact tests, evidence tiers, and local reproduction steps.
-- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions ([Run 39399517437](https://github.com/mahitss/Payment_Bridge/actions/runs/39399517437)):
+- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions ([Run 39400542343](https://github.com/mahitss/Payment_Bridge/actions/runs/39400542343)):
   - **Go API Gateway:** `go vet`, 11/11 packages passing with race detection (`go test -race ./...`), PostgreSQL seeder integration test, and 32/32 acceptance scenarios passing in simulated deterministic test harness.
   - **Rust Policy Engine:** 17/17 deterministic unit tests passing, zero Clippy warnings (`cargo clippy -- -D warnings`), and release compilation.
   - **Next.js Web Frontend:** ESLint clean, 15/15 standalone production routes built.
-  - **End-to-End Browser Tests:** Playwright browser regression test suite in Chromium against live frontend, API gateway, and PostgreSQL (26/26 tests passing across 6 spec files).
+  - **End-to-End Browser Tests:** Playwright browser regression test suite in Chromium against live frontend, API gateway, and PostgreSQL (27/27 tests passing across 7 spec files, including deterministic 1080p demo walkthrough recording).
   - **Security & Secret Audit:** Secret pattern scanning against git tree and strict sandbox environment verification (`PAYPAL_ENV=sandbox`).
-  - **Docker Compose Offline Evaluator Verification:** Multi-stage image builds, isolated stack launch (`docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up -d`), seeder execution, readiness checks, complete Playwright E2E suite executed against Compose, seeder idempotency re-run, and stack restart persistence.
+  - **Docker Compose Offline Evaluator Verification:** Multi-stage image builds, isolated stack launch (`docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up -d`), seeder execution, readiness checks, complete Playwright E2E suite executed against Compose, deterministic walkthrough recording generation, seeder idempotency re-run, and stack restart persistence.
 - **External Integration Gating:**
   - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied.
   - Genuine Local Ollama Inference: Implemented and unit/mock verified; live runtime is gated by local daemon availability and reported honestly as `BLOCKED` when offline.
-- **Demo Video Status:** Demo script, shot list, and recording checklist are complete in `docs/demo/`; final video recording and upload is pending team recording session.
+- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) is automatically generated and published as a downloadable CI artifact by `docker-compose-evaluator`; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
 
 ---
 
