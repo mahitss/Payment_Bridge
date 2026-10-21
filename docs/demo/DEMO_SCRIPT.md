@@ -28,7 +28,7 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 
 ## Track 1: Deterministic Simulated Workflow Walkthrough
 
-**Raw Automated Recording:** 145–160 seconds (strictly verified by CI media gate: 120.0s – 175.0s, silent WebM).  
+**Raw Automated Recording:** 145–160 seconds (measured at 152.84s in Docker Compose and 153.28s in standard browser CI runs; strictly verified by CI media gate: 120.0s – 175.0s, silent WebM).  
 **Final Edited Voiceover Export Target:** ~2 minutes 30 seconds (150 seconds, under the 180s hackathon maximum).  
 
 ### Scene A — Problem & Architecture [00:00 – 00:25] (25 seconds)
@@ -54,14 +54,14 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 - Land on the Overview Dashboard (`/app`).
 - Navigate to **New Payout** (`/app/payouts/new`), heading: `Create Payout Settlement Case`.
 - Enter Case Reference (unique), Title, Recipient: `claimant-demo@sandbox.example.com`, Amount: `$350.00` USD, Risk Score: `25.0`.
-- Highlight the live policy preview badge: `DUAL-CUSTODY MANDATED (Amount > $250.00)`.
+- Highlight the real-time UI policy preview badge: `DUAL-CUSTODY MANDATED (Amount > $250.00)`.
 
 **Spoken Narration:**
 > "Logging in as our primary operator, we enter our authenticated workspace.
 > 
 > When creating a payout case, all calculations occur strictly in integer minor units—cents—to eliminate floating-point rounding hazards.
 > 
-> As we enter $350.00, our Rust policy engine detects that this exceeds the $250 threshold, enforcing mandatory dual-custody authorization."
+> As we enter $350.00, the interface displays our dual-custody threshold preview. The Go backend and Rust policy engine authoritatively enforce this upon submission, mandating a distinct second approver."
 
 ---
 
@@ -77,9 +77,9 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 - Verify status transitions to `Approved by officer` and remains in internal `DRAFT` status without automatically submitting to PayPal.
 
 **Spoken Narration:**
-> "Under strict separation-of-duties rules, the initiating officer is strictly forbidden from self-approving. The system rejects the attempt fail-closed with HTTP 403.
+> "Under strict separation-of-duties rules, the initiating operator is strictly forbidden from self-approving. The system rejects the attempt fail-closed with HTTP 403.
 > 
-> Logging in as our compliance officer, Dana Vance, who shares membership in the organization, we review the case and approve the operation. The payout is now unlocked for manual dispatch—crucially, approval does not automatically trigger an external money transfer."
+> Logging in as our distinct compliance officer (`officer@claimbridge.internal`), who shares membership in the organization, we review the case and approve the operation. The payout operation is now in the approved internal state—crucially, approval does not automatically dispatch funds or trigger an external PayPal transfer."
 
 ---
 

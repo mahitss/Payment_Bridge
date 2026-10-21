@@ -115,6 +115,9 @@ claim-bridge/
 
 ### 1. Option A: Single-Command Offline Evaluator Demo Launch (Recommended for Evaluators)
 
+> [!TIP]
+> **Authoritative Evaluator Guide:** For the comprehensive step-by-step evaluator runbook with expected outcomes, visible evidence, and failure boundaries, see [docs/submission/JUDGE_RUNBOOK.md](docs/submission/JUDGE_RUNBOOK.md).
+
 A clean checkout requires **zero host dependencies** (no Go, Rust, or Node.js required on your host machine). Docker and Docker Compose are the only prerequisites.
 
 ```bash
@@ -269,7 +272,8 @@ go run ./cmd/acceptance
 ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock tests from live external provider runtime:
 
 - **Authoritative Verification Matrix:** See [`docs/submission/VERIFICATION_MATRIX.md`](docs/submission/VERIFICATION_MATRIX.md) for full mapping of requirements to source files, exact tests, evidence tiers, and local reproduction steps.
-- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions ([Run 39481824708](https://github.com/mahitss/Payment_Bridge/actions/runs/39481824708) on commit `bc244f5`):
+- **Judge Offline Evaluation Runbook:** See [`docs/submission/JUDGE_RUNBOOK.md`](docs/submission/JUDGE_RUNBOOK.md) for a single-command evaluator launch guide, seeded credentials, step-by-step walkthrough expectations, and safe cleanup commands.
+- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions ([Run 39595916542](https://github.com/mahitss/Payment_Bridge/actions/runs/39595916542) on commit `ccbafa4`):
   - **Go API Gateway:** `go vet`, 11/11 packages passing with race detection (`go test -race ./...`), PostgreSQL seeder integration test, and 32/32 acceptance scenarios passing in simulated deterministic test harness.
   - **Rust Policy Engine:** 17/17 deterministic unit tests passing, zero Clippy warnings (`cargo clippy -- -D warnings`), and release compilation.
   - **Next.js Web Frontend:** ESLint clean, 15/15 standalone production routes built.
@@ -279,7 +283,7 @@ ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock t
 - **External Integration Gating:**
   - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied.
   - Genuine Local Ollama Inference: Implemented and unit/mock verified; live runtime is gated by local daemon availability and reported honestly as `BLOCKED` when offline.
-- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, silent WebM), and published as a downloadable CI artifact by `docker-compose-evaluator`; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
+- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID: `12344610127`, ~10.3 MB, measured at 152.84s – 153.6s, expiry November 4, 2026) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, silent WebM), and published as a downloadable CI artifact by `docker-compose-evaluator`; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
 
 ---
 
@@ -294,9 +298,9 @@ ClaimBridge features a reproducible, zero-budget **Offline Simulated Walkthrough
 
 ### [00:25 - 01:25] Dual-Custody Payout & Separation of Duties
 - **Visual:** Log in as demo operator (`operator@claimbridge.internal` / `OperatorPass123!`). Navigate to **New Payout** (`/app/payouts/new`).
-- **Action:** Enter a payout for $350.00 USD (exceeds $250.00 threshold). Point out the real-time Rust policy indicator: `Dual-Approval Required`.
+- **Action:** Enter a payout for $350.00 USD (exceeds $250.00 threshold). Point out the real-time UI threshold preview badge: `DUAL-CUSTODY MANDATED (Amount > $250.00)` (authoritatively enforced by Go backend and Rust policy engine upon creation).
 - **Action:** Submit case. Show the active operation in `AWAITING_APPROVAL`.
-- **Action:** Demonstrate self-approval blocked fail-closed for the creator.
+- **Action:** Demonstrate self-approval blocked fail-closed for the creator (`Self-approval blocked by policy`).
 - **Action:** Switch to distinct compliance officer (`officer@claimbridge.internal`). Approve the payout.
 - **Result:** Operation transitions to `APPROVED`. Ordinary cases are not automatically submitted as a side effect.
 

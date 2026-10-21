@@ -1,10 +1,10 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 2.4 (Mission 020 Properly Paced, Measured, Submission-Ready Demo Recording)  
+**Document Version:** 2.5 (Mission 021 Submission Truth Audit, Judge Runbook, and Release Freeze)  
 **Date of Audit:** October 21, 2026  
 **Auditor:** Staff Application Security & Senior Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
-**Verified CI Workflow:** [Run 39481824708](https://github.com/mahitss/Payment_Bridge/actions/runs/39481824708) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E, Docker Compose Offline Evaluator Verification with verified demo video artifact)  
-**Baseline Commit:** `bc244f5` (`bc244f5b16f03001e57b4f8be13fb9933c4f6c5e`)  
+**Verified CI Workflow:** [Run 39595916542](https://github.com/mahitss/Payment_Bridge/actions/runs/39595916542) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E, Docker Compose Offline Evaluator Verification with verified demo video artifact)  
+**Baseline Commit:** `ccbafa4` (`ccbafa4ebff9265f24208a3d7cbce54bfb4a68fe`)  
 **Security & Reliability Standard:** Fail-Closed Deterministic Enforcement / OWASP ASVS v4.0.3 L2  
 
 ---
@@ -77,7 +77,7 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 
 ## 3. Prioritized Findings & Defect Register
 
-*(Cross-referenced with comprehensive defect audit in [`docs/release/DEFECT_REGISTER.md`](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/docs/release/DEFECT_REGISTER.md))*
+*(Cross-referenced with comprehensive defect audit in [`docs/release/DEFECT_REGISTER.md`](DEFECT_REGISTER.md))*
 
 ### P0 (Critical Security / Unauthorized Financial Operation Risk / Data Integrity Failure)
 - **Active Defects:** 0
@@ -114,12 +114,32 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 | **Complete List of Known Issues** | **PRESENT & VERIFIED** | `docs/release/KNOWN_ISSUES.md` documents sandbox behaviors, single-approver constraints, and currency bounds. |
 | **Reproducible Route to Running Project** | **PRESENT & VERIFIED** | `infra/docker-compose.full.yml` and `cmd/readiness` provide clear, reproducible paths to running locally. |
 | **Public Repository Visibility** | **VERIFIED PUBLIC** | Queried GitHub API for `mahitss/Payment_Bridge`: `"visibility": "public"`, `"private": false`. |
-| **Demo Video Upload** | **CI ARTIFACT VERIFIED; PUBLIC VIDEO PENDING** | Demo walkthrough artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) verified by CI media quality gate; public video upload pending team voiceover and hosting. |
+| **Demo Video Upload** | **CI ARTIFACT VERIFIED; PUBLIC VIDEO PENDING** | Demo walkthrough artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID: `12344610127`, ~10.3 MB, measured at 152.84s – 153.6s, expiry November 4, 2026) verified by automated CI media quality gate; public video upload pending team voiceover and hosting. |
 
 ---
 
-## 5. Recommended Next Actions
+## 5. Authoritative Submission Readiness Status
 
-1. **Supply Sandbox Credentials & Execute Live Smoke Test:** Populate valid developer sandbox keys in `.env` and run `go run ./cmd/paypal-smoke` to verify live handshake with PayPal sandbox servers.
-2. **Launch Local Ollama & Run Live AI Investigation:** Execute `ollama serve` and pull `llama3.2`, then trigger a real case investigation via the web UI or API to verify live local inference.
-3. **Record Voiceover and Submit Demo Video:** Download the verified 1080p walkthrough artifact from GitHub Actions, record and layer the ~2-minute voiceover following `docs/demo/DEMO_SCRIPT.md` and `docs/demo/VIDEO_ARTIFACT_GUIDE.md`, upload to YouTube/Vimeo, and record the public link in the submission form.
+### A. Completed and Verified
+- **Source Repository & License:** Public repository at [https://github.com/mahitss/Payment_Bridge](https://github.com/mahitss/Payment_Bridge), licensed under the open-source MIT License.
+- **Reproducible Offline Evaluator:** Self-contained multi-container Docker Compose configuration (`infra/docker-compose.full.yml` + `infra/docker-compose.demo.yml`) with PostgreSQL 16, Mailpit, Go API gateway, idempotent database seeder, and Next.js frontend in demo mode. Tested in CI via Job `docker-evaluator`.
+- **Backend & Policy Test Evidence:** 
+  - 17/17 deterministic Rust policy tests passing; Clippy clean; format verified.
+  - 11/11 Go test packages passing (`go test ./...`); `go vet` clean.
+  - 32/32 simulated end-to-end acceptance scenarios passing (`go run ./cmd/acceptance`).
+- **Browser Workflow & Mobile Regression Evidence:** 27/27 Playwright tests passing in both standard browser and Docker Compose evaluator CI jobs (`apps/web/e2e/`).
+- **Media-Integrity-Checked Demo Recording:** Silent 1080p WebM walkthrough generated in CI (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID `12344610127`, ~10.3 MB, measured at 152.84s–153.6s, exactly 1920×1080, VP8, 0 audio streams, expiry November 4, 2026). Passed automated media duration gate (120s–175s).
+
+### B. Implemented but Not Externally Verified
+- **Genuine PayPal Sandbox OAuth & Live Provider Operations:** REST API client implemented with strict Sandbox host whitelist (`https://api-m.sandbox.paypal.com`), token caching, batch payout creation, status polling, and unclaimed cancellation. Live OAuth exchange remains `BLOCKED` when valid developer credentials are not configured in `.env`. Mocks and acceptance tests do not count as live provider verification.
+- **Genuine Local Ollama Model Inference:** Server-side AI provider abstraction implemented for local Ollama (`llama3.2`) with grounded citation verification and prompt injection protection. Genuine local inference remains `BLOCKED` when the local daemon is not running. The system gracefully reports `AI_UNAVAILABLE` without disrupting financial workflows.
+
+### C. Human Action Still Required Before Final Submission
+1. **Download Raw Recording:** Download the verified `claimbridge-offline-demo-recording` artifact (`claimbridge-demo-walkthrough.webm`) from GitHub Actions CI.
+2. **Record & Synchronize Truthful Narration:** Record spoken voiceover adhering strictly to `docs/demo/DEMO_SCRIPT.md` and synchronize audio tracks to match the observed scene timings in `docs/demo/SHOT_LIST.md`.
+3. **Export Final Video (<180s):** Render final narrated MP4/WebM ensuring the complete video duration remains strictly below the 3-minute hackathon maximum.
+4. **Quality Inspection:** Review the complete export to verify audio clarity, scene progression, text legibility, and exact runtime.
+5. **Upload Public Video:** Upload the final export to a judge-accessible public or unlisted platform (YouTube / Vimeo).
+6. **Update Submission Artifacts:** Add the confirmed public video URL to the repository documentation and the Devpost/hackathon submission form.
+7. **Final Human Verification:** Perform an end-to-end manual verification of all public links, repositories, and form fields prior to official submission.
+

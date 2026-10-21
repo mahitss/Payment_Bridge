@@ -64,12 +64,12 @@
 | Account Role | Email Address | Password | Intended Action in Demo |
 | :--- | :--- | :--- | :--- |
 | **Primary Operator** | `operator@claimbridge.internal` | `OperatorPass123!` | Create $350 payout; attempt self-approval (blocked fail-closed). |
-| **Compliance Officer** | `officer@claimbridge.internal` | `OfficerPass123!` | Review and approve $350 payout (dual custody passed). Both users belong to `demoOrg`. |
+| **Compliance Officer** | `officer@claimbridge.internal` | `OfficerPass123!` | Review and approve $350 payout (dual custody passed). Both users belong to the primary demo organization (`PayPal AI Hackathon Adjudications`). |
 
 ---
 
 ## 4. Fallback Strategies During Recording
 
 - **When presenting offline without Ollama:** Open and inspect the pre-seeded synthetic investigation on `DEMO-W9821` (`SIMULATED DEMO INVESTIGATION`). Explain that ClaimBridge presents persisted forensic findings rather than faking live inference during offline evaluation. If "Run Investigation" is clicked while Ollama is offline, the system honestly reports that the investigation assistant is offline (`AI_UNAVAILABLE`) while core financial and dual-custody workflows remain fully functional.
-- **Synthetic Fixture Provenance:** When displaying seeded cases, point out the **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”** banner. Explain that server-side guards block external PayPal dispatch on synthetic records (HTTP 403), protecting external payment networks.
+- **Synthetic Fixture Provenance:** When displaying seeded cases, point out the **“SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION”** banner. Explain that server-side guards block external PayPal dispatch, sync, and cancellation on synthetic records (HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`), protecting external payment networks.
 - **If PayPal Sandbox API experiences latency during Track 2:** The UI preserves local operation states and displays a durable progress state. You can narrate: *"ClaimBridge maintains our durable sender batch ID in PostgreSQL, ensuring that regardless of network latency, no duplicate payout can be created."*
