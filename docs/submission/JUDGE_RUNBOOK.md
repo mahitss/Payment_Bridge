@@ -2,7 +2,7 @@
 
 **Mission 021 Authoritative Evaluator Guide**  
 **Repository:** [https://github.com/mahitss/Payment_Bridge](https://github.com/mahitss/Payment_Bridge)  
-**CI Baseline:** [Workflow Run 39595916542](https://github.com/mahitss/Payment_Bridge/actions/runs/39595916542) | Commit `ccbafa4546a5e1a134ac5707cfa8d5873c1ba7ae` | 6/6 Jobs Green  
+**CI Baseline:** [Workflow Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) | Commit `c6a261a` | 6/6 Jobs Green  
 
 ---
 
@@ -31,7 +31,7 @@ docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml
 5. Builds and launches **Next.js Web Frontend** (`claimbridge-web`) on `http://localhost:3000` with `NEXT_PUBLIC_DEMO_MODE=true`.
 
 > [!NOTE]
-> **Environment Validation Status:** In this local evaluation environment, Docker Compose configuration and service definitions were verified by static and container specification inspection. In CI, the full stack is continuously built, seeded, and tested via Playwright end-to-end automation in Job `docker-evaluator` (27/27 tests passed in Run 39595916542). No external PayPal credentials or Ollama daemons are required to run this offline evaluator.
+> **Environment Validation Status:** In this local evaluation environment, Docker Compose configuration and service definitions were verified by static and container specification inspection. In CI, the full stack is continuously built, seeded, and tested via Playwright end-to-end automation in Job `docker-evaluator` (27/27 tests passed in Run 39600293507). No external PayPal credentials or Ollama daemons are required to run this offline evaluator.
 
 ---
 
@@ -182,7 +182,7 @@ Derived from real testing scenarios and container dependencies:
 
 | Capability | Status | Evidence / Verification Method |
 | :--- | :--- | :--- |
-| Docker Compose Full Stack | **VERIFIED** | CI Job `docker-evaluator` (Run 39595916542, 27/27 Playwright tests). |
+| Docker Compose Full Stack | **VERIFIED** | CI Job `docker-evaluator` (Run 39600293507, 27/27 Playwright tests). |
 | Idempotent Database Seeder | **VERIFIED** | Integration test `seeder_postgres_test.go` + CI compose build. |
 | Dual-Custody Approval Policy | **VERIFIED** | Acceptance Scenario 08, 09, 10 + Playwright E2E spec. |
 | Initiator Self-Approval Prevention | **VERIFIED** | Acceptance Scenario 09 (`HTTP 403`) + Playwright E2E spec. |
@@ -204,4 +204,4 @@ Derived from real testing scenarios and container dependencies:
 - **Verification & Evidence Matrix:** [docs/submission/VERIFICATION_MATRIX.md](VERIFICATION_MATRIX.md)
 - **Operational Sandbox Setup Guide:** [docs/operational-instructions.md](../operational-instructions.md)
 - **Project Release Status:** [docs/release/PROJECT_STATUS.md](../release/PROJECT_STATUS.md)
-- **Verified CI Workflow Run:** [GitHub Actions Run 39595916542](https://github.com/mahitss/Payment_Bridge/actions/runs/39595916542)
+- **Verified CI Workflow Run:** [GitHub Actions Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507)

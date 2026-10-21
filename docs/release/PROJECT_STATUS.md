@@ -3,8 +3,8 @@
 **Date of Audit:** October 21, 2026  
 **Auditor:** Staff Application Security & Senior Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
-**Verified CI Workflow:** [Run 39595916542](https://github.com/mahitss/Payment_Bridge/actions/runs/39595916542) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E, Docker Compose Offline Evaluator Verification with verified demo video artifact)  
-**Baseline Commit:** `ccbafa4` (`ccbafa4ebff9265f24208a3d7cbce54bfb4a68fe`)  
+**Verified CI Workflow:** [Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E, Docker Compose Offline Evaluator Verification with verified demo video artifact)  
+**Baseline Commit:** `c6a261a` (`c6a261a89dfbaef22f309d9494377d612f0e0cae`)  
 **Security & Reliability Standard:** Fail-Closed Deterministic Enforcement / OWASP ASVS v4.0.3 L2  
 
 ---
@@ -114,7 +114,7 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
 | **Complete List of Known Issues** | **PRESENT & VERIFIED** | `docs/release/KNOWN_ISSUES.md` documents sandbox behaviors, single-approver constraints, and currency bounds. |
 | **Reproducible Route to Running Project** | **PRESENT & VERIFIED** | `infra/docker-compose.full.yml` and `cmd/readiness` provide clear, reproducible paths to running locally. |
 | **Public Repository Visibility** | **VERIFIED PUBLIC** | Queried GitHub API for `mahitss/Payment_Bridge`: `"visibility": "public"`, `"private": false`. |
-| **Demo Video Upload** | **CI ARTIFACT VERIFIED; PUBLIC VIDEO PENDING** | Demo walkthrough artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID: `12344610127`, ~10.3 MB, measured at 152.84s – 153.6s, expiry November 4, 2026) verified by automated CI media quality gate; public video upload pending team voiceover and hosting. |
+| **Demo Video Upload** | **CI ARTIFACT VERIFIED; PUBLIC VIDEO PENDING** | Demo walkthrough artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID: `12345583865`, ~10.2 MB, measured at ~153s, expiry November 4, 2026) verified by automated CI media quality gate; public video upload pending team voiceover and hosting. |
 
 ---
 
@@ -128,7 +128,7 @@ The status values below strictly adhere to the allowed evaluation taxonomy:
   - 11/11 Go test packages passing (`go test ./...`); `go vet` clean.
   - 32/32 simulated end-to-end acceptance scenarios passing (`go run ./cmd/acceptance`).
 - **Browser Workflow & Mobile Regression Evidence:** 27/27 Playwright tests passing in both standard browser and Docker Compose evaluator CI jobs (`apps/web/e2e/`).
-- **Media-Integrity-Checked Demo Recording:** Silent 1080p WebM walkthrough generated in CI (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID `12344610127`, ~10.3 MB, measured at 152.84s–153.6s, exactly 1920×1080, VP8, 0 audio streams, expiry November 4, 2026). Passed automated media duration gate (120s–175s).
+- **Media-Integrity-Checked Demo Recording:** Silent 1080p WebM walkthrough generated in CI (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID `12345583865`, ~10.2 MB, measured at ~153s, exactly 1920×1080, VP8, 0 audio streams, expiry November 4, 2026). Passed automated media duration gate (120s–175s).
 
 ### B. Implemented but Not Externally Verified
 - **Genuine PayPal Sandbox OAuth & Live Provider Operations:** REST API client implemented with strict Sandbox host whitelist (`https://api-m.sandbox.paypal.com`), token caching, batch payout creation, status polling, and unclaimed cancellation. Live OAuth exchange remains `BLOCKED` when valid developer credentials are not configured in `.env`. Mocks and acceptance tests do not count as live provider verification.

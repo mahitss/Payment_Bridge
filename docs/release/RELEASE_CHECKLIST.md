@@ -4,7 +4,7 @@
 **Target Event:** PayPal AI Hackathon  
 **Lead Verification Engineer:** Senior AI Systems & Security Engineer  
 **Signoff Date:** 2026-10-20  
-**CI Baseline:** Commit `ccbafa4` (Workflow Run [39595916542](https://github.com/mahitss/Payment_Bridge/actions/runs/39595916542): 6/6 jobs green, including `docker-compose-evaluator` with complete Playwright test pass against Compose and verified video artifact generation)  
+**CI Baseline:** Commit `c6a261a` (Workflow Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507): 6/6 jobs green, including `docker-compose-evaluator` with complete Playwright test pass against Compose and verified video artifact generation)  
 
 ---
 

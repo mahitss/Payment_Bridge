@@ -40,7 +40,7 @@ Every successful GitHub Actions CI execution against the Docker Compose evaluato
   - Emits machine-readable JSON and renders formatted Markdown table to `$GITHUB_STEP_SUMMARY`.
 - **Artifact Name:** `claimbridge-offline-demo-recording`
 - **File Inside Artifact:** `claimbridge-demo-walkthrough.webm`
-- **Latest Verified Artifact ID:** `12344610127` (Run `39595916542`, size: 10,303,663 bytes, expires November 4, 2026)
+- **Latest Verified Artifact ID:** `12345583865` (Run `39600293507`, size: 10,198,755 bytes, expires November 4, 2026)
 - **Retention Period:** 14 days
 
 ### Step-by-Step: Downloading the Artifact from GitHub Actions
