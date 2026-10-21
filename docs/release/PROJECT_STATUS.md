@@ -3,8 +3,8 @@
 **Date of Audit:** October 21, 2026  
 **Auditor:** Staff Application Security & Senior Reliability Lead  
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
-**Verified CI Workflow:** [Run 39474119122](https://github.com/mahitss/Payment_Bridge/actions/runs/39474119122) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E, Docker Compose Offline Evaluator Verification with verified demo video artifact)  
-**Baseline Commit:** `4bb8e8a` (`4bb8e8a36ef01d81b37f40079c6d3283f3ba9e1d`)  
+**Verified CI Workflow:** [Run 39481824708](https://github.com/mahitss/Payment_Bridge/actions/runs/39481824708) (6/6 jobs green: Go API, Rust Policy, Web Frontend, Security Audit, Playwright E2E, Docker Compose Offline Evaluator Verification with verified demo video artifact)  
+**Baseline Commit:** `bc244f5` (`bc244f5b16f03001e57b4f8be13fb9933c4f6c5e`)  
 **Security & Reliability Standard:** Fail-Closed Deterministic Enforcement / OWASP ASVS v4.0.3 L2  
 
 ---
