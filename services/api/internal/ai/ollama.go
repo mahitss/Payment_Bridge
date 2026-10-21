@@ -19,6 +19,7 @@ const maxResponseBytes = 1024 * 1024 // 1 MB
 
 // OllamaClient provides inference via local Ollama or compatible OpenAI endpoints.
 type OllamaClient struct {
+	provider   string
 	baseURL    string
 	model      string
 	apiKey     string
@@ -29,7 +30,12 @@ type OllamaClient struct {
 
 // NewOllamaClient creates an OpenAI-compatible inference client.
 func NewOllamaClient(cfg *config.Config) *OllamaClient {
+	var provider string
+	if cfg != nil {
+		provider = strings.ToLower(strings.TrimSpace(cfg.AIProvider))
+	}
 	return &OllamaClient{
+		provider:  provider,
 		baseURL:   cfg.AIBaseURL,
 		model:     cfg.AIModel,
 		apiKey:    cfg.AIAPIKey,
@@ -184,11 +190,12 @@ type openAIChatMessage struct {
 }
 
 type openAIChatRequest struct {
-	Model          string              `json:"model"`
-	Messages       []openAIChatMessage `json:"messages"`
-	Temperature    float64             `json:"temperature"`
-	MaxTokens      int                 `json:"max_tokens"`
-	ResponseFormat *responseFormat     `json:"response_format,omitempty"`
+	Model           string              `json:"model"`
+	Messages        []openAIChatMessage `json:"messages"`
+	Temperature     float64             `json:"temperature"`
+	MaxTokens       int                 `json:"max_tokens"`
+	ResponseFormat  *responseFormat     `json:"response_format,omitempty"`
+	ReasoningEffort string              `json:"reasoning_effort,omitempty"`
 }
 
 type responseFormat struct {
@@ -216,15 +223,21 @@ func (c *OllamaClient) Investigate(ctx context.Context, snapshot *InvestigationS
 		return nil, fmt.Errorf("failed to construct user prompt: %w", err)
 	}
 
+	var reasoningEffort string
+	if c.provider == "ollama" {
+		reasoningEffort = "none"
+	}
+
 	chatReq := openAIChatRequest{
 		Model: c.model,
 		Messages: []openAIChatMessage{
 			{Role: "system", Content: BuildSystemPrompt()},
 			{Role: "user", Content: userPrompt},
 		},
-		Temperature:    0.1,
-		MaxTokens:      c.maxTokens,
-		ResponseFormat: &responseFormat{Type: "json_object"},
+		Temperature:     0.1,
+		MaxTokens:       c.maxTokens,
+		ResponseFormat:  &responseFormat{Type: "json_object"},
+		ReasoningEffort: reasoningEffort,
 	}
 
 	reqBytes, err := json.Marshal(chatReq)

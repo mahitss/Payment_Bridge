@@ -3,8 +3,10 @@ package ai
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -480,6 +482,182 @@ func TestOllamaClient_SensitiveLoggingSanitization(t *testing.T) {
 		}
 		if !strings.Contains(logs, "raw_length=") {
 			t.Errorf("expected log to contain size metadata raw_length=, got:\n%s", logs)
+		}
+	})
+}
+
+func TestOllamaClient_ReasoningEffort(t *testing.T) {
+	ctx := context.Background()
+	snap := &InvestigationSnapshot{
+		CaseID:           "case-reasoning-test-1",
+		ValidEvidenceIDs: []string{"case-reasoning-test-1"},
+	}
+
+	validInvestigationResp := `{
+		"id": "chat-qwen-test",
+		"choices": [{
+			"message": {
+				"role": "assistant",
+				"content": "{\"summary\": \"Investigation complete for Qwen\", \"confidence\": \"HIGH\", \"findings\": [{\"explanation\": \"Case observed\", \"evidence_references\": [\"case-reasoning-test-1\"]}], \"recommended_next_steps\": [{\"action\": \"CHECK_PROVIDER_STATUS\", \"reason\": \"Verify with provider\"}]}"
+			},
+			"finish_reason": "stop"
+		}]
+	}`
+
+	t.Run("AI_PROVIDER=ollama includes reasoning_effort none", func(t *testing.T) {
+		var receivedPayload map[string]interface{}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("failed to read request body: %v", err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := json.Unmarshal(bodyBytes, &receivedPayload); err != nil {
+				t.Errorf("failed to unmarshal request body: %v", err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(validInvestigationResp))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 500,
+		}
+
+		client := NewOllamaClient(cfg)
+		res, err := client.Investigate(ctx, snap)
+		if err != nil {
+			t.Fatalf("expected successful investigation, got %v", err)
+		}
+		if res.Summary != "Investigation complete for Qwen" {
+			t.Errorf("expected summary %q, got %q", "Investigation complete for Qwen", res.Summary)
+		}
+
+		val, ok := receivedPayload["reasoning_effort"]
+		if !ok {
+			t.Fatalf("expected 'reasoning_effort' field to be present in Ollama request body, but was omitted")
+		}
+		if val != "none" {
+			t.Errorf("expected reasoning_effort='none', got %v", val)
+		}
+		if receivedPayload["model"] != "qwen3.5:4b" {
+			t.Errorf("expected model='qwen3.5:4b', got %v", receivedPayload["model"])
+		}
+		if maxTok, ok := receivedPayload["max_tokens"].(float64); !ok || int(maxTok) != 500 {
+			t.Errorf("expected max_tokens=500, got %v", receivedPayload["max_tokens"])
+		}
+	})
+
+	t.Run("Other compatible providers omit reasoning_effort", func(t *testing.T) {
+		testCases := []struct {
+			providerName string
+			expectedOmit bool
+		}{
+			{"openai-compatible", true},
+			{"openai", true},
+			{"generic-openai", true},
+			{"", true},
+		}
+
+		for _, tc := range testCases {
+			t.Run("provider="+tc.providerName, func(t *testing.T) {
+				var receivedPayload map[string]interface{}
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					bodyBytes, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Errorf("failed to read request body: %v", err)
+						http.Error(w, err.Error(), http.StatusBadRequest)
+						return
+					}
+					if err := json.Unmarshal(bodyBytes, &receivedPayload); err != nil {
+						t.Errorf("failed to unmarshal request body: %v", err)
+						http.Error(w, err.Error(), http.StatusBadRequest)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(validInvestigationResp))
+				}))
+				defer srv.Close()
+
+				cfg := &config.Config{
+					AIProvider:        tc.providerName,
+					AIBaseURL:         srv.URL,
+					AIModel:           "gpt-4o-mini",
+					AIRequestTimeout:  5 * time.Second,
+					AIMaxOutputTokens: 500,
+				}
+
+				client := NewOllamaClient(cfg)
+				_, err := client.Investigate(ctx, snap)
+				if err != nil {
+					t.Fatalf("expected successful investigation, got %v", err)
+				}
+
+				if val, exists := receivedPayload["reasoning_effort"]; exists {
+					t.Errorf("expected 'reasoning_effort' to be omitted for provider %q, but got %v", tc.providerName, val)
+				}
+			})
+		}
+	})
+
+	t.Run("NewProvider factory honors provider reasoning_effort scoping", func(t *testing.T) {
+		var lastPayload map[string]interface{}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bodyBytes, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(bodyBytes, &lastPayload)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(validInvestigationResp))
+		}))
+		defer srv.Close()
+
+		// 1. Factory with ollama
+		cfgOllama := &config.Config{
+			AIEnabled:         true,
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 500,
+		}
+		provOllama, err := NewProvider(cfgOllama)
+		if err != nil {
+			t.Fatalf("failed to create provider: %v", err)
+		}
+		_, err = provOllama.Investigate(ctx, snap)
+		if err != nil {
+			t.Fatalf("investigate failed: %v", err)
+		}
+		if lastPayload["reasoning_effort"] != "none" {
+			t.Errorf("expected reasoning_effort='none' from NewProvider(ollama), got %v", lastPayload["reasoning_effort"])
+		}
+
+		// 2. Factory with openai-compatible
+		lastPayload = nil
+		cfgOpenAI := &config.Config{
+			AIEnabled:         true,
+			AIProvider:        "openai-compatible",
+			AIBaseURL:         srv.URL,
+			AIModel:           "gpt-4o-mini",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 500,
+		}
+		provOpenAI, err := NewProvider(cfgOpenAI)
+		if err != nil {
+			t.Fatalf("failed to create provider: %v", err)
+		}
+		_, err = provOpenAI.Investigate(ctx, snap)
+		if err != nil {
+			t.Fatalf("investigate failed: %v", err)
+		}
+		if _, exists := lastPayload["reasoning_effort"]; exists {
+			t.Errorf("expected reasoning_effort to be omitted from NewProvider(openai-compatible), got %v", lastPayload["reasoning_effort"])
 		}
 	})
 }
