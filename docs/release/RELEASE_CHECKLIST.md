@@ -3,8 +3,8 @@
 **Release Version:** v1.0.0-hackathon  
 **Target Event:** PayPal AI Hackathon  
 **Lead Verification Engineer:** Senior AI Systems & Security Engineer  
-**Signoff Date:** 2026-10-20  
-**CI Baseline:** Commit `c6a261a` (Workflow Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507): 6/6 jobs green, including `docker-compose-evaluator` with complete Playwright test pass against Compose and verified video artifact generation)  
+**Signoff Date:** 2026-10-21  
+**CI Baseline:** Audited source baseline commit `c6a261a` (Workflow Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507): 6/6 jobs green); Main-head validation commit `9b0b6c7` (Workflow Run [39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170): 6/6 jobs green, including `docker-compose-evaluator` with complete 27/27 Playwright browser test pass against Compose and verified video artifact generation)  
 
 ---
 
@@ -18,7 +18,7 @@
 | **G-04** | **No Unauthorized Money Movement** | Payout operations require explicit authenticated dispatch, dual approval, and $500 ceiling | **PASSED** |
 | **G-05** | **Zero Duplicate Payout Risk** | Deterministic `sender_batch_id` locked to persistent case ID before external call | **PASSED** |
 | **G-06** | **Deterministic Policy Precedence** | Rust policy engine evaluates all invariants; AI cannot override | **PASSED** |
-| **G-07** | **Accurate Provider Status Semantics** | Backend verifies authentic PayPal REST JSON response contracts; acceptance suite runs against deterministic test doubles; live sandbox execution is gated by operator credentials | **PASSED** |
+| **G-07** | **Accurate Provider Status Semantics** | Backend verifies authentic PayPal REST JSON response contracts; acceptance suite runs against deterministic test doubles (Scenarios 20–22); live sandbox execution is gated by operator credentials and reported honestly as unverified until genuine credentials and non-fixture transaction are supplied | **PASSED** |
 | **G-08** | **Database Migration Reliability** | 5 migrations apply and roll back cleanly (auth, claims, payouts, investigations, fixture provenance); `init.sql` updated | **PASSED** |
 | **G-09** | **Full User Journey Operability** | All routes, buttons, forms, and error states tested and functional in real browser sessions | **PASSED** |
 | **G-10** | **Clean Production Builds** | Next.js standalone build passes; Go builds with `-race`; Rust clippy clean; deterministic `npm ci` | **PASSED** |
@@ -145,4 +145,4 @@ Running 27 tests using 1 worker
 All Release Gate items are satisfied. ClaimBridge is certified **SUBMISSION READY** for the PayPal AI Hackathon:
 - **Offline Simulated Evaluation (Track 1):** 100% verified and functional with zero budget, zero external credentials, and zero cloud dependencies.
 - **Live Sandbox Track (Track 2):** Server client and diagnostic probes 100% verified; live handshake remains reported honestly as `BLOCKED` until operator provides developer credentials in `.env`.
-- **Demo Video:** Script, visual shot list, recording checklist, and deterministic CI recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) verified by media quality gate (1920x1080, 120s–175s duration, silent WebM); public video hosting upload is `PENDING` team voiceover and YouTube/Vimeo publication (refer to [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](../demo/VIDEO_ARTIFACT_GUIDE.md)).
+- **Demo Video:** Script, visual shot list, recording checklist, and deterministic CI recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) verified by media quality gate (1920x1080, 120s–175s duration, silent WebM; temporary 14-day CI artifact expiring November 4, 2026); public video hosting upload is `PENDING` team voiceover and YouTube/Vimeo publication (refer to [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](../demo/VIDEO_ARTIFACT_GUIDE.md)).

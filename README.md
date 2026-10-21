@@ -273,7 +273,7 @@ ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock t
 
 - **Authoritative Verification Matrix:** See [`docs/submission/VERIFICATION_MATRIX.md`](docs/submission/VERIFICATION_MATRIX.md) for full mapping of requirements to source files, exact tests, evidence tiers, and local reproduction steps.
 - **Judge Offline Evaluation Runbook:** See [`docs/submission/JUDGE_RUNBOOK.md`](docs/submission/JUDGE_RUNBOOK.md) for a single-command evaluator launch guide, seeded credentials, step-by-step walkthrough expectations, and safe cleanup commands.
-- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions ([Run 39595916542](https://github.com/mahitss/Payment_Bridge/actions/runs/39595916542) on commit `ccbafa4`):
+- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions: Mission 021 audited source baseline [Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) on commit `c6a261a` (with main-head validation [Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) on commit `9b0b6c7`):
   - **Go API Gateway:** `go vet`, 11/11 packages passing with race detection (`go test -race ./...`), PostgreSQL seeder integration test, and 32/32 acceptance scenarios passing in simulated deterministic test harness.
   - **Rust Policy Engine:** 17/17 deterministic unit tests passing, zero Clippy warnings (`cargo clippy -- -D warnings`), and release compilation.
   - **Next.js Web Frontend:** ESLint clean, 15/15 standalone production routes built.
@@ -283,7 +283,7 @@ ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock t
 - **External Integration Gating:**
   - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied.
   - Genuine Local Ollama Inference: Implemented and unit/mock verified; live runtime is gated by local daemon availability and reported honestly as `BLOCKED` when offline.
-- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID: `12344610127`, ~10.3 MB, measured at 152.84s – 153.6s, expiry November 4, 2026) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, silent WebM), and published as a downloadable CI artifact by `docker-compose-evaluator`; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
+- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID: `12359179229`, ~10.6 MB, measured at 153.2s, expiry November 4, 2026; audited baseline Artifact ID: `12345583865` in Run 39600293507) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, silent WebM), and published as a temporary downloadable CI artifact by `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`); 14-day retention applies; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
 
 ---
 

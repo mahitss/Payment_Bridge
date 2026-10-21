@@ -40,8 +40,9 @@ Every successful GitHub Actions CI execution against the Docker Compose evaluato
   - Emits machine-readable JSON and renders formatted Markdown table to `$GITHUB_STEP_SUMMARY`.
 - **Artifact Name:** `claimbridge-offline-demo-recording`
 - **File Inside Artifact:** `claimbridge-demo-walkthrough.webm`
-- **Latest Verified Artifact ID:** `12345583865` (Run `39600293507`, size: 10,198,755 bytes, expires November 4, 2026)
-- **Retention Period:** 14 days
+- **Audited Baseline Artifact ID:** `12345583865` (Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507), commit `c6a261a`, size: 10,198,755 bytes, expires November 4, 2026)
+- **Main-Head Validation Artifact ID:** `12359179229` (Run [39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170), commit `9b0b6c7`, size: 10,560,935 bytes, measured 153.2s, expires November 4, 2026)
+- **CI Retention Period:** 14 days (Temporary CI artifact). *Note: Temporary download links from GitHub Actions expire after 14 days and require GitHub authentication; they cannot serve as the permanent public video submission URL.*
 
 ### Step-by-Step: Downloading the Artifact from GitHub Actions
 1. Navigate to the ClaimBridge Actions tab: [https://github.com/mahitss/Payment_Bridge/actions](https://github.com/mahitss/Payment_Bridge/actions).
@@ -52,12 +53,20 @@ Every successful GitHub Actions CI execution against the Docker Compose evaluato
 
 ---
 
-## 3. Audio & Narration Status
+## 3. Audio & Narration Status & Required Human Steps
 
 > [!IMPORTANT]
-> **Audio Status:** The raw generated `.webm` artifact is a **silent screen recording** captured directly by the browser context. It does not include an audio stream.
+> **Audio Status:** The raw generated `.webm` artifact is a **silent screen recording** (0 audio tracks / silent container) captured directly by the browser context. It does not include an audio stream.
 > 
 > Voiceover narration and public video hosting remain an explicit human-in-the-loop production step before final hackathon submission.
+
+### The 6 Explicit Human Submission Steps:
+1. **Download Raw Video:** Download the verified `claimbridge-offline-demo-recording` artifact (`claimbridge-demo-walkthrough.webm`) from the latest green GitHub Actions CI run.
+2. **Record Narration:** Record human voiceover adhering strictly to the spoken text in [`docs/demo/DEMO_SCRIPT.md`](DEMO_SCRIPT.md).
+3. **Synchronize Audio & Video:** Import both tracks into a video editor and align narration to match the visual timestamps in [`docs/demo/SHOT_LIST.md`](SHOT_LIST.md).
+4. **Verify Duration (<180s):** Ensure final composite video length is strictly between 120s and 175s (under the 3-minute hackathon maximum).
+5. **Upload to Public Platform:** Upload final narrated MP4/WebM to YouTube (Unlisted or Public) or Vimeo.
+6. **Publish Submission Links:** Update [`README.md`](../../README.md), [`docs/release/PROJECT_STATUS.md`](../release/PROJECT_STATUS.md), and the hackathon submission form with the permanent public video link.
 
 ---
 

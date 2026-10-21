@@ -1,8 +1,9 @@
 # ClaimBridge — Requirements Traceability Matrix (RTM)
 
 **Status:** AUDITED & EVIDENCE-VERIFIED RELEASE BASELINE  
-**Revision:** 2.0 (Mission 016 Evidence Verification & Release Gate)  
+**Revision:** 2.5 (Mission 021 Audit Freeze & Mission 022 Evidence Sync)  
 **Security Baseline:** OWASP ASVS v4.0.3 Level 2 / OWASP Top 10  
+**CI Baseline:** Audited Source Baseline [Workflow Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`) | Main-Head Validation [Workflow Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`)  
 **Enforcement Boundary:** Fail-Closed Deterministic Rust Policy Engine + Go Orchestration Gateway  
 
 ---
@@ -11,6 +12,7 @@
 
 The status values below strictly adhere to the project's zero-trust evaluation taxonomy:
 - `VERIFIED`: Formally proven through executed automated tests or compiled source artifacts in this environment.
+- `IMPLEMENTED_NOT_VERIFIED`: Code is complete, syntactically correct, and unit-tested against test doubles, but live external runtime verification is pending credentials or external service availability.
 - `BLOCKED`: Verification cannot proceed due to missing external credentials or service prerequisites.
 - `PENDING`: Planned final deliverable pending manual team presentation action.
 
@@ -27,7 +29,7 @@ The status values below strictly adhere to the project's zero-trust evaluation t
 | **REQ-009** | Payout operation state machine with durable sender_batch_id (`CB-BATCH-CASE-...`), zero blind retries, and PayPal dispatch | Go Payouts Service & PayPal Client | `services/api/internal/payouts/service.go`, `services/api/internal/paypal/client.go` | Scenarios 17, 20 | Operation transitioned from DRAFT -> AWAITING_APPROVAL -> APPROVED -> SUBMITTED | **VERIFIED** |
 | **REQ-010** | PayPal REST API client: OAuth client credentials, token caching (60s buffer), batch creation, status polling, and strict Sandbox destination enforcement | Go API (`paypal.Client`) | `services/api/internal/paypal/client.go`, `services/api/internal/config/config.go`, `services/api/cmd/paypal-smoke/main.go` | `client_test.go` (100% pass), `cmd/paypal-smoke` unit suite (8/8 pass), Live CLI execution | Endpoint locked to `https://api-m.sandbox.paypal.com`; fails closed on HTTP, production hosts, or arbitrary destinations. Live CLI execution returned Exit Code 3 (`BLOCKED: PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET unset in .env`). Unit/mock contract 100% verified. | **BLOCKED** |
 | **REQ-011** | PayPal status synchronization and snapshot auditing for item status updates (`SUCCESS`, `UNCLAIMED`, `FAILED`, `BLOCKED`) | Go Payouts Service | `services/api/internal/payouts/service.go` | Scenario 21 | Status snapshots persisted with timestamp and raw provider JSONB audit log | **VERIFIED** |
-| **REQ-012** | Cancellation of eligible UNCLAIMED payouts via PayPal REST API with deterministic policy validation | Go Payouts Service & Rust Engine | `services/api/internal/payouts/service.go`, `services/policy/src/engine.rs` | Scenario 22 & 28 | UNCLAIMED item successfully cancelled; cancellation on non-unclaimed item blocked by policy | **VERIFIED** |
+| **REQ-012** | Cancellation of eligible UNCLAIMED payouts via PayPal REST API with deterministic policy validation | Go Payouts Service & Rust Engine | `services/api/internal/payouts/service.go`, `services/policy/src/engine.rs` | Scenario 22 & 28 | Deterministic cancellation policy & state transition verified against mock test double in harness; synthetic fixtures protected by mutation guards; live PayPal Sandbox cancellation externally unverified pending real credentials & non-fixture transaction | **IMPLEMENTED_NOT_VERIFIED** |
 | **REQ-013** | Ambiguous network timeout quarantine: operation placed in `RECONCILIATION_REQUIRED`; duplicate submissions strictly prevented | Go Payouts Service | `services/api/internal/payouts/service.go` | Scenario 24 | Ambiguous timeout safely quarantined; duplicate submission blocked without capital loss | **VERIFIED** |
 | **REQ-014** | Server-side AI provider abstraction with free-first local Ollama support (`ollama-openai-compatible`) and mock test providers | Go AI Provider | `services/api/internal/ai/provider.go`, `services/api/internal/ai/ollama.go` | `ai_test.go`, MockProvider unit suite | Provider interface handles 30s timeouts, bounded tokens, and error classifications (429, 503) | **VERIFIED** |
 | **REQ-015** | Live AI model inference using local Ollama (`llama3.2`) or OpenAI-compatible inference endpoint | Go AI Service & Readiness Runner | `services/api/internal/ai/ollama.go`, `cmd/readiness` | `ai_test.go` (100% pass), `TestOllamaClient_CheckHealth`, Live diagnostic probe | Live probe via `cmd/readiness` returned `BLOCKED: Daemon unreachable at http://127.0.0.1:11434`. Unit & sanitization tests 100% verified. | **BLOCKED** |
@@ -50,7 +52,8 @@ The status values below strictly adhere to the project's zero-trust evaluation t
 ## 2. Verification Summary
 
 - **Total Tracked Requirements:** 28
-- **Verified:** 25 (89.3%)
+- **Verified:** 24 (85.7%)
+- **Implemented, Not Externally Verified:** 1 (3.6%) — REQ-012 (PayPal UNCLAIMED cancellation contract verified in harness; live Sandbox unverified)
 - **Blocked (External Dependencies Unconfigured):** 2 (7.1%) — REQ-010 (PayPal credentials unset in audit env), REQ-015 (Local Ollama daemon offline)
 - **Pending (Final Team Presentation Action):** 1 (3.6%) — REQ-027 (Video recording upload)
 - **Failed:** 0 (0%)
@@ -58,7 +61,7 @@ The status values below strictly adhere to the project's zero-trust evaluation t
 
 ---
 
-## 3. Playwright Browser Test Suite Verification (18/18 Tests)
+## 3. Playwright Browser Test Suite Verification (27/27 Tests)
 
 The complete end-to-end browser suite executed against the integrated Next.js frontend, Go API, and PostgreSQL database:
 
@@ -69,4 +72,6 @@ The complete end-to-end browser suite executed against the integrated Next.js fr
 | `fixtures.spec.ts` | DEMO-W9821 registry presence, prominent simulated banner, offline investigation view, disabled action buttons | **4/4 PASS** |
 | `policy-workflow.spec.ts` | $350 case creation, dual-custody policy detection, self-approval blockage, distinct officer approval, no auto-dispatch | **3/3 PASS** |
 | `mutation-guards.spec.ts` | Server-side rejection of synthetic fixture submit (HTTP 403), sync (HTTP 403), cancel (HTTP 403) | **3/3 PASS** |
-| **Total** | Full browser workflow and security boundaries verified in headless Chromium | **18/18 PASS** |
+| `responsive-nav.spec.ts` | Desktop nav, mobile drawer, drawer auto-close, skip link, zero horizontal overflow, auth & payout form accessibility, 320px touch targets | **8/8 PASS** |
+| `demo-recording.spec.ts` | Deterministic end-to-end walkthrough recording capturing 1080p verified walkthrough artifact | **1/1 PASS** |
+| **Total** | Full browser workflow, security boundaries, and responsive accessibility verified in headless Chromium | **27/27 PASS** |
