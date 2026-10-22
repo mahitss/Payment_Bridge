@@ -1,8 +1,11 @@
 package investigations
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -234,6 +237,97 @@ func TestInvestigatePayoutCase_ProviderUnavailable(t *testing.T) {
 	afterCase, _ := repo.GetPayoutCaseByID(ctx, orgID, pCase.ID)
 	if afterCase.Status != "SUBMITTED" {
 		t.Errorf("expected case status to remain SUBMITTED, got %s", afterCase.Status)
+	}
+}
+
+func TestInvestigatePayoutCase_PreflightDiagnosticLogging(t *testing.T) {
+	var logBuf bytes.Buffer
+	testLogger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	oldLogger := slog.Default()
+	slog.SetDefault(testLogger)
+	defer slog.SetDefault(oldLogger)
+
+	ctx := context.Background()
+	svc, repo, aiMock := setupTestService(t)
+
+	orgID := "org-1"
+	userID := "user-1"
+	pCase := &db.PayoutCase{ID: "case-diag-1", OrganizationID: orgID, Status: "SUBMITTED"}
+	repo.Cases[pCase.ID] = pCase
+
+	// Set AI provider offline
+	aiMock.Available = false
+
+	_, err := svc.InvestigatePayoutCase(ctx, orgID, pCase.ID, userID, InvestigateRequest{})
+	if !errors.Is(err, ErrAIUnavailable) {
+		t.Fatalf("expected ErrAIUnavailable, got %v", err)
+	}
+
+	logOutput := logBuf.String()
+
+	// Verify safe structured fields are present in the log
+	expectedFields := []string{
+		"AI provider unavailable for payout investigation",
+		"provider=mock",
+		"case_id=case-diag-1",
+		"reachable=false",
+		"model_available=false",
+		"configured_model=mock-llama3.2",
+		"error_category=MOCK_UNAVAILABLE",
+		"available_models=",
+	}
+	for _, field := range expectedFields {
+		if !strings.Contains(logOutput, field) {
+			t.Errorf("expected log output to contain %q, but got:\n%s", field, logOutput)
+		}
+	}
+
+	// Verify no sensitive credentials or URLs are leaked
+	disallowed := []string{
+		"api_key",
+		"Authorization",
+		"Bearer",
+		"password",
+		"secret",
+	}
+	for _, dis := range disallowed {
+		if strings.Contains(strings.ToLower(logOutput), dis) {
+			t.Errorf("security violation: log contains sensitive term %q", dis)
+		}
+	}
+
+	// Verify single probe: HealthCheckCount must be exactly 1
+	if aiMock.HealthCheckCount != 1 {
+		t.Errorf("expected exactly 1 health check probe, got %d", aiMock.HealthCheckCount)
+	}
+
+	// Verify Investigate was never called
+	if aiMock.CallCount != 0 {
+		t.Errorf("expected Investigate not to be called, got %d", aiMock.CallCount)
+	}
+
+	// Case status MUST remain unchanged (fail-closed)
+	afterCase, _ := repo.GetPayoutCaseByID(ctx, orgID, pCase.ID)
+	if afterCase.Status != "SUBMITTED" {
+		t.Errorf("expected case status to remain SUBMITTED, got %s", afterCase.Status)
+	}
+}
+
+func TestInvestigatePayoutCase_NilProvider(t *testing.T) {
+	ctx := context.Background()
+	cfg := &config.Config{AIEnabled: false}
+	repo := db.NewMockRepository()
+	policyEngine := policy.NewEngine("")
+	svc := NewService(cfg, repo, nil, policyEngine, nil)
+
+	orgID := "org-1"
+	userID := "user-1"
+	pCase := &db.PayoutCase{ID: "case-nil-1", OrganizationID: orgID, Status: "SUBMITTED"}
+	repo.Cases[pCase.ID] = pCase
+
+	_, err := svc.InvestigatePayoutCase(ctx, orgID, pCase.ID, userID, InvestigateRequest{})
+	if !errors.Is(err, ErrAIUnavailable) {
+		t.Fatalf("expected ErrAIUnavailable for nil provider, got %v", err)
 	}
 }
 

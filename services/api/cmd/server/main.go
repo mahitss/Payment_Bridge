@@ -21,6 +21,7 @@ import (
 	"claimbridge/services/api/internal/payouts"
 	"claimbridge/services/api/internal/paypal"
 	"claimbridge/services/api/internal/policy"
+	"claimbridge/services/api/internal/seeder"
 	"claimbridge/services/api/internal/server"
 )
 
@@ -54,7 +55,17 @@ func main() {
 		slog.Warn("PostgreSQL unavailable at startup; using memory repository for development",
 			slog.String("error", err.Error()),
 		)
-		repo = db.NewMockRepository()
+		mockRepo := db.NewMockRepository()
+		s := seeder.New(mockRepo)
+		if seedErr := s.Seed(context.Background(), seeder.Options{}); seedErr != nil {
+			slog.Warn("Failed seeding demo fixtures into memory repository", slog.String("error", seedErr.Error()))
+		} else {
+			slog.Info("Memory repository seeded with evaluation fixtures",
+				slog.String("operator", seeder.OperatorEmail),
+				slog.String("officer", seeder.OfficerEmail),
+			)
+		}
+		repo = mockRepo
 	} else {
 		slog.Info("Connected to PostgreSQL successfully")
 		repo = pgRepo
@@ -112,6 +123,8 @@ func main() {
 		slog.String("provider", aiProvider.Name()),
 		slog.String("model", aiProvider.Model()),
 		slog.Bool("enabled", cfg.AIEnabled),
+		slog.Duration("timeout", cfg.AIRequestTimeout),
+		slog.Int("max_tokens", cfg.AIMaxOutputTokens),
 	)
 
 	investigationsService := investigations.NewService(cfg, repo, aiProvider, policyEngine, paypalClient)
@@ -122,13 +135,18 @@ func main() {
 	srv.SetRepository(repo)
 	srv.SetInvestigationsHandler(investigationsHandler)
 
+	writeTimeout := cfg.AIRequestTimeout + 60*time.Second
+	if writeTimeout < 60*time.Second {
+		writeTimeout = 60 * time.Second
+	}
+
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.Port),
 		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       writeTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       writeTimeout + 60*time.Second,
 	}
 
 	// 9. Graceful Shutdown Handler

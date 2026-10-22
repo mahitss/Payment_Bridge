@@ -389,6 +389,154 @@ func TestOllamaClient_CheckHealth(t *testing.T) {
 			t.Errorf("expected IsAvailable false")
 		}
 	})
+
+	t.Run("Fallback to /v1/models When /api/tags Fails With Separate Context", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/tags" {
+				// Simulate failure on native tags endpoint (e.g. 500 or 404)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if r.URL.Path == "/v1/models" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.5:4b"}]}`))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIBaseURL:        srv.URL,
+			AIModel:          "qwen3.5:4b",
+			AIRequestTimeout: 3 * time.Second,
+		}
+		client := NewOllamaClient(cfg)
+		health := client.CheckHealth(ctx)
+
+		if !health.Reachable {
+			t.Errorf("expected reachable true")
+		}
+		if !health.ModelAvailable {
+			t.Errorf("expected model_available true via /v1/models fallback, got false")
+		}
+		if !client.IsAvailable(ctx) {
+			t.Errorf("expected IsAvailable true")
+		}
+	})
+
+	t.Run("Model Name Normalization and Matching", func(t *testing.T) {
+		testCases := []struct {
+			name            string
+			availableModels []string
+			configuredModel string
+			expectMatch     bool
+		}{
+			{
+				name:            "Library prefix matches target",
+				availableModels: []string{"library/qwen3.5:4b"},
+				configuredModel: "qwen3.5:4b",
+				expectMatch:     true,
+			},
+			{
+				name:            "Target with latest matches available without tag",
+				availableModels: []string{"qwen3.5"},
+				configuredModel: "qwen3.5:latest",
+				expectMatch:     true,
+			},
+			{
+				name:            "Target without tag matches available with latest",
+				availableModels: []string{"qwen3.5:latest"},
+				configuredModel: "qwen3.5",
+				expectMatch:     true,
+			},
+			{
+				name:            "Target prefix matches available with variant tag",
+				availableModels: []string{"qwen3.5:4b"},
+				configuredModel: "qwen3.5",
+				expectMatch:     true,
+			},
+			{
+				name:            "Different model does not match",
+				availableModels: []string{"llama3.2:latest"},
+				configuredModel: "qwen3.5:4b",
+				expectMatch:     false,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					var models []map[string]string
+					for _, m := range tc.availableModels {
+						models = append(models, map[string]string{"name": m})
+					}
+					respData, _ := json.Marshal(map[string]interface{}{"models": models})
+					_, _ = w.Write(respData)
+				}))
+				defer srv.Close()
+
+				cfg := &config.Config{
+					AIBaseURL:        srv.URL,
+					AIModel:          tc.configuredModel,
+					AIRequestTimeout: 3 * time.Second,
+				}
+				client := NewOllamaClient(cfg)
+				health := client.CheckHealth(ctx)
+
+				if health.ModelAvailable != tc.expectMatch {
+					t.Errorf("matchModel(%v, %q) = %v; want %v", tc.availableModels, tc.configuredModel, health.ModelAvailable, tc.expectMatch)
+				}
+			})
+		}
+	})
+
+	t.Run("Provider Returns HTTP Error Status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":"service overloaded"}`))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIBaseURL:        srv.URL,
+			AIModel:          "qwen3.5:4b",
+			AIRequestTimeout: 3 * time.Second,
+		}
+		client := NewOllamaClient(cfg)
+		health := client.CheckHealth(ctx)
+
+		if !health.Reachable {
+			t.Errorf("expected reachable true when provider responds with HTTP 503")
+		}
+		if health.ModelAvailable {
+			t.Errorf("expected model_available false on 503")
+		}
+		if health.ErrorCategory != "HTTP_STATUS_503" {
+			t.Errorf("expected error_category HTTP_STATUS_503, got: %s", health.ErrorCategory)
+		}
+	})
+
+	t.Run("CheckHealth Context Canceled Categorization", func(t *testing.T) {
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel() // immediately canceled
+
+		cfg := &config.Config{
+			AIBaseURL:        "http://127.0.0.1:11434",
+			AIModel:          "qwen3.5:4b",
+			AIRequestTimeout: 1 * time.Second,
+		}
+		client := NewOllamaClient(cfg)
+		health := client.CheckHealth(canceledCtx)
+
+		if health.ModelAvailable {
+			t.Errorf("expected model_available false on canceled context")
+		}
+		if health.ErrorCategory != "CONTEXT_CANCELED" {
+			t.Errorf("expected error_category CONTEXT_CANCELED, got: %s", health.ErrorCategory)
+		}
+	})
 }
 
 func TestOllamaClient_SensitiveLoggingSanitization(t *testing.T) {
