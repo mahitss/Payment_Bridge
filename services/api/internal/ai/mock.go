@@ -8,15 +8,16 @@ import (
 
 // MockProvider provides deterministic, controllable AI inference for testing.
 type MockProvider struct {
-	mu           sync.Mutex
-	Available    bool
-	ModelName    string
-	ProviderName string
-	CustomError  error
-	CustomResult *InvestigationResult
-	RawOutput    string // If set, this raw JSON string will be parsed and validated
-	CallCount    int
-	LastSnapshot *InvestigationSnapshot
+	mu               sync.Mutex
+	Available        bool
+	ModelName        string
+	ProviderName     string
+	CustomError      error
+	CustomResult     *InvestigationResult
+	RawOutput        string // If set, this raw JSON string will be parsed and validated
+	CallCount        int
+	HealthCheckCount int
+	LastSnapshot     *InvestigationSnapshot
 }
 
 // NewMockProvider constructs a default passing mock provider.
@@ -51,6 +52,7 @@ func (m *MockProvider) IsAvailable(ctx context.Context) bool {
 func (m *MockProvider) CheckHealth(ctx context.Context) AIHealthStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.HealthCheckCount++
 
 	status := AIHealthStatus{
 		Reachable:       m.Available,

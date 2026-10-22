@@ -78,13 +78,17 @@ func (c *OllamaClient) CheckHealth(ctx context.Context) AIHealthStatus {
 		ProviderURL:     c.baseURL,
 	}
 
-	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
+	probeTimeout := 5 * time.Second
+	if c.timeout > 0 && c.timeout < probeTimeout {
+		probeTimeout = c.timeout
+	}
 
-	// 1. Try Ollama native /api/tags endpoint
+	// 1. Try Ollama native /api/tags endpoint with bounded probe context
+	tagsCtx, tagsCancel := context.WithTimeout(ctx, probeTimeout)
 	tagsURL := strings.TrimRight(c.baseURL, "/") + "/api/tags"
-	req, err := http.NewRequestWithContext(checkCtx, http.MethodGet, tagsURL, nil)
+	req, err := http.NewRequestWithContext(tagsCtx, http.MethodGet, tagsURL, nil)
 	if err != nil {
+		tagsCancel()
 		status.ErrorCategory = "REQUEST_CREATION_FAILED"
 		status.ErrorMessage = err.Error()
 		return status
@@ -93,17 +97,21 @@ func (c *OllamaClient) CheckHealth(ctx context.Context) AIHealthStatus {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err == nil {
+	resp, tagsErr := c.httpClient.Do(req)
+	tagsCancel()
+	if tagsErr == nil {
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
 			return c.parseModelsFromOllama(resp.Body, status)
 		}
 	}
 
-	// 2. Fallback to OpenAI-compatible /v1/models endpoint
+	// 2. Fallback to OpenAI-compatible /v1/models endpoint with fresh probe context
+	modelsCtx, modelsCancel := context.WithTimeout(ctx, probeTimeout)
+	defer modelsCancel()
+
 	modelsURL := strings.TrimRight(c.baseURL, "/") + "/v1/models"
-	modelsReq, fbErr := http.NewRequestWithContext(checkCtx, http.MethodGet, modelsURL, nil)
+	modelsReq, fbErr := http.NewRequestWithContext(modelsCtx, http.MethodGet, modelsURL, nil)
 	if fbErr == nil {
 		if c.apiKey != "" {
 			modelsReq.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -114,14 +122,60 @@ func (c *OllamaClient) CheckHealth(ctx context.Context) AIHealthStatus {
 			if modelsResp.StatusCode == http.StatusOK {
 				return c.parseModelsFromOpenAI(modelsResp.Body, status)
 			}
+			status.Reachable = true
+			status.ModelAvailable = false
+			status.ErrorCategory = fmt.Sprintf("HTTP_STATUS_%d", modelsResp.StatusCode)
+			status.ErrorMessage = fmt.Sprintf("Inference provider returned HTTP %d on /v1/models", modelsResp.StatusCode)
+			return status
 		}
+		// If tagsErr was nil but status was not OK, the host was reached
+		if tagsErr == nil && resp != nil {
+			status.Reachable = true
+			status.ModelAvailable = false
+			status.ErrorCategory = fmt.Sprintf("HTTP_STATUS_%d", resp.StatusCode)
+			status.ErrorMessage = fmt.Sprintf("Inference provider returned HTTP %d on /api/tags", resp.StatusCode)
+			return status
+		}
+		// Connection or timeout error
+		status.Reachable = false
+		status.ModelAvailable = false
+		status.ErrorCategory = classifyNetworkError(fbDoErr)
+		status.ErrorMessage = fmt.Sprintf("Cannot connect to inference daemon at %s: %v", c.baseURL, fbDoErr)
+		return status
 	}
 
+	// Fallback request creation failed or tags failed
 	status.Reachable = false
 	status.ModelAvailable = false
-	status.ErrorCategory = "OLLAMA_UNREACHABLE"
-	status.ErrorMessage = fmt.Sprintf("Cannot connect to inference daemon at %s. Ensure daemon is running ('ollama serve').", c.baseURL)
+	if tagsErr != nil {
+		status.ErrorCategory = classifyNetworkError(tagsErr)
+		status.ErrorMessage = fmt.Sprintf("Cannot connect to inference daemon at %s: %v", c.baseURL, tagsErr)
+	} else if resp != nil {
+		status.Reachable = true
+		status.ErrorCategory = fmt.Sprintf("HTTP_STATUS_%d", resp.StatusCode)
+		status.ErrorMessage = fmt.Sprintf("Inference provider returned HTTP %d on /api/tags", resp.StatusCode)
+	} else {
+		status.ErrorCategory = "OLLAMA_UNREACHABLE"
+		status.ErrorMessage = fmt.Sprintf("Cannot connect to inference daemon at %s. Ensure daemon is running ('ollama serve').", c.baseURL)
+	}
 	return status
+}
+
+func classifyNetworkError(err error) string {
+	if err == nil {
+		return "UNKNOWN_ERROR"
+	}
+	errStr := strings.ToLower(err.Error())
+	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(errStr, "deadline exceeded") || strings.Contains(errStr, "client.timeout") {
+		return "TIMEOUT"
+	}
+	if errors.Is(err, context.Canceled) || strings.Contains(errStr, "context canceled") {
+		return "CONTEXT_CANCELED"
+	}
+	if strings.Contains(errStr, "no such host") {
+		return "DNS_RESOLUTION_FAILED"
+	}
+	return "OLLAMA_UNREACHABLE"
 }
 
 func (c *OllamaClient) parseModelsFromOllama(body io.Reader, status AIHealthStatus) AIHealthStatus {
@@ -138,9 +192,8 @@ func (c *OllamaClient) parseModelsFromOllama(body io.Reader, status AIHealthStat
 	found := false
 
 	for _, m := range tagsResp.Models {
-		mName := strings.ToLower(m.Name)
 		modelNames = append(modelNames, m.Name)
-		if mName == targetModel || strings.HasPrefix(mName, targetModel+":") {
+		if matchModelName(m.Name, targetModel) {
 			found = true
 		}
 	}
@@ -168,9 +221,8 @@ func (c *OllamaClient) parseModelsFromOpenAI(body io.Reader, status AIHealthStat
 	found := false
 
 	for _, m := range modelsResp.Data {
-		mID := strings.ToLower(m.ID)
 		modelNames = append(modelNames, m.ID)
-		if mID == targetModel || strings.HasPrefix(mID, targetModel+":") {
+		if matchModelName(m.ID, targetModel) {
 			found = true
 		}
 	}
@@ -182,6 +234,36 @@ func (c *OllamaClient) parseModelsFromOpenAI(body io.Reader, status AIHealthStat
 		status.ErrorMessage = fmt.Sprintf("Configured model %q is not installed in inference provider. Operator action: run 'ollama pull %s'", c.model, c.model)
 	}
 	return status
+}
+
+func matchModelName(availableName, target string) bool {
+	avail := strings.ToLower(strings.TrimSpace(availableName))
+	tgt := strings.ToLower(strings.TrimSpace(target))
+	if avail == "" || tgt == "" {
+		return false
+	}
+	if avail == tgt {
+		return true
+	}
+	availClean := stripModelNamespace(avail)
+	tgtClean := stripModelNamespace(tgt)
+	if availClean == tgtClean {
+		return true
+	}
+	if strings.HasPrefix(availClean, tgtClean+":") {
+		return true
+	}
+	availNoTag := strings.TrimSuffix(availClean, ":latest")
+	tgtNoTag := strings.TrimSuffix(tgtClean, ":latest")
+	if availNoTag == tgtNoTag {
+		return true
+	}
+	return false
+}
+
+func stripModelNamespace(name string) string {
+	parts := strings.Split(name, "/")
+	return parts[len(parts)-1]
 }
 
 type openAIChatMessage struct {
@@ -269,6 +351,7 @@ func (c *OllamaClient) Investigate(ctx context.Context, snapshot *InvestigationS
 		}
 		slog.WarnContext(ctx, "AI provider connection failed",
 			slog.String("error_class", "network_transport_failure"),
+			slog.String("error", err.Error()),
 			slog.String("case_id", snapshot.CaseID),
 		)
 		return nil, ErrAIUnavailable

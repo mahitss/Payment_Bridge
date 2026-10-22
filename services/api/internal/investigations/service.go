@@ -196,11 +196,34 @@ func (s *Service) InvestigatePayoutCase(ctx context.Context, orgID, caseID, requ
 		ValidEvidenceIDs:     validEvidenceIDs,
 	}
 
-	// 6. Check provider availability
-	if !s.aiProvider.IsAvailable(ctx) {
+	// 6. Check provider availability (single probe to avoid duplicate network overhead)
+	if s.aiProvider == nil {
+		slog.WarnContext(ctx, "AI provider unavailable for payout investigation",
+			slog.String("provider", "none"),
+			slog.String("case_id", caseID),
+			slog.Bool("reachable", false),
+			slog.Bool("model_available", false),
+			slog.String("configured_model", "none"),
+			slog.String("error_category", "AI_DISABLED"),
+			slog.Any("available_models", []string{}),
+		)
+		return nil, ErrAIUnavailable
+	}
+
+	health := s.aiProvider.CheckHealth(ctx)
+	if !health.ModelAvailable {
+		availableModels := health.AvailableModels
+		if availableModels == nil {
+			availableModels = []string{}
+		}
 		slog.WarnContext(ctx, "AI provider unavailable for payout investigation",
 			slog.String("provider", s.aiProvider.Name()),
 			slog.String("case_id", caseID),
+			slog.Bool("reachable", health.Reachable),
+			slog.Bool("model_available", health.ModelAvailable),
+			slog.String("configured_model", health.ConfiguredModel),
+			slog.String("error_category", health.ErrorCategory),
+			slog.Any("available_models", availableModels),
 		)
 		return nil, ErrAIUnavailable
 	}
