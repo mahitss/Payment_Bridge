@@ -4,6 +4,9 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   output: "standalone",
+  experimental: {
+    proxyTimeout: 150_000,
+  },
   async rewrites() {
     return [
       {
