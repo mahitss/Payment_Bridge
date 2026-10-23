@@ -220,3 +220,43 @@ func TestResolveAndLoadEnvFiles(t *testing.T) {
 		t.Errorf("expected TEST_ENV_VAR_2 to be 'world' (quotes stripped), got %q", val)
 	}
 }
+
+func TestLoadFromEnv_AIContextSize(t *testing.T) {
+	t.Run("Default Context Size", func(t *testing.T) {
+		cleanEnv(t)
+		cfg, err := LoadFromEnv()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.AIContextSize != 4096 {
+			t.Errorf("expected default AIContextSize=4096, got %d", cfg.AIContextSize)
+		}
+	})
+
+	t.Run("Custom Context Size", func(t *testing.T) {
+		cleanEnv(t)
+		os.Setenv("AI_CONTEXT_SIZE", "8192")
+		cfg, err := LoadFromEnv()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.AIContextSize != 8192 {
+			t.Errorf("expected AIContextSize=8192, got %d", cfg.AIContextSize)
+		}
+	})
+
+	t.Run("Reject Non-Positive Context Size", func(t *testing.T) {
+		testCases := []string{"0", "-100", "abc"}
+		for _, tc := range testCases {
+			cleanEnv(t)
+			os.Setenv("AI_CONTEXT_SIZE", tc)
+			_, err := LoadFromEnv()
+			if err == nil {
+				t.Errorf("expected error for AI_CONTEXT_SIZE=%q, got nil", tc)
+			}
+			if !strings.Contains(err.Error(), "AI_CONTEXT_SIZE must be a positive integer") {
+				t.Errorf("expected positive integer error message, got: %v", err)
+			}
+		}
+	})
+}

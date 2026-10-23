@@ -634,40 +634,120 @@ func TestOllamaClient_SensitiveLoggingSanitization(t *testing.T) {
 	})
 }
 
-func TestOllamaClient_ReasoningEffort(t *testing.T) {
+func TestOllamaClient_NativeInference_SuccessAndPayload(t *testing.T) {
 	ctx := context.Background()
 	snap := &InvestigationSnapshot{
-		CaseID:           "case-reasoning-test-1",
-		ValidEvidenceIDs: []string{"case-reasoning-test-1"},
+		CaseID:           "case-native-1",
+		ValidEvidenceIDs: []string{"case-native-1"},
 	}
 
-	validInvestigationResp := `{
-		"id": "chat-qwen-test",
-		"choices": [{
+	var receivedPath string
+	var receivedPayload map[string]interface{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := json.Unmarshal(bodyBytes, &receivedPayload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{
+			"model": "qwen3.5:4b",
+			"created_at": "2026-10-23T12:00:00Z",
 			"message": {
 				"role": "assistant",
-				"content": "{\"summary\": \"Investigation complete for Qwen\", \"confidence\": \"HIGH\", \"findings\": [{\"explanation\": \"Case observed\", \"evidence_references\": [\"case-reasoning-test-1\"]}], \"recommended_next_steps\": [{\"action\": \"CHECK_PROVIDER_STATUS\", \"reason\": \"Verify with provider\"}]}"
+				"content": "{\"summary\": \"Native Ollama investigation complete\", \"confidence\": \"HIGH\", \"findings\": [{\"explanation\": \"Case observed\", \"evidence_references\": [\"case-native-1\"]}], \"recommended_next_steps\": [{\"action\": \"CHECK_PROVIDER_STATUS\", \"reason\": \"Verify with provider\"}]}"
 			},
-			"finish_reason": "stop"
-		}]
-	}`
+			"done_reason": "stop",
+			"done": true
+		}`
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer srv.Close()
 
-	t.Run("AI_PROVIDER=ollama includes reasoning_effort none", func(t *testing.T) {
-		var receivedPayload map[string]interface{}
+	cfg := &config.Config{
+		AIProvider:        "ollama",
+		AIBaseURL:         srv.URL,
+		AIModel:           "qwen3.5:4b",
+		AIRequestTimeout:  5 * time.Second,
+		AIMaxOutputTokens: 300,
+		AIContextSize:     4096,
+	}
+
+	client := NewOllamaClient(cfg)
+	res, err := client.Investigate(ctx, snap)
+	if err != nil {
+		t.Fatalf("expected successful investigation, got %v", err)
+	}
+
+	// 1. Ollama provider requests /api/chat, not /v1/chat/completions
+	if receivedPath != "/api/chat" {
+		t.Errorf("expected request path '/api/chat', got %q", receivedPath)
+	}
+
+	// 2. Payload contains think: false, format: 'json', stream: false, num_ctx, and num_predict
+	if receivedPayload["model"] != "qwen3.5:4b" {
+		t.Errorf("expected model='qwen3.5:4b', got %v", receivedPayload["model"])
+	}
+	if streamVal, ok := receivedPayload["stream"].(bool); !ok || streamVal {
+		t.Errorf("expected stream=false, got %v", receivedPayload["stream"])
+	}
+	if thinkVal, ok := receivedPayload["think"].(bool); !ok || thinkVal {
+		t.Errorf("expected think=false, got %v", receivedPayload["think"])
+	}
+	if receivedPayload["format"] != "json" {
+		t.Errorf("expected format='json', got %v", receivedPayload["format"])
+	}
+	if receivedPayload["keep_alive"] != "10m" {
+		t.Errorf("expected keep_alive='10m', got %v", receivedPayload["keep_alive"])
+	}
+
+	opts, ok := receivedPayload["options"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected 'options' object in payload, got %v", receivedPayload["options"])
+	}
+	if numCtx, ok := opts["num_ctx"].(float64); !ok || int(numCtx) != 4096 {
+		t.Errorf("expected options.num_ctx=4096, got %v", opts["num_ctx"])
+	}
+	if numPredict, ok := opts["num_predict"].(float64); !ok || int(numPredict) != 300 {
+		t.Errorf("expected options.num_predict=300, got %v", opts["num_predict"])
+	}
+	if temp, ok := opts["temperature"].(float64); !ok || temp != 0.1 {
+		t.Errorf("expected options.temperature=0.1, got %v", opts["temperature"])
+	}
+
+	// 3. Valid native Ollama JSON response is decoded and passes grounding
+	if res.Summary != "Native Ollama investigation complete" {
+		t.Errorf("expected summary %q, got %q", "Native Ollama investigation complete", res.Summary)
+	}
+	if res.Confidence != ConfidenceHigh {
+		t.Errorf("expected confidence HIGH, got %q", res.Confidence)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].EvidenceReferences[0] != "case-native-1" {
+		t.Errorf("unexpected findings: %+v", res.Findings)
+	}
+	if res.RawResponse["transport"] != "ollama_native_chat" {
+		t.Errorf("expected transport 'ollama_native_chat', got %v", res.RawResponse["transport"])
+	}
+}
+
+func TestOllamaClient_NativeInference_Failures(t *testing.T) {
+	ctx := context.Background()
+	snap := &InvestigationSnapshot{
+		CaseID:           "case-fail-1",
+		ValidEvidenceIDs: []string{"case-fail-1"},
+	}
+
+	t.Run("Empty Message Content Fails Safely", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bodyBytes, err := io.ReadAll(r.Body)
-			if err != nil {
-				t.Errorf("failed to read request body: %v", err)
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			if err := json.Unmarshal(bodyBytes, &receivedPayload); err != nil {
-				t.Errorf("failed to unmarshal request body: %v", err)
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(validInvestigationResp))
+			_, _ = w.Write([]byte(`{"model":"qwen3.5:4b","message":{"role":"assistant","content":""},"done":true}`))
 		}))
 		defer srv.Close()
 
@@ -676,136 +756,363 @@ func TestOllamaClient_ReasoningEffort(t *testing.T) {
 			AIBaseURL:         srv.URL,
 			AIModel:           "qwen3.5:4b",
 			AIRequestTimeout:  5 * time.Second,
-			AIMaxOutputTokens: 500,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
 		}
-
 		client := NewOllamaClient(cfg)
-		res, err := client.Investigate(ctx, snap)
-		if err != nil {
-			t.Fatalf("expected successful investigation, got %v", err)
-		}
-		if res.Summary != "Investigation complete for Qwen" {
-			t.Errorf("expected summary %q, got %q", "Investigation complete for Qwen", res.Summary)
-		}
-
-		val, ok := receivedPayload["reasoning_effort"]
-		if !ok {
-			t.Fatalf("expected 'reasoning_effort' field to be present in Ollama request body, but was omitted")
-		}
-		if val != "none" {
-			t.Errorf("expected reasoning_effort='none', got %v", val)
-		}
-		if receivedPayload["model"] != "qwen3.5:4b" {
-			t.Errorf("expected model='qwen3.5:4b', got %v", receivedPayload["model"])
-		}
-		if maxTok, ok := receivedPayload["max_tokens"].(float64); !ok || int(maxTok) != 500 {
-			t.Errorf("expected max_tokens=500, got %v", receivedPayload["max_tokens"])
+		_, err := client.Investigate(ctx, snap)
+		if !errors.Is(err, ErrInvalidSchema) {
+			t.Fatalf("expected ErrInvalidSchema for empty message content, got %v", err)
 		}
 	})
 
-	t.Run("Other compatible providers omit reasoning_effort", func(t *testing.T) {
-		testCases := []struct {
-			providerName string
-			expectedOmit bool
-		}{
-			{"openai-compatible", true},
-			{"openai", true},
-			{"generic-openai", true},
-			{"", true},
-		}
-
-		for _, tc := range testCases {
-			t.Run("provider="+tc.providerName, func(t *testing.T) {
-				var receivedPayload map[string]interface{}
-				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					bodyBytes, err := io.ReadAll(r.Body)
-					if err != nil {
-						t.Errorf("failed to read request body: %v", err)
-						http.Error(w, err.Error(), http.StatusBadRequest)
-						return
-					}
-					if err := json.Unmarshal(bodyBytes, &receivedPayload); err != nil {
-						t.Errorf("failed to unmarshal request body: %v", err)
-						http.Error(w, err.Error(), http.StatusBadRequest)
-						return
-					}
-					w.Header().Set("Content-Type", "application/json")
-					_, _ = w.Write([]byte(validInvestigationResp))
-				}))
-				defer srv.Close()
-
-				cfg := &config.Config{
-					AIProvider:        tc.providerName,
-					AIBaseURL:         srv.URL,
-					AIModel:           "gpt-4o-mini",
-					AIRequestTimeout:  5 * time.Second,
-					AIMaxOutputTokens: 500,
-				}
-
-				client := NewOllamaClient(cfg)
-				_, err := client.Investigate(ctx, snap)
-				if err != nil {
-					t.Fatalf("expected successful investigation, got %v", err)
-				}
-
-				if val, exists := receivedPayload["reasoning_effort"]; exists {
-					t.Errorf("expected 'reasoning_effort' to be omitted for provider %q, but got %v", tc.providerName, val)
-				}
-			})
-		}
-	})
-
-	t.Run("NewProvider factory honors provider reasoning_effort scoping", func(t *testing.T) {
-		var lastPayload map[string]interface{}
+	t.Run("Malformed JSON Fails Safely", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bodyBytes, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(bodyBytes, &lastPayload)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(validInvestigationResp))
+			_, _ = w.Write([]byte(`{"model":"qwen3.5:4b","message":{"role":"assistant","content":"{malformed json"},"done":true}`))
 		}))
 		defer srv.Close()
 
-		// 1. Factory with ollama
-		cfgOllama := &config.Config{
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if !errors.Is(err, ErrInvalidSchema) {
+			t.Fatalf("expected ErrInvalidSchema for malformed JSON, got %v", err)
+		}
+	})
+
+	t.Run("Ungrounded Evidence Fails Closed", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			resp := `{
+				"model": "qwen3.5:4b",
+				"message": {
+					"role": "assistant",
+					"content": "{\"summary\": \"Ungrounded\", \"confidence\": \"HIGH\", \"findings\": [{\"explanation\": \"Hallucinated\", \"evidence_references\": [\"hallucinated-evidence-999\"]}], \"recommended_next_steps\": [{\"action\": \"CHECK_PROVIDER_STATUS\", \"reason\": \"test\"}]}"
+				},
+				"done": true
+			}`
+			_, _ = w.Write([]byte(resp))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if !errors.Is(err, ErrInvalidEvidenceRef) {
+			t.Fatalf("expected ErrInvalidEvidenceRef for ungrounded evidence, got %v", err)
+		}
+	})
+
+	t.Run("Provider Envelope Error Fails Safely", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"error":"model 'qwen3.5:4b' not found"}`))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if !errors.Is(err, ErrAIUnavailable) {
+			t.Fatalf("expected ErrAIUnavailable for provider error, got %v", err)
+		}
+	})
+
+	t.Run("HTTP 500 Server Error Fails Safely", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"internal crash"}`))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if !errors.Is(err, ErrAIUnavailable) {
+			t.Fatalf("expected ErrAIUnavailable for 500, got %v", err)
+		}
+	})
+
+	t.Run("HTTP 429 Rate Limit Fails Safely", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if !errors.Is(err, ErrAIRateLimited) {
+			t.Fatalf("expected ErrAIRateLimited for 429, got %v", err)
+		}
+	})
+
+	t.Run("Oversized Response Rejected", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			huge := strings.Repeat("X", maxResponseBytes+100)
+			fmt.Fprintf(w, `{"model":"qwen3.5:4b","message":{"role":"assistant","content":"%s"},"done":true}`, huge)
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if !errors.Is(err, ErrResponseTooLarge) {
+			t.Fatalf("expected ErrResponseTooLarge, got %v", err)
+		}
+	})
+
+	t.Run("Timeout Fails Safely", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(100 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"model":"qwen3.5:4b","message":{"role":"assistant","content":"{}"},"done":true}`))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen3.5:4b",
+			AIRequestTimeout:  20 * time.Millisecond,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
+		}
+		client := NewOllamaClient(cfg)
+		_, err := client.Investigate(ctx, snap)
+		if !errors.Is(err, ErrAITimeout) {
+			t.Fatalf("expected ErrAITimeout, got %v", err)
+		}
+	})
+}
+
+func TestOllamaClient_OpenAICompatibleTransport(t *testing.T) {
+	ctx := context.Background()
+	snap := &InvestigationSnapshot{
+		CaseID:           "case-compat-1",
+		ValidEvidenceIDs: []string{"case-compat-1"},
+	}
+
+	validOpenAIResp := `{
+		"id": "chat-compat-1",
+		"choices": [{
+			"message": {
+				"role": "assistant",
+				"content": "{\"summary\": \"Compatible provider result\", \"confidence\": \"HIGH\", \"findings\": [{\"explanation\": \"Case observed\", \"evidence_references\": [\"case-compat-1\"]}], \"recommended_next_steps\": [{\"action\": \"CHECK_PROVIDER_STATUS\", \"reason\": \"Verify with provider\"}]}"
+			},
+			"finish_reason": "stop"
+		}]
+	}`
+
+	providers := []struct {
+		name         string
+		providerType string
+	}{
+		{"openai-compatible", "openai-compatible"},
+		{"openai", "openai"},
+		{"generic-openai", "generic-openai"},
+		{"empty-provider", ""},
+	}
+
+	for _, tc := range providers {
+		t.Run("Provider="+tc.name, func(t *testing.T) {
+			var receivedPath string
+			var receivedPayload map[string]interface{}
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedPath = r.URL.Path
+				bodyBytes, _ := io.ReadAll(r.Body)
+				_ = json.Unmarshal(bodyBytes, &receivedPayload)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(validOpenAIResp))
+			}))
+			defer srv.Close()
+
+			cfg := &config.Config{
+				AIProvider:        tc.providerType,
+				AIBaseURL:         srv.URL,
+				AIModel:           "gpt-4o-mini",
+				AIRequestTimeout:  5 * time.Second,
+				AIMaxOutputTokens: 500,
+				AIContextSize:     4096,
+			}
+
+			client := NewOllamaClient(cfg)
+			res, err := client.Investigate(ctx, snap)
+			if err != nil {
+				t.Fatalf("expected successful investigation, got %v", err)
+			}
+
+			// Verify it uses /v1/chat/completions, NOT /api/chat
+			if receivedPath != "/v1/chat/completions" {
+				t.Errorf("expected path '/v1/chat/completions', got %q", receivedPath)
+			}
+
+			// Verify native Ollama parameters are NOT sent
+			if _, exists := receivedPayload["think"]; exists {
+				t.Errorf("expected 'think' to be omitted for OpenAI-compatible, got %v", receivedPayload["think"])
+			}
+			if _, exists := receivedPayload["options"]; exists {
+				t.Errorf("expected 'options' to be omitted for OpenAI-compatible, got %v", receivedPayload["options"])
+			}
+			if _, exists := receivedPayload["keep_alive"]; exists {
+				t.Errorf("expected 'keep_alive' to be omitted for OpenAI-compatible, got %v", receivedPayload["keep_alive"])
+			}
+			if _, exists := receivedPayload["format"]; exists {
+				t.Errorf("expected 'format' to be omitted for OpenAI-compatible, got %v", receivedPayload["format"])
+			}
+
+			// Verify OpenAI parameters
+			if rf, ok := receivedPayload["response_format"].(map[string]interface{}); !ok || rf["type"] != "json_object" {
+				t.Errorf("expected response_format.type='json_object', got %v", receivedPayload["response_format"])
+			}
+
+			if res.Summary != "Compatible provider result" {
+				t.Errorf("expected summary 'Compatible provider result', got %q", res.Summary)
+			}
+			if res.RawResponse["transport"] != "openai_compatible_chat" {
+				t.Errorf("expected transport 'openai_compatible_chat', got %v", res.RawResponse["transport"])
+			}
+		})
+	}
+}
+
+func TestNewProvider_ProviderRouting(t *testing.T) {
+	ctx := context.Background()
+	snap := &InvestigationSnapshot{
+		CaseID:           "case-route-1",
+		ValidEvidenceIDs: []string{"case-route-1"},
+	}
+
+	// 1. Ollama provider routes to /api/chat
+	t.Run("AIProvider=ollama routes to /api/chat", func(t *testing.T) {
+		var receivedPath string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedPath = r.URL.Path
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"model": "qwen3.5:4b",
+				"message": {
+					"role": "assistant",
+					"content": "{\"summary\": \"Ollama routed\", \"confidence\": \"HIGH\", \"findings\": [{\"explanation\": \"Case observed\", \"evidence_references\": [\"case-route-1\"]}], \"recommended_next_steps\": [{\"action\": \"CHECK_PROVIDER_STATUS\", \"reason\": \"Verify with provider\"}]}"
+				},
+				"done": true
+			}`))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
 			AIEnabled:         true,
 			AIProvider:        "ollama",
 			AIBaseURL:         srv.URL,
 			AIModel:           "qwen3.5:4b",
 			AIRequestTimeout:  5 * time.Second,
-			AIMaxOutputTokens: 500,
-		}
-		provOllama, err := NewProvider(cfgOllama)
-		if err != nil {
-			t.Fatalf("failed to create provider: %v", err)
-		}
-		_, err = provOllama.Investigate(ctx, snap)
-		if err != nil {
-			t.Fatalf("investigate failed: %v", err)
-		}
-		if lastPayload["reasoning_effort"] != "none" {
-			t.Errorf("expected reasoning_effort='none' from NewProvider(ollama), got %v", lastPayload["reasoning_effort"])
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
 		}
 
-		// 2. Factory with openai-compatible
-		lastPayload = nil
-		cfgOpenAI := &config.Config{
+		prov, err := NewProvider(cfg)
+		if err != nil {
+			t.Fatalf("NewProvider failed: %v", err)
+		}
+		res, err := prov.Investigate(ctx, snap)
+		if err != nil {
+			t.Fatalf("Investigate failed: %v", err)
+		}
+		if receivedPath != "/api/chat" {
+			t.Errorf("expected route /api/chat, got %q", receivedPath)
+		}
+		if res.Summary != "Ollama routed" {
+			t.Errorf("expected summary 'Ollama routed', got %q", res.Summary)
+		}
+	})
+
+	// 2. OpenAI-compatible routes to /v1/chat/completions
+	t.Run("AIProvider=openai-compatible routes to /v1/chat/completions", func(t *testing.T) {
+		var receivedPath string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedPath = r.URL.Path
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"id": "chat-route-1",
+				"choices": [{
+					"message": {
+						"role": "assistant",
+						"content": "{\"summary\": \"OpenAI routed\", \"confidence\": \"HIGH\", \"findings\": [{\"explanation\": \"Case observed\", \"evidence_references\": [\"case-route-1\"]}], \"recommended_next_steps\": [{\"action\": \"CHECK_PROVIDER_STATUS\", \"reason\": \"Verify with provider\"}]}"
+					},
+					"finish_reason": "stop"
+				}]
+			}`))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
 			AIEnabled:         true,
 			AIProvider:        "openai-compatible",
 			AIBaseURL:         srv.URL,
 			AIModel:           "gpt-4o-mini",
 			AIRequestTimeout:  5 * time.Second,
-			AIMaxOutputTokens: 500,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
 		}
-		provOpenAI, err := NewProvider(cfgOpenAI)
+
+		prov, err := NewProvider(cfg)
 		if err != nil {
-			t.Fatalf("failed to create provider: %v", err)
+			t.Fatalf("NewProvider failed: %v", err)
 		}
-		_, err = provOpenAI.Investigate(ctx, snap)
+		res, err := prov.Investigate(ctx, snap)
 		if err != nil {
-			t.Fatalf("investigate failed: %v", err)
+			t.Fatalf("Investigate failed: %v", err)
 		}
-		if _, exists := lastPayload["reasoning_effort"]; exists {
-			t.Errorf("expected reasoning_effort to be omitted from NewProvider(openai-compatible), got %v", lastPayload["reasoning_effort"])
+		if receivedPath != "/v1/chat/completions" {
+			t.Errorf("expected route /v1/chat/completions, got %q", receivedPath)
+		}
+		if res.Summary != "OpenAI routed" {
+			t.Errorf("expected summary 'OpenAI routed', got %q", res.Summary)
 		}
 	})
 }

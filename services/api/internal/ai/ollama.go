@@ -19,28 +19,34 @@ const maxResponseBytes = 1024 * 1024 // 1 MB
 
 // OllamaClient provides inference via local Ollama or compatible OpenAI endpoints.
 type OllamaClient struct {
-	provider   string
-	baseURL    string
-	model      string
-	apiKey     string
-	timeout    time.Duration
-	maxTokens  int
-	httpClient *http.Client
+	provider    string
+	baseURL     string
+	model       string
+	apiKey      string
+	timeout     time.Duration
+	maxTokens   int
+	contextSize int
+	httpClient  *http.Client
 }
 
-// NewOllamaClient creates an OpenAI-compatible inference client.
+// NewOllamaClient creates an OpenAI-compatible or native Ollama inference client.
 func NewOllamaClient(cfg *config.Config) *OllamaClient {
 	var provider string
+	contextSize := 4096
 	if cfg != nil {
 		provider = strings.ToLower(strings.TrimSpace(cfg.AIProvider))
+		if cfg.AIContextSize > 0 {
+			contextSize = cfg.AIContextSize
+		}
 	}
 	return &OllamaClient{
-		provider:  provider,
-		baseURL:   cfg.AIBaseURL,
-		model:     cfg.AIModel,
-		apiKey:    cfg.AIAPIKey,
-		timeout:   cfg.AIRequestTimeout,
-		maxTokens: cfg.AIMaxOutputTokens,
+		provider:    provider,
+		baseURL:     cfg.AIBaseURL,
+		model:       cfg.AIModel,
+		apiKey:      cfg.AIAPIKey,
+		timeout:     cfg.AIRequestTimeout,
+		maxTokens:   cfg.AIMaxOutputTokens,
+		contextSize: contextSize,
 		httpClient: &http.Client{
 			Timeout: cfg.AIRequestTimeout,
 		},
@@ -53,6 +59,10 @@ func (c *OllamaClient) Name() string {
 
 func (c *OllamaClient) Model() string {
 	return c.model
+}
+
+func (c *OllamaClient) ContextSize() int {
+	return c.contextSize
 }
 
 func (c *OllamaClient) IsAvailable(ctx context.Context) bool {
@@ -266,6 +276,34 @@ func stripModelNamespace(name string) string {
 	return parts[len(parts)-1]
 }
 
+type ollamaChatRequest struct {
+	Model     string              `json:"model"`
+	Messages  []openAIChatMessage `json:"messages"`
+	Stream    bool                `json:"stream"`
+	Think     bool                `json:"think"`
+	Format    string              `json:"format"`
+	KeepAlive string              `json:"keep_alive,omitempty"`
+	Options   ollamaOptions       `json:"options"`
+}
+
+type ollamaOptions struct {
+	Temperature float64 `json:"temperature"`
+	NumCtx      int     `json:"num_ctx,omitempty"`
+	NumPredict  int     `json:"num_predict,omitempty"`
+}
+
+type ollamaChatResponse struct {
+	Model     string `json:"model"`
+	CreatedAt string `json:"created_at"`
+	Message   struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"message"`
+	DoneReason string `json:"done_reason"`
+	Done       bool   `json:"done"`
+	Error      string `json:"error,omitempty"`
+}
+
 type openAIChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -305,21 +343,155 @@ func (c *OllamaClient) Investigate(ctx context.Context, snapshot *InvestigationS
 		return nil, fmt.Errorf("failed to construct user prompt: %w", err)
 	}
 
-	var reasoningEffort string
 	if c.provider == "ollama" {
-		reasoningEffort = "none"
+		return c.investigateNativeOllama(ctx, snapshot, userPrompt)
+	}
+	return c.investigateOpenAICompatible(ctx, snapshot, userPrompt)
+}
+
+func (c *OllamaClient) investigateNativeOllama(ctx context.Context, snapshot *InvestigationSnapshot, userPrompt string) (*InvestigationResult, error) {
+	nativeReq := ollamaChatRequest{
+		Model: c.model,
+		Messages: []openAIChatMessage{
+			{Role: "system", Content: BuildSystemPrompt()},
+			{Role: "user", Content: userPrompt},
+		},
+		Stream:    false,
+		Think:     false,
+		Format:    "json",
+		KeepAlive: "10m",
+		Options: ollamaOptions{
+			Temperature: 0.1,
+			NumCtx:      c.contextSize,
+			NumPredict:  c.maxTokens,
+		},
 	}
 
+	reqBytes, err := json.Marshal(nativeReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode native chat request: %w", err)
+	}
+
+	endpoint := strings.TrimRight(c.baseURL, "/") + "/api/chat"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create http request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	slog.InfoContext(ctx, "Invoking AI investigation provider",
+		slog.String("provider", c.Name()),
+		slog.String("transport", "ollama_native_chat"),
+		slog.String("model", c.model),
+		slog.String("case_id", snapshot.CaseID),
+		slog.Int("num_ctx", c.contextSize),
+		slog.Int("num_predict", c.maxTokens),
+	)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, ErrAITimeout
+		}
+		slog.WarnContext(ctx, "AI provider connection failed",
+			slog.String("error_class", "network_transport_failure"),
+			slog.String("error", err.Error()),
+			slog.String("case_id", snapshot.CaseID),
+		)
+		return nil, ErrAIUnavailable
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, ErrAIRateLimited
+	}
+
+	if resp.StatusCode >= 500 {
+		slog.WarnContext(ctx, "AI provider returned server error",
+			slog.String("error_class", "provider_server_error"),
+			slog.Int("status", resp.StatusCode),
+			slog.String("case_id", snapshot.CaseID),
+		)
+		return nil, ErrAIUnavailable
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		lr := io.LimitReader(resp.Body, 1024)
+		body, _ := io.ReadAll(lr)
+		slog.WarnContext(ctx, "AI provider returned non-200 status",
+			slog.String("error_class", "provider_http_error"),
+			slog.Int("status", resp.StatusCode),
+			slog.Int("response_bytes", len(body)),
+			slog.String("case_id", snapshot.CaseID),
+		)
+		return nil, fmt.Errorf("%w: http status %d", ErrAIUnavailable, resp.StatusCode)
+	}
+
+	// Limit response size
+	lr := io.LimitReader(resp.Body, maxResponseBytes+1)
+	respBody, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ai provider response: %w", err)
+	}
+	if len(respBody) > maxResponseBytes {
+		return nil, ErrResponseTooLarge
+	}
+
+	var chatResp ollamaChatResponse
+	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+		return nil, fmt.Errorf("%w: invalid provider envelope", ErrInvalidSchema)
+	}
+
+	if chatResp.Error != "" {
+		return nil, fmt.Errorf("%w: provider error: %s", ErrAIUnavailable, chatResp.Error)
+	}
+
+	if strings.TrimSpace(chatResp.Message.Content) == "" {
+		return nil, fmt.Errorf("%w: provider returned empty message content", ErrInvalidSchema)
+	}
+
+	rawContent := chatResp.Message.Content
+	cleanedJSON := CleanJSONResponse(rawContent)
+
+	var result InvestigationResult
+	if err := json.Unmarshal([]byte(cleanedJSON), &result); err != nil {
+		slog.WarnContext(ctx, "Failed to parse model output as JSON",
+			slog.String("error_class", "malformed_model_json"),
+			slog.Int("raw_length", len(rawContent)),
+			slog.String("case_id", snapshot.CaseID),
+		)
+		return nil, fmt.Errorf("%w: %v", ErrInvalidSchema, err)
+	}
+
+	result.RawResponse = map[string]interface{}{
+		"provider":    c.Name(),
+		"transport":   "ollama_native_chat",
+		"model":       c.model,
+		"done_reason": chatResp.DoneReason,
+	}
+
+	// Validate grounding and constraints
+	if err := ValidateGrounding(&result, snapshot); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *OllamaClient) investigateOpenAICompatible(ctx context.Context, snapshot *InvestigationSnapshot, userPrompt string) (*InvestigationResult, error) {
 	chatReq := openAIChatRequest{
 		Model: c.model,
 		Messages: []openAIChatMessage{
 			{Role: "system", Content: BuildSystemPrompt()},
 			{Role: "user", Content: userPrompt},
 		},
-		Temperature:     0.1,
-		MaxTokens:       c.maxTokens,
-		ResponseFormat:  &responseFormat{Type: "json_object"},
-		ReasoningEffort: reasoningEffort,
+		Temperature:    0.1,
+		MaxTokens:      c.maxTokens,
+		ResponseFormat: &responseFormat{Type: "json_object"},
 	}
 
 	reqBytes, err := json.Marshal(chatReq)
@@ -340,6 +512,7 @@ func (c *OllamaClient) Investigate(ctx context.Context, snapshot *InvestigationS
 
 	slog.InfoContext(ctx, "Invoking AI investigation provider",
 		slog.String("provider", c.Name()),
+		slog.String("transport", "openai_compatible_chat"),
 		slog.String("model", c.model),
 		slog.String("case_id", snapshot.CaseID),
 	)
@@ -421,6 +594,7 @@ func (c *OllamaClient) Investigate(ctx context.Context, snapshot *InvestigationS
 
 	result.RawResponse = map[string]interface{}{
 		"provider":      c.Name(),
+		"transport":     "openai_compatible_chat",
 		"model":         c.model,
 		"finish_reason": chatResp.Choices[0].FinishReason,
 	}
