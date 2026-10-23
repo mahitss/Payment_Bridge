@@ -296,6 +296,27 @@ func (s *Service) InvestigatePayoutCase(ctx context.Context, orgID, caseID, requ
 		})
 	}
 
+	observedFacts := aiResult.ObservedFacts
+	if observedFacts == nil {
+		observedFacts = []string{}
+	}
+	missingInfo := aiResult.MissingInformation
+	if missingInfo == nil {
+		missingInfo = []string{}
+	}
+	riskFlags := aiResult.RiskFlags
+	if riskFlags == nil {
+		riskFlags = []string{}
+	}
+	limitations := aiResult.Limitations
+	if limitations == nil {
+		limitations = []string{}
+	}
+	requiresReview := aiResult.RequiresHumanReview
+	if !requiresReview {
+		requiresReview = true
+	}
+
 	investigation := &db.PayoutInvestigation{
 		PayoutCaseID:         caseID,
 		OrganizationID:       orgID,
@@ -306,13 +327,13 @@ func (s *Service) InvestigatePayoutCase(ctx context.Context, orgID, caseID, requ
 		Status:               "COMPLETED",
 		Summary:              aiResult.Summary,
 		Confidence:           aiResult.Confidence,
-		RequiresHumanReview:  aiResult.RequiresHumanReview,
-		ObservedFacts:        aiResult.ObservedFacts,
+		RequiresHumanReview:  requiresReview,
+		ObservedFacts:        observedFacts,
 		Findings:             dbFindings,
 		RecommendedNextSteps: dbRecs,
-		MissingInformation:   aiResult.MissingInformation,
-		RiskFlags:            aiResult.RiskFlags,
-		Limitations:          aiResult.Limitations,
+		MissingInformation:   missingInfo,
+		RiskFlags:            riskFlags,
+		Limitations:          limitations,
 		RawResponse:          aiResult.RawResponse,
 	}
 
