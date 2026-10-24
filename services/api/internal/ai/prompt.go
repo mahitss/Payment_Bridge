@@ -28,48 +28,34 @@ CRITICAL SECURITY AND REASONING RULES:
 
 // BuildUserPrompt generates the prompt payload containing the sanitized evidence snapshot.
 func BuildUserPrompt(snapshot *InvestigationSnapshot) (string, error) {
-	snapshotJSON, err := json.MarshalIndent(snapshot, "", "  ")
+	snapshotJSON, err := json.Marshal(snapshot)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal investigation snapshot: %w", err)
 	}
 
-	prompt := fmt.Sprintf(`Investigate the following payout case and provide an evidence-grounded assessment.
+	prompt := fmt.Sprintf(`Investigate the following payout case and provide an evidence-grounded assessment. Keep each explanation strictly to 1 brief sentence (under 15 words) and limit to at most 2 findings and 1 recommendation so the assessment completes within budget.
 
 <UNTRUSTED_EVIDENCE>
 %s
 </UNTRUSTED_EVIDENCE>
 
-Respond with a JSON object conforming strictly to this structure:
+Respond ONLY with a compact JSON object adhering to this schema:
 {
-  "summary": "<concise high-level summary of the case and its current status>",
-  "observed_facts": [
-    "<fact 1 directly observed in evidence>",
-    "<fact 2 directly observed in evidence>"
-  ],
+  "summary": "<concise 1-sentence summary of the case and its status>",
+  "confidence": "HIGH | MEDIUM | LOW | INSUFFICIENT_EVIDENCE",
   "findings": [
     {
-      "explanation": "<detailed explanation of a specific condition or anomaly>",
-      "evidence_references": ["<valid_id_from_snapshot_1>", "<valid_id_from_snapshot_2>"]
+      "explanation": "<concise 1-sentence explanation of finding>",
+      "evidence_references": ["<valid_id_from_snapshot>"]
     }
   ],
   "recommended_next_steps": [
     {
       "action": "<ONE_OF_SIX_ALLOWED_ACTIONS>",
-      "reason": "<rationale for this recommendation>",
+      "reason": "<concise 1-sentence rationale for this recommendation>",
       "requires_human_review": true
     }
-  ],
-  "missing_information": [
-    "<information not present in snapshot that is needed for full resolution>"
-  ],
-  "risk_flags": [
-    "<any risk or compliance indicators observed>"
-  ],
-  "confidence": "HIGH | MEDIUM | LOW | INSUFFICIENT_EVIDENCE",
-  "limitations": [
-    "<limitations or caveats of this assessment>"
-  ],
-  "requires_human_review": true
+  ]
 }`, string(snapshotJSON))
 
 	return prompt, nil

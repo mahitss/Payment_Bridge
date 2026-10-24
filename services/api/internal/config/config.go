@@ -55,6 +55,7 @@ type Config struct {
 	AIAPIKey               string
 	AIRequestTimeout       time.Duration
 	AIMaxOutputTokens      int
+	AIContextSize          int
 }
 
 // LoadFromEnv loads configuration from environment variables with strict validation.
@@ -100,6 +101,15 @@ func LoadFromEnv() (*Config, error) {
 		cookieSecure = true
 	}
 
+	aiContextSize := 4096
+	if rawCtx := os.Getenv("AI_CONTEXT_SIZE"); rawCtx != "" {
+		val, err := strconv.Atoi(rawCtx)
+		if err != nil || val <= 0 {
+			return nil, fmt.Errorf("configuration error: AI_CONTEXT_SIZE must be a positive integer, got %q", rawCtx)
+		}
+		aiContextSize = val
+	}
+
 	cfg := &Config{
 		AppEnv:                 appEnv,
 		Port:                   getEnv("PORT", "8080"),
@@ -133,6 +143,7 @@ func LoadFromEnv() (*Config, error) {
 		AIAPIKey:               os.Getenv("AI_API_KEY"),
 		AIRequestTimeout:       time.Duration(getEnvInt("AI_REQUEST_TIMEOUT_SECONDS", 30)) * time.Second,
 		AIMaxOutputTokens:      getEnvInt("AI_MAX_OUTPUT_TOKENS", 2048),
+		AIContextSize:          aiContextSize,
 	}
 
 	// Validate AI Base URL
@@ -140,6 +151,9 @@ func LoadFromEnv() (*Config, error) {
 		u, err := url.Parse(cfg.AIBaseURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			return nil, fmt.Errorf("configuration error: AI_BASE_URL must be a valid http or https URL, got %q", cfg.AIBaseURL)
+		}
+		if cfg.AIContextSize <= 0 {
+			return nil, fmt.Errorf("configuration error: AI_CONTEXT_SIZE must be a positive integer, got %d", cfg.AIContextSize)
 		}
 	}
 
@@ -185,8 +199,8 @@ func (c *Config) String() string {
 	redactedDB := redactDatabaseURL(c.DatabaseURL)
 
 	return fmt.Sprintf(
-		"Config{AppEnv: %s, Port: %s, LogLevel: %s, DatabaseURL: %s, AppBaseURL: %s, AllowedOrigins: %v, SessionTTL: %s, SMTP: %s:%d, PayPalEnv: %s, PayPalClientID: %s, PayPalSecret: %s, PayPalBaseURL: %s, Timeout: %s, AIEnabled: %t, AIProvider: %s, AIBaseURL: %s, AIModel: %s, AIKey: %s}",
-		c.AppEnv, c.Port, c.LogLevel, redactedDB, c.AppBaseURL, c.AllowedOrigins, c.SessionTTL, c.SMTPHost, c.SMTPPort, c.PayPalEnv, maskedClientID, maskedSecret, c.PayPalBaseURL, c.PayPalRequestTimeout, c.AIEnabled, c.AIProvider, c.AIBaseURL, c.AIModel, maskedAIKey,
+		"Config{AppEnv: %s, Port: %s, LogLevel: %s, DatabaseURL: %s, AppBaseURL: %s, AllowedOrigins: %v, SessionTTL: %s, SMTP: %s:%d, PayPalEnv: %s, PayPalClientID: %s, PayPalSecret: %s, PayPalBaseURL: %s, Timeout: %s, AIEnabled: %t, AIProvider: %s, AIBaseURL: %s, AIModel: %s, AIKey: %s, AIContextSize: %d}",
+		c.AppEnv, c.Port, c.LogLevel, redactedDB, c.AppBaseURL, c.AllowedOrigins, c.SessionTTL, c.SMTPHost, c.SMTPPort, c.PayPalEnv, maskedClientID, maskedSecret, c.PayPalBaseURL, c.PayPalRequestTimeout, c.AIEnabled, c.AIProvider, c.AIBaseURL, c.AIModel, maskedAIKey, c.AIContextSize,
 	)
 }
 

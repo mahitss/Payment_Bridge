@@ -125,6 +125,7 @@ func main() {
 		slog.Bool("enabled", cfg.AIEnabled),
 		slog.Duration("timeout", cfg.AIRequestTimeout),
 		slog.Int("max_tokens", cfg.AIMaxOutputTokens),
+		slog.Int("context_size", cfg.AIContextSize),
 	)
 
 	investigationsService := investigations.NewService(cfg, repo, aiProvider, policyEngine, paypalClient)
