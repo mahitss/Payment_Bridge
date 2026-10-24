@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"claimbridge/services/api/internal/ai"
 	"claimbridge/services/api/internal/config"
 	"claimbridge/services/api/internal/crypto"
 	"claimbridge/services/api/internal/db"
@@ -31,7 +32,25 @@ var (
 	ErrCaseInTerminalState               = errors.New("cannot perform operation on case in terminal status")
 	ErrOperationAlreadyCancelled         = errors.New("payout operation is already cancelled")
 	ErrFixtureExternalOperationForbidden = errors.New("forbidden on synthetic demo fixtures: cannot perform external PayPal operation on synthetic demo fixture: demo fixtures are strictly isolated from live financial destinations")
+	ErrEvidenceNotFound                  = errors.New("evidence reference not found")
 )
+
+// EvidenceField represents an allowlisted safe key-value pair for evidence inspection.
+type EvidenceField struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// EvidenceResolution contains the verified, privacy-minimized source record fields.
+type EvidenceResolution struct {
+	ReferenceID        string          `json:"reference_id"`
+	SourceType         string          `json:"source_type"` // PAYOUT_CASE, PAYOUT_OPERATION, STATUS_SNAPSHOT
+	DisplayLabel       string          `json:"display_label"`
+	Fields             []EvidenceField `json:"fields"`
+	RecordedAt         *string         `json:"recorded_at,omitempty"`
+	IsSyntheticFixture bool            `json:"is_synthetic_fixture"`
+	ResolutionStatus   string          `json:"resolution_status"` // RESOLVED, UNAVAILABLE
+}
 
 // Service encapsulates business logic for Payout Cases, Operations, and PayPal Sandbox integration.
 type Service struct {
@@ -595,4 +614,154 @@ func (s *Service) CancelPayoutOperation(ctx context.Context, user *db.User, org 
 	})
 
 	return op, nil
+}
+
+// ResolveEvidence inspects a grounded AI evidence reference against the authenticated tenant's case records.
+// This is a strictly read-only explainability method: no PayPal calls, external queries, or mutations are performed.
+func (s *Service) ResolveEvidence(ctx context.Context, orgID, caseID, evidenceID string) (*EvidenceResolution, error) {
+	trimmedEvidenceID := strings.TrimSpace(evidenceID)
+	if trimmedEvidenceID == "" {
+		return nil, ErrEvidenceNotFound
+	}
+
+	// 1. Fetch case scoped to tenant
+	pCase, err := s.repo.GetPayoutCaseByID(ctx, orgID, caseID)
+	if err != nil {
+		if errors.Is(err, db.ErrPayoutCaseNotFound) {
+			return nil, ErrEvidenceNotFound
+		}
+		return nil, fmt.Errorf("failed to fetch payout case: %w", err)
+	}
+
+	// Case Reference Match (case ID)
+	if pCase.ID == trimmedEvidenceID {
+		recAt := pCase.CreatedAt.UTC().Format(time.RFC3339)
+		fields := []EvidenceField{
+			{Name: "Case Reference", Value: pCase.Reference},
+			{Name: "Title", Value: pCase.Title},
+			{Name: "Status", Value: pCase.Status},
+			{Name: "Amount", Value: fmt.Sprintf("$%.2f %s", float64(pCase.AmountCents)/100.0, pCase.Currency)},
+			{Name: "Recipient (Masked)", Value: ai.MaskEmail(pCase.RecipientEmail)},
+			{Name: "Dual Approval Required", Value: fmt.Sprintf("%t", pCase.DualApprovalRequired)},
+			{Name: "Risk Score", Value: fmt.Sprintf("%.2f", pCase.RiskScore)},
+			{Name: "Created At", Value: recAt},
+			{Name: "Updated At", Value: pCase.UpdatedAt.UTC().Format(time.RFC3339)},
+		}
+		if pCase.Description != "" {
+			fields = append([]EvidenceField{{Name: "Description", Value: pCase.Description}}, fields...)
+		}
+		return &EvidenceResolution{
+			ReferenceID:        trimmedEvidenceID,
+			SourceType:         "PAYOUT_CASE",
+			DisplayLabel:       fmt.Sprintf("Payout Case (%s)", pCase.Reference),
+			Fields:             fields,
+			RecordedAt:         &recAt,
+			IsSyntheticFixture: pCase.IsSyntheticFixture,
+			ResolutionStatus:   "RESOLVED",
+		}, nil
+	}
+
+	// 2. Fetch operations scoped to tenant and case
+	ops, err := s.repo.ListPayoutOperationsByCaseID(ctx, orgID, caseID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list payout operations: %w", err)
+	}
+
+	// Check if evidenceID matches any operation identifier
+	for _, op := range ops {
+		matched := false
+		if op.ID == trimmedEvidenceID || op.SenderBatchID == trimmedEvidenceID || op.SenderItemID == trimmedEvidenceID {
+			matched = true
+		} else if op.PayPalPayoutBatchID != nil && *op.PayPalPayoutBatchID == trimmedEvidenceID {
+			matched = true
+		} else if op.PayPalPayoutItemID != nil && *op.PayPalPayoutItemID == trimmedEvidenceID {
+			matched = true
+		}
+
+		if matched {
+			recAt := op.CreatedAt.UTC().Format(time.RFC3339)
+			fields := []EvidenceField{
+				{Name: "Operation ID", Value: op.ID},
+				{Name: "Sender Batch ID", Value: op.SenderBatchID},
+				{Name: "Sender Item ID", Value: op.SenderItemID},
+				{Name: "Operation Status", Value: op.Status},
+				{Name: "Amount", Value: fmt.Sprintf("$%.2f %s", float64(op.AmountCents)/100.0, op.Currency)},
+				{Name: "Requires Dual Approval", Value: fmt.Sprintf("%t", op.RequiresDualApproval)},
+			}
+			if op.PayPalPayoutBatchID != nil && *op.PayPalPayoutBatchID != "" {
+				fields = append(fields, EvidenceField{Name: "PayPal Batch ID", Value: *op.PayPalPayoutBatchID})
+			}
+			if op.PayPalBatchStatus != nil && *op.PayPalBatchStatus != "" {
+				fields = append(fields, EvidenceField{Name: "PayPal Batch Status", Value: *op.PayPalBatchStatus})
+			}
+			if op.PayPalPayoutItemID != nil && *op.PayPalPayoutItemID != "" {
+				fields = append(fields, EvidenceField{Name: "PayPal Item ID", Value: *op.PayPalPayoutItemID})
+			}
+			if op.PayPalItemStatus != nil && *op.PayPalItemStatus != "" {
+				fields = append(fields, EvidenceField{Name: "PayPal Item Status", Value: *op.PayPalItemStatus})
+			}
+			if op.ErrorMessage != nil && *op.ErrorMessage != "" {
+				fields = append(fields, EvidenceField{Name: "Error Message", Value: *op.ErrorMessage})
+			}
+			if op.ApprovedAt != nil {
+				fields = append(fields, EvidenceField{Name: "Approved At", Value: op.ApprovedAt.UTC().Format(time.RFC3339)})
+			}
+			if op.SubmittedAt != nil {
+				fields = append(fields, EvidenceField{Name: "Submitted At", Value: op.SubmittedAt.UTC().Format(time.RFC3339)})
+			}
+			if op.CompletedAt != nil {
+				fields = append(fields, EvidenceField{Name: "Completed At", Value: op.CompletedAt.UTC().Format(time.RFC3339)})
+			}
+			if op.CancelledAt != nil {
+				fields = append(fields, EvidenceField{Name: "Cancelled At", Value: op.CancelledAt.UTC().Format(time.RFC3339)})
+			}
+			fields = append(fields, EvidenceField{Name: "Created At", Value: recAt})
+
+			return &EvidenceResolution{
+				ReferenceID:        trimmedEvidenceID,
+				SourceType:         "PAYOUT_OPERATION",
+				DisplayLabel:       fmt.Sprintf("Payout Operation (%s)", op.SenderBatchID),
+				Fields:             fields,
+				RecordedAt:         &recAt,
+				IsSyntheticFixture: op.IsSyntheticFixture,
+				ResolutionStatus:   "RESOLVED",
+			}, nil
+		}
+	}
+
+	// 3. Check status snapshots across operations of this case
+	for _, op := range ops {
+		snaps, snapErr := s.repo.ListPayoutStatusSnapshots(ctx, orgID, op.ID)
+		if snapErr != nil {
+			continue
+		}
+		for _, snap := range snaps {
+			if snap.ID == trimmedEvidenceID {
+				recAt := snap.RecordedAt.UTC().Format(time.RFC3339)
+				fields := []EvidenceField{
+					{Name: "Snapshot ID", Value: snap.ID},
+					{Name: "Payout Operation ID", Value: snap.PayoutOperationID},
+					{Name: "Provider", Value: snap.Provider},
+					{Name: "Batch Status", Value: snap.BatchStatus},
+				}
+				if snap.ItemStatus != nil && *snap.ItemStatus != "" {
+					fields = append(fields, EvidenceField{Name: "Item Status", Value: *snap.ItemStatus})
+				}
+				fields = append(fields, EvidenceField{Name: "Recorded At", Value: recAt})
+
+				return &EvidenceResolution{
+					ReferenceID:        trimmedEvidenceID,
+					SourceType:         "STATUS_SNAPSHOT",
+					DisplayLabel:       fmt.Sprintf("Status Snapshot (%s)", snap.Provider),
+					Fields:             fields,
+					RecordedAt:         &recAt,
+					IsSyntheticFixture: snap.IsSyntheticFixture,
+					ResolutionStatus:   "RESOLVED",
+				}, nil
+			}
+		}
+	}
+
+	// 4. Unknown, cross-tenant, or cross-case reference
+	return nil, ErrEvidenceNotFound
 }
