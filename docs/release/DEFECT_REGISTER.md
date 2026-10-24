@@ -11,7 +11,7 @@
 
 During Missions 008 and 009, the ClaimBridge codebase underwent evidence-driven remediation and full-system integration verification targeting financial state machine integrity, duplicate disbursement prevention, server context timeout harmonization, and zero-budget containerized deployment.
 
-All three critical defects (`DEF-006`, `DEF-007`, `DEF-008`) and container environment alignment (`CLAIMBRIDGE_ENV: sandbox`) have been remediated, verified fixed, and proven resolved via dedicated automated regression test suites and the 32-scenario end-to-end acceptance suite. The external sandbox and inference requirements (`DEF-001`, `DEF-002`, `DEF-003`) remain accurately classified according to their external dependencies.
+All three critical defects (`DEF-006`, `DEF-007`, `DEF-008`) and container environment alignment (`CLAIMBRIDGE_ENV: sandbox`) have been remediated, verified fixed, and proven resolved via dedicated automated regression test suites and the 32-scenario end-to-end acceptance suite. The external sandbox dependency (`DEF-001`) remains blocked on developer sandbox keys, demo video publication (`DEF-003`) is verified by automated CI artifact generation with public link pending, and local Ollama inference (`DEF-002`) has been resolved and verified in local runtime on a CPU development environment with native bounded `/api/chat` transport.
 
 ---
 
@@ -40,31 +40,31 @@ Allowed Final Status Taxonomy:
 
 ---
 
-### DEF-002: Live Ollama Model Inference Pending Service Launch
+### DEF-002: Live Ollama Model Inference Execution & Bounded Options
 - **Severity:** P2
 - **Initial Status:** `IMPLEMENTED_NOT_VERIFIED`
-- **Observed Behavior:** Automated acceptance tests and unit tests run against deterministic mock providers. Local Ollama daemon was not running during headless automated testing.
-- **Affected Files:** `services/api/internal/ai/ollama.go`
-- **Expected Behavior:** Local Ollama daemon serves `llama3.2` model at `http://localhost:11434` for live forensic investigations.
-- **Root Cause:** Local Ollama daemon not started as a persistent daemon during automated CLI runs.
-- **Resolution:** Pluggable AI provider interface and Ollama driver implemented; fail-closed fallback verified (Scenario 29 returns HTTP 503 without altering financial state).
-- **Regression Test Evidence:** Scenario 25–32 pass; grounding validation verified.
-- **Remaining Risk:** Low. Live model inference requires `ollama serve && ollama pull llama3.2`.
-- **Final Status:** `FIXED_NOT_FULLY_VERIFIED`
+- **Observed Behavior:** Automated acceptance tests and CI run against deterministic mock providers. Under earlier unconstrained completions, local Ollama execution could encounter inference timeout stalls on CPU hardware.
+- **Affected Files:** `services/api/internal/ai/ollama.go`, `services/api/internal/config/config.go`
+- **Expected Behavior:** Local Ollama daemon serves bounded model inference (e.g. `qwen3.5:4b` or `llama3.2`) with bounded context and token budgeting without hanging.
+- **Root Cause:** Unbounded context size and default token lengths caused local CPU execution to exceed HTTP timeouts.
+- **Resolution:** PR #4 merged native bounded `/api/chat` transport into `main` with `think: false`, `format: "json"`, `keep_alive: "10m"`, explicit context bounds (`AI_CONTEXT_SIZE=4096`), token budgeting (`AI_MAX_OUTPUT_TOKENS=300`), and configurable client timeout (`AI_REQUEST_TIMEOUT_SECONDS=120`). Verified on a local CPU development environment using Ollama with Qwen3.5 4B (`qwen3.5:4b`) on synthetic case `DEMO-W9821` (HTTP 201 Created, ~60.6s).
+- **Regression Test Evidence:** Scenario 25–32 pass; grounding validation verified; local runtime verification on case `DEMO-W9821` with grounded evidence output in web UI.
+- **Remaining Risk:** Low. Performance depends on host CPU specifications (not a performance guarantee for arbitrary CPU hardware). Automated CI runs deliberately against mock test doubles.
+- **Final Status:** `RESOLVED_VERIFIED_LOCAL_RUNTIME`
 
 ---
 
-### DEF-003: Hackathon Demo Video Recording File Pending
+### DEF-003: Hackathon Demo Video Recording File Pending Public URL
 - **Severity:** P2
 - **Initial Status:** `NOT_IMPLEMENTED`
-- **Observed Behavior:** Repository contains complete demo script, shot list, and recording checklist, but no video file or hosting link is uploaded.
-- **Affected Files:** `docs/demo/DEMO_SCRIPT.md`, `docs/demo/SHOT_LIST.md`
+- **Observed Behavior:** Repository contains complete demo script, shot list, and recording checklist. CI automatically generates and validates a 1080p WebM walkthrough artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, latest Main-Head Validation Run [40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) Artifact ID `12569654956`, expiring November 7, 2026), but public video link is not yet posted to a video hosting platform.
+- **Affected Files:** `docs/demo/DEMO_SCRIPT.md`, `docs/demo/SHOT_LIST.md`, `docs/demo/VIDEO_ARTIFACT_GUIDE.md`
 - **Expected Behavior:** 2-minute video recording uploaded to video hosting service and linked in hackathon portal.
-- **Root Cause:** Recording is an external manual presentation task pending final team video recording session.
-- **Resolution:** Script and shot list complete; recording scheduled prior to final submission.
-- **Regression Test Evidence:** Document inspection.
+- **Root Cause:** Recording voiceover and public upload is an external manual presentation task pending final team video recording session.
+- **Resolution:** Script, shot list, and automated CI recording artifact complete; public recording scheduled prior to final submission.
+- **Regression Test Evidence:** Automated media-integrity check in CI (120–175s duration, 1920×1080 resolution, silent WebM).
 - **Remaining Risk:** Submission incomplete until video link is provided in Devpost/hackathon portal.
-- **Final Status:** `UNRESOLVED`
+- **Final Status:** `CI_ARTIFACT_VERIFIED; PUBLIC_VIDEO_PENDING`
 
 ---
 
@@ -82,16 +82,16 @@ Allowed Final Status Taxonomy:
 
 ---
 
-### DEF-005: Local Ollama CPU Inference Latency (4–12 Seconds)
+### DEF-005: Local Ollama CPU Inference Latency Notice
 - **Severity:** P3
 - **Initial Status:** `ACCEPTED_NONCRITICAL`
-- **Observed Behavior:** Local LLM inference on CPU without GPU acceleration takes 4–12 seconds.
+- **Observed Behavior:** Local LLM inference on CPU without GPU acceleration takes approximately 60.6 seconds with `qwen3.5:4b` under a 4096 context window.
 - **Affected Files:** `apps/web/src/app/app/payouts/[id]/page.tsx`, `services/api/internal/ai/ollama.go`
 - **Expected Behavior:** Instantaneous inference responses.
 - **Root Cause:** Zero-budget constraint avoids paid hosted APIs; open-weights local execution on consumer hardware.
-- **Resolution:** Web frontend implements animated responsive status indicators and non-blocking background workers. Core payout operations are completely decoupled from AI inference latency.
-- **Regression Test Evidence:** Web UI inspection and Scenario 29 pass.
-- **Remaining Risk:** Low. Mitigated by asynchronous UI states.
+- **Resolution:** Web frontend implements animated responsive status indicators ("Analyzing transaction evidence with Ollama...") and route timeout was increased to 120s. Core payout operations are completely decoupled from AI inference latency.
+- **Regression Test Evidence:** Web UI inspection, empirical verification (~60.6s HTTP 201), and Scenario 29 pass.
+- **Remaining Risk:** Low. Mitigated by asynchronous UI states and bounded timeout.
 - **Final Status:** `ACCEPTED_NONCRITICAL`
 
 ---
@@ -204,8 +204,8 @@ Allowed Final Status Taxonomy:
 | Defect ID | Severity | Area | Final Status |
 | :--- | :--- | :--- | :--- |
 | **DEF-001** | P2 | PayPal Sandbox Verification | `FIXED_NOT_FULLY_VERIFIED` |
-| **DEF-002** | P2 | AI Inference Service | `FIXED_NOT_FULLY_VERIFIED` |
-| **DEF-003** | P2 | Demo Video Recording | `UNRESOLVED` |
+| **DEF-002** | P2 | AI Inference Service | `RESOLVED_VERIFIED_LOCAL_RUNTIME (SINGLE CPU MACHINE)` |
+| **DEF-003** | P2 | Demo Video Recording | `CI_ARTIFACT_VERIFIED; PUBLIC_VIDEO_PENDING` |
 | **DEF-004** | P3 | Multi-Currency Scope | `ACCEPTED_NONCRITICAL` |
 | **DEF-005** | P3 | CPU Inference Latency | `ACCEPTED_NONCRITICAL` |
 | **DEF-006** | P1 | Financial State Machine Integrity | `VERIFIED_FIXED` |

@@ -161,7 +161,7 @@ curl -s http://localhost:8080/readyz
 #### Offline Synthetic Track vs. Live External Track:
 - **Offline Synthetic Track (Active by Default):** Pre-seeded cases (`DEMO-W9821`, `DEMO-M4421`, `DEMO-V1082`) display persisted forensic evidence. External PayPal mutations (submit, sync, cancel) are protected by server-side guards returning HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN` with zero outbound PayPal network requests.
 - **Live PayPal Sandbox (Optional):** Requires supplying genuine `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` in `.env`.
-- **Genuine AI Inference (Optional):** Requires a running local Ollama model (`ollama serve && ollama pull llama3.2`). When Ollama is offline, the system safely reports `AI_UNAVAILABLE` without disrupting core financial and policy workflows.
+- **Genuine AI Inference (Optional):** Requires a running local Ollama model (e.g. `qwen3.5:4b` or `llama3.2`). PR #4 merged native bounded inference (`AI_CONTEXT_SIZE=4096`, `AI_MAX_OUTPUT_TOKENS=300`, `AI_REQUEST_TIMEOUT_SECONDS=120`), verified locally with `qwen3.5:4b` on a single CPU runtime (~60.6s). When Ollama is offline, the system safely reports `AI_UNAVAILABLE` without disrupting core financial and policy workflows.
 
 #### Safe Shutdown & Volume Preservation:
 ```bash
@@ -235,9 +235,9 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 To run the AI investigation engine locally with zero API fees:
 
 1. Install Ollama: [https://ollama.ai](https://ollama.ai)
-2. Pull and start Llama 3.2:
+2. Pull and start your preferred model (e.g., `qwen3.5:4b` or `llama3.2`):
    ```bash
-   ollama pull llama3.2
+   ollama pull qwen3.5:4b
    ollama serve
    ```
 3. Set environment variables in `.env`:
@@ -245,9 +245,15 @@ To run the AI investigation engine locally with zero API fees:
    AI_ENABLED=true
    AI_PROVIDER=ollama
    AI_BASE_URL=http://localhost:11434
-   AI_MODEL=llama3.2
+   AI_MODEL=qwen3.5:4b
+   AI_CONTEXT_SIZE=4096
+   AI_MAX_OUTPUT_TOKENS=300
+   AI_REQUEST_TIMEOUT_SECONDS=120
    ```
 4. Restart the Go API server.
+
+> [!NOTE]
+> **Runtime Architecture & Hardware Scope:** PR #4 upgraded Ollama integration to use native `/api/chat` bounded-inference transport (`stream: false`, `think: false`, `format: "json"`), preventing model hang/timeouts on consumer hardware. Genuine local inference was verified using Ollama with Qwen3.5 4B (`qwen3.5:4b`) on synthetic case `DEMO-W9821` (HTTP 201 Created, ~60.6s) on a single local CPU runtime. This is **not a guarantee of equal performance or identical execution times on other host machines or arbitrary CPUs** (local CPU execution latency depends on host clock speed, core counts, thermal headroom, and background load). Automated CI continues to run against deterministic mock providers without requiring local Ollama daemons.
 
 ---
 
@@ -273,7 +279,7 @@ ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock t
 
 - **Authoritative Verification Matrix:** See [`docs/submission/VERIFICATION_MATRIX.md`](docs/submission/VERIFICATION_MATRIX.md) for full mapping of requirements to source files, exact tests, evidence tiers, and local reproduction steps.
 - **Judge Offline Evaluation Runbook:** See [`docs/submission/JUDGE_RUNBOOK.md`](docs/submission/JUDGE_RUNBOOK.md) for a single-command evaluator launch guide, seeded credentials, step-by-step walkthrough expectations, and safe cleanup commands.
-- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions: Mission 021 audited source baseline [Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) on commit `c6a261a` (with main-head validation [Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) on commit `9b0b6c7`):
+- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions: Main-Head Validation [Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) on commit `b681c87`, Feature Branch Baseline [Run 40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) on commit `7fbd031`, Audited Source Baseline [Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) on commit `c6a261a`, and Historical Validation [Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) on commit `9b0b6c7`:
   - **Go API Gateway:** `go vet`, 11/11 packages passing with race detection (`go test -race ./...`), PostgreSQL seeder integration test, and 32/32 acceptance scenarios passing in simulated deterministic test harness.
   - **Rust Policy Engine:** 17/17 deterministic unit tests passing, zero Clippy warnings (`cargo clippy -- -D warnings`), and release compilation.
   - **Next.js Web Frontend:** ESLint clean, 15/15 standalone production routes built.
@@ -281,9 +287,9 @@ ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock t
   - **Security & Secret Audit:** Secret pattern scanning against git tree and strict sandbox environment verification (`PAYPAL_ENV=sandbox`).
   - **Docker Compose Offline Evaluator Verification:** Multi-stage image builds, isolated stack launch (`docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up -d`), seeder execution, readiness checks, complete Playwright E2E suite executed against Compose, deterministic walkthrough recording generation, seeder idempotency re-run, and stack restart persistence.
 - **External Integration Gating:**
-  - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied.
-  - Genuine Local Ollama Inference: Implemented and unit/mock verified; live runtime is gated by local daemon availability and reported honestly as `BLOCKED` when offline.
-- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Artifact ID: `12359179229`, ~10.6 MB, measured at 153.2s, expiry November 4, 2026; audited baseline Artifact ID: `12345583865` in Run 39600293507) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, silent WebM), and published as a temporary downloadable CI artifact by `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`); 14-day retention applies; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
+  - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied. Live PayPal cancellation is contract-verified in the test double harness; live sandbox cancellation remains unverified; zero real money was moved or cancelled.
+  - Genuine Local Ollama Inference: Implemented and verified in live local runtime with `qwen3.5:4b` on a local CPU development environment (~60.6s, HTTP 201 Created); hardware performance varies across host CPUs. In headless CI or offline environments without an active Ollama daemon, the system safely reports `AI_UNAVAILABLE` fail-closed.
+- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Main-Head Validation Artifact ID: `12569654956` in Run [40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389), ~10.7 MB, expiry November 7, 2026; Feature Branch Artifact ID: `12569609901` in Run [40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661), ~10.0 MB; Historical Artifact ID: `12359179229`, ~10.6 MB, measured at 153.2s) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, silent WebM), and published as a temporary downloadable CI artifact by `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`); 14-day retention applies; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
 
 ---
 

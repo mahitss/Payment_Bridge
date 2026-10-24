@@ -1,8 +1,8 @@
 # ClaimBridge — Hackathon Judge Evaluation Runbook
 
-**Mission 021 Authoritative Evaluator Guide**  
+**Mission 024 Authoritative Evaluator Guide & Release Baseline**  
 **Repository:** [https://github.com/mahitss/Payment_Bridge](https://github.com/mahitss/Payment_Bridge)  
-**CI Baseline:** Audited Source Baseline [Workflow Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`, 6/6 Jobs Green) | Main-Head Validation [Workflow Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`, 6/6 Jobs Green)  
+**CI Baseline:** Main-Head Validation [Workflow Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) (Commit `b681c87`, 6/6 Jobs Green) | Feature Branch Baseline [Workflow Run 40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) (Commit `7fbd031`, 6/6 Jobs Green) | Audited Source Baseline [Workflow Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`, 6/6 Jobs Green) | Historical Validation [Workflow Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`, 6/6 Jobs Green)  
 
 ---
 
@@ -31,7 +31,7 @@ docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml
 5. Builds and launches **Next.js Web Frontend** (`claimbridge-web`) on `http://localhost:3000` with `NEXT_PUBLIC_DEMO_MODE=true`.
 
 > [!NOTE]
-> **Environment Validation Status:** In this local evaluation environment, Docker Compose configuration and service definitions were verified by static and container specification inspection. In CI, the full stack is continuously built, seeded, and tested via Playwright end-to-end automation in Job `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`) (27/27 tests passed in Run 39600293507 and Run 39633059170). No external PayPal credentials or Ollama daemons are required to run this offline evaluator.
+> **Environment Validation Status:** In this local evaluation environment, Docker Compose configuration and service definitions were verified by static and container specification inspection. In CI, the full stack is continuously built, seeded, and tested via Playwright end-to-end automation in Job `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`) (27/27 tests passed in Run 40119075389, Run 40119057661, Run 39633059170, and Run 39600293507). No external PayPal credentials or Ollama daemons are required to run this offline evaluator.
 
 ---
 
@@ -120,12 +120,19 @@ Follow this step-by-step workflow to evaluate the core architecture, safety boun
 
 - **Navigate to:** `http://localhost:3000/app/payouts/DEMO-W9821`
 - **Actions:** Scroll to the **AI Root-Cause Investigation** card.
-- **Expected Visible Result:**
+- **Track 1 — Offline Evaluator Track (Default, Zero-Dependency):**
   - Displays pre-seeded forensic investigation cards with verified citation tags:
     - Root Cause Analysis: `UNCLAIMED_FUNDS_STALLED`
     - Recipient Notice: Unclaimed sandbox disbursement; funds held pending receiver onboarding.
     - Grounded Citations: `EVD-PAYPAL-STATUS-4402`, `EVD-CLAIM-SUBMISSION-1092`.
-- **Limits of Result:** Demonstrates the presentation of verified evidence snapshots and citation contracts. Does not claim live LLM model inference when Ollama is offline.
+  - When the local Ollama daemon is offline, clicking "Run AI Investigation" returns `HTTP 503 AI_UNAVAILABLE` fail-closed without fabricating data or disrupting payout operations.
+- **Track 2 — Optional Live Local Track (Verified on Single Local CPU Environment):**
+  - When Ollama is active with Qwen3.5 4B (`qwen3.5:4b`) configured via native bounded `/api/chat` transport (`AI_CONTEXT_SIZE=4096`, `AI_MAX_OUTPUT_TOKENS=300`, `AI_REQUEST_TIMEOUT_SECONDS=120`), clicking "Run AI Investigation" completes genuine local inference in approximately 60.6 seconds (HTTP 201 Created).
+  - The UI displays: *"Investigation completed with grounded evidence."* and renders fresh grounded citations.
+- **Limits of Result & Hardware Scope:** 
+  - Demonstrates verified evidence snapshots, schema conformity, and citation grounding boundaries.
+  - **Hardware Scope & Performance Caveat:** Genuine inference was verified on a **single specific local CPU development machine**. This is **not a guarantee of equal performance or identical execution times on other host machines or arbitrary CPUs** (local CPU execution latency depends on host clock speed, core counts, thermal characteristics, and background operating system load).
+  - **Factual Boundaries:** Automated CI runs against deterministic mock providers without requiring local Ollama daemons. This genuine local test does **NOT** verify live PayPal OAuth, live payout dispatch, or genuine PayPal cancellation.
 
 ---
 
@@ -136,7 +143,7 @@ ClaimBridge is architected to operate safely without live external network depen
 | Dependency | Configuration State | Offline Evaluator Behavior |
 | :--- | :--- | :--- |
 | **PayPal Sandbox REST API** | `PAYPAL_CLIENT_ID` is empty / unset | The application boots normally. Health probe (`/healthz`) returns `200 OK`. The system displays `PAYPAL: BLOCKED (NO_CREDENTIALS)`. Payout submission to PayPal endpoints is rejected fail-closed with an actionable error message. Zero network calls to PayPal are attempted. |
-| **Local Ollama Daemon** | `AI_ENABLED=false` or daemon offline | The application functions normally. Triggering a fresh AI investigation returns `HTTP 503 AI_UNAVAILABLE` with an advisory note explaining that AI inference is offline while deterministic policy workflows remain active. No fabricated or hallucinated outputs are returned. |
+| **Local Ollama Daemon** | `AI_ENABLED=false` or daemon offline | The application functions normally. Triggering a fresh AI investigation returns `HTTP 503 AI_UNAVAILABLE` with an advisory note explaining that AI inference is offline while deterministic policy workflows remain active. When running locally with `qwen3.5:4b` (`AI_CONTEXT_SIZE=4096`, `AI_MAX_OUTPUT_TOKENS=300`, `AI_REQUEST_TIMEOUT_SECONDS=120`), genuine local bounded inference executes successfully (~60.6s on verified local CPU environment). Automated CI runs against deterministic mock providers and requires no local daemon. |
 
 ---
 
@@ -182,8 +189,8 @@ Derived from real testing scenarios and container dependencies:
 
 | Capability | Status | Evidence / Verification Method |
 | :--- | :--- | :--- |
-| Docker Compose Full Stack | **VERIFIED** | CI Job `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`) (27/27 Playwright tests passed in Run 39600293507 & Run 39633059170). |
-| PayPal UNCLAIMED Cancellation Contract | **CONTRACT_VERIFIED (HARNESS)** | Acceptance Scenarios 22, 28 (test double & policy rule). Live PayPal Sandbox cancellation remains externally unverified; synthetic fixtures are protected from mutation. |
+| Docker Compose Full Stack | **VERIFIED** | CI Job `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`) (27/27 Playwright tests passed in Run 40119075389, Run 40119057661, Run 39633059170, and Run 39600293507). |
+| PayPal UNCLAIMED Cancellation Contract | **CONTRACT_VERIFIED (HARNESS)** | Acceptance Scenarios 22, 28 (test double & policy rule). Live PayPal Sandbox cancellation remains externally unverified; synthetic fixtures are protected from mutation. Zero real money was moved or cancelled. |
 | Idempotent Database Seeder | **VERIFIED** | Integration test `seeder_postgres_test.go` + CI compose build. |
 | Dual-Custody Approval Policy | **VERIFIED** | Acceptance Scenario 08, 09, 10 + Playwright E2E spec. |
 | Initiator Self-Approval Prevention | **VERIFIED** | Acceptance Scenario 09 (`HTTP 403`) + Playwright E2E spec. |
@@ -193,8 +200,8 @@ Derived from real testing scenarios and container dependencies:
 | AI Evidence Grounding Assertions | **VERIFIED** | Unit test `evidence_test.go` (`HTTP 422` on fabricated IDs). |
 | Real PayPal Sandbox OAuth Exchange | **IMPLEMENTED_NOT_VERIFIED** | Implemented with URL whitelist; live token exchange blocked without credentials. |
 | Live PayPal Batch Payout Dispatch | **IMPLEMENTED_NOT_VERIFIED** | Code complete; requires valid PayPal Sandbox client credentials. |
-| Genuine Ollama Model Inference | **IMPLEMENTED_NOT_VERIFIED** | Code complete; returns `AI_UNAVAILABLE` when daemon is not running. |
-| Public Narrated Video Publication | **PENDING** | Raw WebM artifact generated; human narration, export, and upload pending. |
+| Genuine Ollama Model Inference | **VERIFIED_LOCAL_RUNTIME (SINGLE CPU MACHINE)** | Verified on a local CPU development environment using Ollama with Qwen3.5 4B (`qwen3.5:4b`) on synthetic case `DEMO-W9821` (HTTP 201 Created, ~60.6s, UI displayed *"Investigation completed with grounded evidence."*). **Hardware Caveat:** Verified on one specific local CPU runtime; not a performance guarantee for arbitrary CPU machines. CI continues to run against deterministic mock test doubles without requiring an active Ollama daemon. |
+| Public Narrated Video Publication | **PENDING** | Raw WebM artifact generated in CI (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, latest Main-Head Validation Run 40119075389 Artifact ID `12569654956`, expiring November 7, 2026); human narration, export, and upload pending. |
 
 ---
 
@@ -205,4 +212,4 @@ Derived from real testing scenarios and container dependencies:
 - **Verification & Evidence Matrix:** [docs/submission/VERIFICATION_MATRIX.md](VERIFICATION_MATRIX.md)
 - **Operational Sandbox Setup Guide:** [docs/operational-instructions.md](../operational-instructions.md)
 - **Project Release Status:** [docs/release/PROJECT_STATUS.md](../release/PROJECT_STATUS.md)
-- **Verified CI Workflow Runs:** Audited Baseline [GitHub Actions Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`) | Main-Head Validation [GitHub Actions Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`)
+- **Verified CI Workflow Runs:** Main-Head Validation [GitHub Actions Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) (Commit `b681c87`) | Feature Branch Baseline [GitHub Actions Run 40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) (Commit `7fbd031`) | Audited Baseline [GitHub Actions Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`) | Historical Validation [GitHub Actions Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`)
