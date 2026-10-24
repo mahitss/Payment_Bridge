@@ -93,12 +93,25 @@ CREATE TABLE IF NOT EXISTS payout_investigations (
 
 ---
 
-## 5. Free-First Inference Support
+## 5. Free-First Inference Support & Native Bounded Ollama Transport
 
 ClaimBridge is built to run 100% free with local model runtimes:
-- **Default**: Local Ollama running at `http://127.0.0.1:11434` with model `llama3.2`, `mistral`, or `qwen2.5`.
-- **OpenAI-Compatible Hosted Endpoints**: Any compatible free endpoint configured through `AI_BASE_URL` and `AI_API_KEY`.
+- **Default / Recommended**: Local Ollama running at `http://127.0.0.1:11434` with model `qwen3.5:4b` or `llama3.2`.
+- **OpenAI-Compatible Hosted Endpoints**: Any compatible endpoint configured through `AI_BASE_URL` and `AI_API_KEY`.
 - **Fail-Closed Graceful Degradation**: If AI is offline, the API reports `503 Service Unavailable` with message `"Investigation assistant is currently unavailable. Core payout operations remain fully functional."`
+
+### Native Ollama Bounded-Inference Implementation (PR #4)
+To resolve inference timeouts and resource unboundedness on consumer CPU hardware, ClaimBridge communicates directly with Ollama's native `/api/chat` endpoint (rather than unconstrained completions):
+- **Transport**: `POST /api/chat` with `stream: false`, `think: false`, `format: "json"`, and `keep_alive: "10m"`.
+- **Explicit Context Sizing (`options.num_ctx`)**: Configured via `AI_CONTEXT_SIZE` (default: `4096`).
+- **Predict Bounds (`options.num_predict`)**: Configured via `AI_MAX_OUTPUT_TOKENS` (default: `300`).
+- **Determinism**: `options.temperature: 0.1` ensures consistent, grounded structured JSON.
+- **Client Timeout**: Governed by `AI_REQUEST_TIMEOUT_SECONDS` (default: `120`).
+
+### Empirical Verification & Hardware Scope
+- **Verified Local Test:** Genuine local model inference was executed and verified on a local CPU development environment using Ollama with Qwen3.5 4B (`qwen3.5:4b`). ClaimBridge completed an investigation of synthetic case `DEMO-W9821` (`38650d86-1930-4b61-817e-983d882ec390`), outputting HTTP 201 Created in approximately 60.6 seconds and displaying *"Investigation completed with grounded evidence."* in the browser UI.
+- **Hardware Caveat:** This genuine test was verified on a **single specific local CPU development environment**. This is **not a guarantee of equal performance or identical execution times on other host machines or arbitrary CPUs** (local CPU latency depends directly on CPU clock speeds, core count, thermal management, and concurrent system processes).
+- **Separation of Evidence:** Automated CI executes against deterministic mock providers with zero external network or daemon requirements. Local AI verification does not verify live PayPal OAuth, live payout dispatch, or genuine PayPal cancellation.
 
 ---
 
@@ -115,7 +128,10 @@ ClaimBridge supports two verified deployment configurations for model-backed AI 
   AI_ENABLED=true
   AI_PROVIDER=ollama
   AI_BASE_URL=http://localhost:11434
-  AI_MODEL=llama3.2
+  AI_MODEL=qwen3.5:4b
+  AI_CONTEXT_SIZE=4096
+  AI_MAX_OUTPUT_TOKENS=300
+  AI_REQUEST_TIMEOUT_SECONDS=120
   ```
 
 ### Configuration B: Containerized Go API + Host Ollama (Docker Desktop)
@@ -128,7 +144,10 @@ ClaimBridge supports two verified deployment configurations for model-backed AI 
   AI_ENABLED=true
   AI_PROVIDER=ollama
   AI_BASE_URL=http://host.docker.internal:11434
-  AI_MODEL=llama3.2
+  AI_MODEL=qwen3.5:4b
+  AI_CONTEXT_SIZE=4096
+  AI_MAX_OUTPUT_TOKENS=300
+  AI_REQUEST_TIMEOUT_SECONDS=120
   ```
 > [!NOTE]
 > Container `localhost` refers to the container itself, NOT the host machine. Always use `host.docker.internal` when the Go API is containerized.
