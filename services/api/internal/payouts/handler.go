@@ -42,6 +42,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/payout-cases/{case_id}/payout-operations", h.handleInitiatePayoutOperation)
 	mux.HandleFunc("GET /api/v1/payout-cases/{case_id}/operations", h.handleListPayoutOperations)
 
+	// Evidence Reference Resolution
+	mux.HandleFunc("GET /api/v1/payout-cases/{case_id}/evidence/{evidence_id}", h.handleResolveEvidence)
+
 	// Payout Operations Actions
 	mux.HandleFunc("POST /api/v1/payout-operations/{operation_id}/approve", h.handleApprovePayoutOperation)
 	mux.HandleFunc("POST /api/v1/payout-operations/{operation_id}/submit", h.handleSubmitPayoutOperation)
@@ -423,6 +426,58 @@ func (h *Handler) handleCancelPayoutOperation(w http.ResponseWriter, r *http.Req
 		"operation": op,
 		"message":   "Payout operation successfully cancelled",
 	})
+}
+
+// GET /api/v1/payout-cases/{case_id}/evidence/{evidence_id}
+func (h *Handler) handleResolveEvidence(w http.ResponseWriter, r *http.Request) {
+	_, org, err := h.getAuth(r)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return
+	}
+
+	caseID := r.PathValue("case_id")
+	if caseID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "case_id is required",
+			"code":  "INVALID_CASE_ID",
+		})
+		return
+	}
+
+	evidenceID := r.PathValue("evidence_id")
+	if evidenceID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "evidence_id is required",
+			"code":  "INVALID_EVIDENCE_ID",
+		})
+		return
+	}
+
+	resolution, err := h.service.ResolveEvidence(r.Context(), org.ID, caseID, evidenceID)
+	if err != nil {
+		if errors.Is(err, ErrEvidenceNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]interface{}{
+				"reference_id":      evidenceID,
+				"resolution_status": "UNAVAILABLE",
+				"error":             "evidence reference not found",
+				"code":              "EVIDENCE_NOT_FOUND",
+			})
+			return
+		}
+		slog.ErrorContext(r.Context(), "Failed to resolve evidence reference",
+			slog.String("case_id", caseID),
+			slog.String("evidence_id", evidenceID),
+			slog.String("error", err.Error()),
+		)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to resolve evidence reference",
+			"code":  "INTERNAL_ERROR",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resolution)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {

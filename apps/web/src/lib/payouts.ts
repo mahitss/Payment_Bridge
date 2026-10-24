@@ -79,6 +79,21 @@ export interface InvestigationFinding {
   evidence_references: string[];
 }
 
+export interface EvidenceField {
+  name: string;
+  value: string;
+}
+
+export interface EvidenceResolution {
+  reference_id: string;
+  source_type: "PAYOUT_CASE" | "PAYOUT_OPERATION" | "STATUS_SNAPSHOT";
+  display_label: string;
+  fields: EvidenceField[];
+  recorded_at?: string;
+  is_synthetic_fixture: boolean;
+  resolution_status: "RESOLVED" | "UNAVAILABLE";
+}
+
 export interface InvestigationRecommendation {
   action:
     | "REQUEST_RECIPIENT_INFORMATION"
