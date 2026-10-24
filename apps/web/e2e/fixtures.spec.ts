@@ -87,5 +87,24 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
 
     // Evidence citations must be visible and properly grounded
     await expect(page.locator("text=Evidence:")).toBeVisible();
+
+    // Verify historical transport and duration metadata (Mission 025 transparency)
+    const transportBadge = page.locator('[data-testid="header-transport-badge"]');
+    await expect(transportBadge).toBeVisible();
+    await expect(transportBadge).toHaveText("Historical / Untracked");
+
+    const transportInfo = page.locator('[data-testid="investigation-transport"]');
+    await expect(transportInfo).toBeVisible();
+    await expect(transportInfo).toContainText("Standard Provider (Historical / Untracked Transport)");
+
+    const engineInfo = page.locator('[data-testid="investigation-engine"]');
+    await expect(engineInfo).toBeVisible();
+    await expect(engineInfo).toHaveText("Engine: ollama-openai-compatible (llama3.2)");
+
+    // Historical records must not display invented values
+    const historicalDuration = page.locator('[data-testid="investigation-duration-historical"]');
+    await expect(historicalDuration).toBeVisible();
+    await expect(historicalDuration).toHaveText("Duration: Not recorded (historical)");
+    await expect(page.locator('[data-testid="investigation-duration"]')).not.toBeVisible();
   });
 });

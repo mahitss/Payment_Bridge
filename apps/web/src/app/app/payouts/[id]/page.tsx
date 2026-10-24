@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -35,6 +35,9 @@ import {
   PayoutInvestigation,
   formatCentsToUSD,
   formatDate,
+  getInvestigationTransportInfo,
+  formatInferenceDuration,
+  formatElapsedTimer,
 } from "@/lib/payouts";
 
 export default function PayoutCaseDetailPage() {
@@ -54,6 +57,8 @@ export default function PayoutCaseDetailPage() {
   const [investigations, setInvestigations] = useState<PayoutInvestigation[]>([]);
   const [selectedInvestigation, setSelectedInvestigation] = useState<PayoutInvestigation | null>(null);
   const [investigating, setInvestigating] = useState<boolean>(false);
+  const [investigationElapsedSeconds, setInvestigationElapsedSeconds] = useState<number>(0);
+  const investigationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [investigationError, setInvestigationError] = useState<string | null>(null);
   const [investigationSuccess, setInvestigationSuccess] = useState<string | null>(null);
   const [activeEvidenceRef, setActiveEvidenceRef] = useState<string | null>(null);
@@ -65,6 +70,16 @@ export default function PayoutCaseDetailPage() {
 
   // Show raw provider response accordion
   const [expandedRawResponse, setExpandedRawResponse] = useState<boolean>(false);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (investigationTimerRef.current) {
+        clearInterval(investigationTimerRef.current);
+        investigationTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -128,9 +143,25 @@ export default function PayoutCaseDetailPage() {
   }, [caseId]);
 
   const handleRunInvestigation = async (forceSync = false) => {
+    // Guard against duplicate concurrent execution
+    if (investigating) return;
+
     setInvestigating(true);
     setInvestigationError(null);
     setInvestigationSuccess(null);
+    setInvestigationElapsedSeconds(0);
+
+    if (investigationTimerRef.current) {
+      clearInterval(investigationTimerRef.current);
+      investigationTimerRef.current = null;
+    }
+
+    const startTime = Date.now();
+    investigationTimerRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      setInvestigationElapsedSeconds(elapsed);
+    }, 1000);
+
     try {
       const res = await fetch(`/api/v1/payout-cases/${caseId}/investigations`, {
         method: "POST",
@@ -162,6 +193,10 @@ export default function PayoutCaseDetailPage() {
     } catch {
       setInvestigationError("Network error connecting to investigation service.");
     } finally {
+      if (investigationTimerRef.current) {
+        clearInterval(investigationTimerRef.current);
+        investigationTimerRef.current = null;
+      }
       setInvestigating(false);
     }
   };
@@ -689,7 +724,7 @@ export default function PayoutCaseDetailPage() {
               <button
                 onClick={() => handleRunInvestigation(false)}
                 disabled={investigating}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-indigo-600/20"
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-indigo-600/20"
               >
                 {investigating ? (
                   <>
@@ -709,7 +744,7 @@ export default function PayoutCaseDetailPage() {
                   onClick={() => handleRunInvestigation(true)}
                   disabled={investigating}
                   title="Query PayPal Sandbox status first, then analyze with fresh provider records"
-                  className="px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium transition flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-slate-300 hover:text-white border border-slate-700 text-xs font-medium transition flex items-center gap-1.5"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${investigating ? "animate-spin" : ""}`} />
                   <span>Sync &amp; Investigate</span>
@@ -720,7 +755,11 @@ export default function PayoutCaseDetailPage() {
 
           {/* Error / Offline Alert */}
           {investigationError && (
-            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-3">
+            <div
+              role="alert"
+              data-testid="investigation-error-banner"
+              className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-3"
+            >
               <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
               <div className="space-y-1">
                 <span className="font-semibold text-rose-200">Investigation Unavailable</span>
@@ -734,9 +773,53 @@ export default function PayoutCaseDetailPage() {
 
           {/* Success Banner */}
           {investigationSuccess && (
-            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+            <div
+              role="status"
+              data-testid="investigation-success-banner"
+              className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2"
+            >
               <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
               <span>{investigationSuccess}</span>
+            </div>
+          )}
+
+          {/* Accessible In-Progress Investigation Panel */}
+          {investigating && (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              data-testid="investigation-pending-panel"
+              className="p-5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 shadow-lg shadow-indigo-950/50 space-y-3.5 transition-all animate-pulse"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin flex-shrink-0" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">
+                    Forensic AI Investigation in Progress
+                  </span>
+                  <span
+                    data-testid="elapsed-timer"
+                    className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
+                  >
+                    Elapsed: {formatElapsedTimer(investigationElapsedSeconds)}
+                  </span>
+                </div>
+                <span className="text-[11px] font-mono text-indigo-300/80">
+                  Awaiting model response...
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                Local CPU inference is executing. On CPU-only development hardware, processing local model weights may take over a minute. Actual timings vary depending on host hardware, CPU thread allocation, and model context size.
+              </p>
+
+              <div className="pt-2 border-t border-indigo-500/20 flex items-center gap-2 text-[11px] text-amber-300/90">
+                <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 text-amber-400" />
+                <span>
+                  AI ADVISORY SCOPE: This investigation is strictly forensic and advisory. It will not submit, approve, execute, or cancel any financial payout.
+                </span>
+              </div>
             </div>
           )}
 
@@ -752,7 +835,8 @@ export default function PayoutCaseDetailPage() {
               </p>
               <button
                 onClick={() => handleRunInvestigation(false)}
-                className="mt-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition inline-flex items-center gap-2 shadow-lg shadow-indigo-600/20"
+                disabled={investigating}
+                className="mt-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition inline-flex items-center gap-2 shadow-lg shadow-indigo-600/20"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Run First Investigation</span>
@@ -761,89 +845,146 @@ export default function PayoutCaseDetailPage() {
           )}
 
           {/* Selected Investigation Results Display */}
-          {selectedInvestigation && (
-            <div className="space-y-6">
-              {/* History Bar (if multiple investigations exist) */}
-              {investigations.length > 1 && (
-                <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/60">
-                  <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1.5 flex-shrink-0">
-                    <History className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Past Investigations:</span>
-                  </span>
-                  {investigations.map((inv, idx) => (
-                    <button
-                      key={inv.id}
-                      onClick={() => setSelectedInvestigation(inv)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition flex-shrink-0 flex items-center gap-1.5 ${
-                        selectedInvestigation.id === inv.id
-                          ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-semibold"
-                          : "bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800"
-                      }`}
-                    >
-                      <span>#{investigations.length - idx}</span>
-                      <span>{formatDate(inv.created_at)}</span>
-                      {inv.confidence === "HIGH" && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          {selectedInvestigation && (() => {
+            const transportInfo = getInvestigationTransportInfo(selectedInvestigation);
+            const formattedDuration = formatInferenceDuration(selectedInvestigation.raw_response);
+
+            return (
+              <div className="space-y-6">
+                {/* History Bar (if multiple investigations exist) */}
+                {investigations.length > 1 && (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/60">
+                    <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1.5 flex-shrink-0">
+                      <History className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Past Investigations:</span>
+                    </span>
+                    {investigations.map((inv, idx) => (
+                      <button
+                        key={inv.id}
+                        onClick={() => setSelectedInvestigation(inv)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition flex-shrink-0 flex items-center gap-1.5 ${
+                          selectedInvestigation.id === inv.id
+                            ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-semibold"
+                            : "bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800"
+                        }`}
+                      >
+                        <span>#{investigations.length - idx}</span>
+                        <span>{formatDate(inv.created_at)}</span>
+                        {inv.confidence === "HIGH" && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Top Summary Banner */}
+                <div className="p-5 rounded-xl bg-slate-950/80 border border-slate-800/90 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                        Forensic Summary
+                      </span>
+                      {/* Confidence Badge */}
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide ${
+                          selectedInvestigation.confidence === "HIGH"
+                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                            : selectedInvestigation.confidence === "MEDIUM"
+                            ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                            : selectedInvestigation.confidence === "LOW"
+                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                            : "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                        }`}
+                      >
+                        Confidence: {selectedInvestigation.confidence}
+                      </span>
+
+                      {/* Human Review Status */}
+                      {selectedInvestigation.requires_human_review ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                          Human Review Mandatory
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                          Automated Consensus
+                        </span>
                       )}
-                    </button>
-                  ))}
-                </div>
-              )}
 
-              {/* Top Summary Banner */}
-              <div className="p-5 rounded-xl bg-slate-950/80 border border-slate-800/90 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Forensic Summary
-                    </span>
-                    {/* Confidence Badge */}
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide ${
-                        selectedInvestigation.confidence === "HIGH"
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                          : selectedInvestigation.confidence === "MEDIUM"
-                          ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                          : selectedInvestigation.confidence === "LOW"
-                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                          : "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-                      }`}
-                    >
-                      Confidence: {selectedInvestigation.confidence}
-                    </span>
+                      {/* Transport Badge */}
+                      <span
+                        data-testid="header-transport-badge"
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide ${
+                          transportInfo.type === "native_ollama"
+                            ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                            : transportInfo.type === "openai_compatible"
+                            ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                            : "bg-slate-800/80 text-slate-400 border border-slate-700"
+                        }`}
+                      >
+                        {transportInfo.badgeLabel}
+                      </span>
 
-                    {/* Human Review Status */}
-                    {selectedInvestigation.requires_human_review ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                        Human Review Mandatory
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
-                        Automated Consensus
-                      </span>
-                    )}
+                      {/* Duration Badge */}
+                      {formattedDuration && (
+                        <span
+                          data-testid="header-duration-badge"
+                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-mono"
+                        >
+                          Inference: {formattedDuration}
+                        </span>
+                      )}
+                    </div>
+
+                    <span className="text-[11px] font-mono text-slate-500">
+                      Recorded {formatDate(selectedInvestigation.created_at)}
+                    </span>
                   </div>
 
-                  <span className="text-[11px] font-mono text-slate-500">
-                    Recorded {formatDate(selectedInvestigation.created_at)}
-                  </span>
-                </div>
+                  <p className="text-sm text-slate-200 leading-relaxed font-sans">
+                    {selectedInvestigation.summary}
+                  </p>
 
-                <p className="text-sm text-slate-200 leading-relaxed font-sans">
-                  {selectedInvestigation.summary}
-                </p>
-
-                {/* Explicit Disclaimer */}
-                <div className="pt-2 border-t border-slate-900 flex items-center justify-between text-[11px] text-slate-500">
-                  <span className="flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5 text-slate-500" />
-                    <span>AI ADVISORY OPINION: Advisory only. All payments require deterministic officer authorization.</span>
-                  </span>
-                  <span className="font-mono text-[10px] text-slate-500">
-                    Engine: {selectedInvestigation.provider} ({selectedInvestigation.model})
-                  </span>
+                  {/* Explicit Disclaimer and Telemetry Metadata */}
+                  <div className="pt-2.5 border-t border-slate-900 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1.5 text-slate-500">
+                      <Info className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                      <span>AI ADVISORY OPINION: Advisory only. All payments require deterministic officer authorization.</span>
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
+                      <span
+                        data-testid="investigation-transport"
+                        className={`px-2 py-0.5 rounded border ${
+                          transportInfo.type === "native_ollama"
+                            ? "bg-purple-500/10 text-purple-300 border-purple-500/30"
+                            : transportInfo.type === "openai_compatible"
+                            ? "bg-blue-500/10 text-blue-300 border-blue-500/30"
+                            : "bg-slate-800 text-slate-400 border-slate-700"
+                        }`}
+                      >
+                        Transport: {transportInfo.label}
+                      </span>
+                      <span data-testid="investigation-engine" className="text-slate-400">
+                        Engine: {selectedInvestigation.provider} ({selectedInvestigation.model})
+                      </span>
+                      {formattedDuration ? (
+                        <span
+                          data-testid="investigation-duration"
+                          className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-semibold"
+                        >
+                          Duration: {formattedDuration}
+                        </span>
+                      ) : (
+                        <span
+                          data-testid="investigation-duration-historical"
+                          className="text-slate-500 italic"
+                        >
+                          Duration: Not recorded (historical)
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
 
               {/* Two Column Grid: Evidence vs Recommendations */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -1023,8 +1164,31 @@ export default function PayoutCaseDetailPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Raw Provider Diagnostic Telemetry Accordion */}
+              {selectedInvestigation.raw_response && (
+                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+                  <button
+                    onClick={() => setExpandedRawResponse(!expandedRawResponse)}
+                    data-testid="toggle-raw-telemetry"
+                    className="text-slate-400 hover:text-white text-xs font-mono flex items-center gap-2 transition"
+                  >
+                    {expandedRawResponse ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    <span>{expandedRawResponse ? "Hide Diagnostic Telemetry Envelope" : "View Diagnostic Telemetry Envelope (Safe Metadata)"}</span>
+                  </button>
+                  {expandedRawResponse && (
+                    <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-900 font-mono text-[11px] text-slate-300 overflow-x-auto space-y-2">
+                      <div className="text-[10px] uppercase font-sans text-slate-500 tracking-wider">
+                        Provider Envelope (Excludes Prompts, Credentials, and Snapshots)
+                      </div>
+                      <pre data-testid="raw-telemetry-json">{JSON.stringify(selectedInvestigation.raw_response, null, 2)}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          )}
+          );
+        })()}
         </section>
 
         {/* Durable Operation & Provider Status Section */}

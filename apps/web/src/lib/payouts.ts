@@ -149,3 +149,76 @@ export function formatDate(isoString?: string): string {
     return isoString;
   }
 }
+
+export interface InvestigationTransportInfo {
+  type: "native_ollama" | "openai_compatible" | "historical";
+  label: string;
+  badgeLabel: string;
+}
+
+/**
+ * Distinguishes truthfully between native Ollama chat, OpenAI-compatible chat,
+ * and historical records that lack a transport field.
+ * Native transport is never inferred solely from model name.
+ */
+export function getInvestigationTransportInfo(inv?: PayoutInvestigation | null): InvestigationTransportInfo {
+  if (!inv) {
+    return {
+      type: "historical",
+      label: "Historical / Untracked Transport",
+      badgeLabel: "Historical Transport",
+    };
+  }
+
+  const transport = inv.raw_response?.transport;
+  if (transport === "ollama_native_chat") {
+    return {
+      type: "native_ollama",
+      label: "Native Ollama Chat",
+      badgeLabel: "Ollama Native Chat",
+    };
+  }
+  if (transport === "openai_compatible_chat") {
+    return {
+      type: "openai_compatible",
+      label: "OpenAI-Compatible Chat",
+      badgeLabel: "OpenAI Compatible",
+    };
+  }
+
+  return {
+    type: "historical",
+    label: "Standard Provider (Historical / Untracked Transport)",
+    badgeLabel: "Historical / Untracked",
+  };
+}
+
+/**
+ * Formats non-negative inference duration measured in milliseconds.
+ * Returns null for historical records without duration metadata so no invented values appear.
+ */
+export function formatInferenceDuration(rawResponse?: Record<string, any> | null): string | null {
+  if (!rawResponse) return null;
+  const durationMs = rawResponse.inference_duration_ms;
+  if (typeof durationMs !== "number" || isNaN(durationMs) || durationMs < 0) {
+    return null;
+  }
+  if (durationMs < 1000) {
+    return `${Math.round(durationMs)}ms`;
+  }
+  const seconds = (durationMs / 1000).toFixed(1);
+  return `${seconds}s (${durationMs.toLocaleString()}ms)`;
+}
+
+/**
+ * Formats elapsed seconds counter for active in-progress pending states.
+ */
+export function formatElapsedTimer(seconds: number): string {
+  if (seconds < 0) seconds = 0;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins === 0) {
+    return `${secs}s`;
+  }
+  return `${mins}m ${secs < 10 ? "0" : ""}${secs}s`;
+}

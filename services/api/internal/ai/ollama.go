@@ -392,6 +392,10 @@ func (c *OllamaClient) investigateNativeOllama(ctx context.Context, snapshot *In
 		slog.Int("num_predict", c.maxTokens),
 	)
 
+	// Telemetry scope: Backend-observed latency in milliseconds for the provider HTTP request,
+	// measured from dispatch of the HTTP request through complete reading of the response body.
+	// Prompts, raw evidence snapshots, credentials, API keys, and sensitive model responses are strictly excluded.
+	requestStart := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
@@ -441,6 +445,11 @@ func (c *OllamaClient) investigateNativeOllama(ctx context.Context, snapshot *In
 		return nil, ErrResponseTooLarge
 	}
 
+	inferenceDurationMs := time.Since(requestStart).Milliseconds()
+	if inferenceDurationMs < 0 {
+		inferenceDurationMs = 0
+	}
+
 	var chatResp ollamaChatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
 		return nil, fmt.Errorf("%w: invalid provider envelope", ErrInvalidSchema)
@@ -468,10 +477,11 @@ func (c *OllamaClient) investigateNativeOllama(ctx context.Context, snapshot *In
 	}
 
 	result.RawResponse = map[string]interface{}{
-		"provider":    c.Name(),
-		"transport":   "ollama_native_chat",
-		"model":       c.model,
-		"done_reason": chatResp.DoneReason,
+		"provider":              c.Name(),
+		"transport":             "ollama_native_chat",
+		"model":                 c.model,
+		"done_reason":           chatResp.DoneReason,
+		"inference_duration_ms": inferenceDurationMs,
 	}
 
 	// Validate grounding and constraints
@@ -517,6 +527,10 @@ func (c *OllamaClient) investigateOpenAICompatible(ctx context.Context, snapshot
 		slog.String("case_id", snapshot.CaseID),
 	)
 
+	// Telemetry scope: Backend-observed latency in milliseconds for the provider HTTP request,
+	// measured from dispatch of the HTTP request through complete reading of the response body.
+	// Prompts, raw evidence snapshots, credentials, API keys, and sensitive model responses are strictly excluded.
+	requestStart := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
@@ -566,6 +580,11 @@ func (c *OllamaClient) investigateOpenAICompatible(ctx context.Context, snapshot
 		return nil, ErrResponseTooLarge
 	}
 
+	inferenceDurationMs := time.Since(requestStart).Milliseconds()
+	if inferenceDurationMs < 0 {
+		inferenceDurationMs = 0
+	}
+
 	var chatResp openAIChatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
 		return nil, fmt.Errorf("%w: invalid provider envelope", ErrInvalidSchema)
@@ -593,10 +612,11 @@ func (c *OllamaClient) investigateOpenAICompatible(ctx context.Context, snapshot
 	}
 
 	result.RawResponse = map[string]interface{}{
-		"provider":      c.Name(),
-		"transport":     "openai_compatible_chat",
-		"model":         c.model,
-		"finish_reason": chatResp.Choices[0].FinishReason,
+		"provider":              c.Name(),
+		"transport":             "openai_compatible_chat",
+		"model":                 c.model,
+		"finish_reason":         chatResp.Choices[0].FinishReason,
+		"inference_duration_ms": inferenceDurationMs,
 	}
 
 	// Validate grounding and constraints

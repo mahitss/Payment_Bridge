@@ -173,6 +173,94 @@ func TestOllamaClient_WithFakeServer(t *testing.T) {
 		if res.Summary != "Analysis complete" {
 			t.Errorf("expected summary %q, got %q", "Analysis complete", res.Summary)
 		}
+		if res.RawResponse == nil {
+			t.Fatalf("expected non-nil RawResponse")
+		}
+		if res.RawResponse["transport"] != "openai_compatible_chat" {
+			t.Errorf("expected transport 'openai_compatible_chat', got %v", res.RawResponse["transport"])
+		}
+		dur, ok := res.RawResponse["inference_duration_ms"].(int64)
+		if !ok || dur < 0 {
+			t.Errorf("expected non-negative int64 inference_duration_ms, got %v (%T)", res.RawResponse["inference_duration_ms"], res.RawResponse["inference_duration_ms"])
+		}
+	})
+
+	t.Run("Native Ollama Chat Response with Duration", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/chat" {
+				t.Errorf("expected request path /api/chat, got %s", r.URL.Path)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			resp := `{
+				"model": "qwen2.5:3b",
+				"message": {
+					"role": "assistant",
+					"content": "{\"summary\": \"Analysis complete via native ollama\", \"confidence\": \"HIGH\", \"findings\": [{\"explanation\": \"Case recorded\", \"evidence_references\": [\"case-test-1\"]}], \"recommended_next_steps\": [{\"action\": \"CHECK_PROVIDER_STATUS\", \"reason\": \"Verify with provider\"}]}"
+				},
+				"done": true,
+				"done_reason": "stop"
+			}`
+			_, _ = w.Write([]byte(resp))
+		}))
+		defer srv.Close()
+
+		cfg := &config.Config{
+			AIProvider:        "ollama",
+			AIBaseURL:         srv.URL,
+			AIModel:           "qwen2.5:3b",
+			AIRequestTimeout:  5 * time.Second,
+			AIMaxOutputTokens: 300,
+			AIContextSize:     4096,
+		}
+		client := NewOllamaClient(cfg)
+		res, err := client.Investigate(ctx, snap)
+		if err != nil {
+			t.Fatalf("expected successful native investigation, got %v", err)
+		}
+		if res.Summary != "Analysis complete via native ollama" {
+			t.Errorf("expected summary %q, got %q", "Analysis complete via native ollama", res.Summary)
+		}
+		if res.RawResponse == nil {
+			t.Fatalf("expected non-nil RawResponse")
+		}
+		if res.RawResponse["transport"] != "ollama_native_chat" {
+			t.Errorf("expected transport 'ollama_native_chat', got %v", res.RawResponse["transport"])
+		}
+		if res.RawResponse["done_reason"] != "stop" {
+			t.Errorf("expected done_reason 'stop', got %v", res.RawResponse["done_reason"])
+		}
+		dur, ok := res.RawResponse["inference_duration_ms"].(int64)
+		if !ok || dur < 0 {
+			t.Errorf("expected non-negative int64 inference_duration_ms, got %v (%T)", res.RawResponse["inference_duration_ms"], res.RawResponse["inference_duration_ms"])
+		}
+	})
+
+	t.Run("Historical Records Without Transport or Duration", func(t *testing.T) {
+		historicalRes := &InvestigationResult{
+			Summary:    "Historical completed investigation",
+			Confidence: ConfidenceHigh,
+			Findings: []InvestigationFinding{
+				{Explanation: "Case observed", EvidenceReferences: []string{"case-test-1"}},
+			},
+			RecommendedNextSteps: []InvestigationRecommendation{
+				{Action: ActionCheckProviderStatus, Reason: "Check provider"},
+			},
+			RawResponse: map[string]interface{}{
+				"provider": "ollama-openai-compatible",
+				"model":    "llama3.2",
+				// Note: transport and inference_duration_ms are omitted (simulating historical record)
+			},
+		}
+
+		if err := ValidateGrounding(historicalRes, snap); err != nil {
+			t.Fatalf("expected historical investigation to pass validation, got %v", err)
+		}
+		if _, exists := historicalRes.RawResponse["transport"]; exists {
+			t.Errorf("expected transport to be absent in historical record")
+		}
+		if _, exists := historicalRes.RawResponse["inference_duration_ms"]; exists {
+			t.Errorf("expected inference_duration_ms to be absent in historical record")
+		}
 	})
 
 	t.Run("Insufficient Evidence Flow", func(t *testing.T) {
@@ -734,6 +822,10 @@ func TestOllamaClient_NativeInference_SuccessAndPayload(t *testing.T) {
 	}
 	if res.RawResponse["transport"] != "ollama_native_chat" {
 		t.Errorf("expected transport 'ollama_native_chat', got %v", res.RawResponse["transport"])
+	}
+	dur, ok := res.RawResponse["inference_duration_ms"].(int64)
+	if !ok || dur < 0 {
+		t.Errorf("expected non-negative int64 inference_duration_ms, got %v (%T)", res.RawResponse["inference_duration_ms"], res.RawResponse["inference_duration_ms"])
 	}
 }
 
