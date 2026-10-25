@@ -30,6 +30,8 @@ var (
 	ErrAmbiguousNetworkTimeout    = errors.New("ambiguous network timeout during payout mutation: DO NOT RETRY WITH NEW ID; run reconciliation")
 	ErrInvalidPayoutRequest       = errors.New("invalid payout request: missing sender_batch_id or items")
 	ErrSandboxAssertionFailed     = errors.New("paypal environment is not sandbox")
+	ErrUntrustedHATEOASHost       = errors.New("security violation: untrusted HATEOAS host in paypal response")
+	ErrMalformedHATEOASLink       = errors.New("malformed HATEOAS link in paypal response")
 )
 
 // OfficialSandboxBaseURL is the immutable official PayPal sandbox API endpoint.
@@ -280,6 +282,104 @@ type LinkDescription struct {
 	Href   string `json:"href"`
 	Rel    string `json:"rel"`
 	Method string `json:"method"`
+}
+
+// APIErrorDetail represents field-level validation errors from PayPal REST APIs.
+type APIErrorDetail struct {
+	Field string `json:"field,omitempty"`
+	Issue string `json:"issue,omitempty"`
+}
+
+// APIErrorResponse represents a standard PayPal REST API error body.
+type APIErrorResponse struct {
+	Name            string            `json:"name"`
+	Message         string            `json:"message"`
+	InformationLink string            `json:"information_link,omitempty"`
+	Details         []APIErrorDetail  `json:"details,omitempty"`
+	Links           []LinkDescription `json:"links,omitempty"`
+}
+
+// DuplicatePayoutError represents a PayPal response indicating sender_batch_id was already submitted.
+type DuplicatePayoutError struct {
+	OriginalBatchID string
+	RawResponse     string
+	Links           []LinkDescription
+	Message         string
+}
+
+func (e *DuplicatePayoutError) Error() string {
+	if e.OriginalBatchID != "" {
+		return fmt.Sprintf("paypal duplicate payout request: original batch id %s: %s", e.OriginalBatchID, e.Message)
+	}
+	return fmt.Sprintf("paypal duplicate payout request: %s", e.Message)
+}
+
+// ExtractAndValidateBatchIDFromHATEOAS extracts and verifies the original PayPal batch ID
+// from HATEOAS links in a duplicate payout error response.
+//
+// Invariants:
+// - Does not blindly trust provider-supplied URLs.
+// - Asserts that the host matches the client's configured Sandbox base URL host.
+// - Asserts that the scheme matches the client's configured base URL scheme.
+// - Validates that the path conforms to /v1/payments/payouts/{id}.
+// - Rejects path traversal or invalid characters in the batch ID.
+func ExtractAndValidateBatchIDFromHATEOAS(links []LinkDescription, expectedBaseURL string) (string, error) {
+	if len(links) == 0 {
+		return "", fmt.Errorf("%w: no links provided in response", ErrMalformedHATEOASLink)
+	}
+
+	expectedU, err := url.Parse(strings.TrimSpace(expectedBaseURL))
+	if err != nil {
+		return "", fmt.Errorf("invalid expected base URL %q: %w", expectedBaseURL, err)
+	}
+	expectedHost := strings.ToLower(expectedU.Host)
+	expectedScheme := strings.ToLower(expectedU.Scheme)
+
+	for _, link := range links {
+		href := strings.TrimSpace(link.Href)
+		if href == "" {
+			continue
+		}
+
+		u, err := url.Parse(href)
+		if err != nil {
+			return "", fmt.Errorf("%w: invalid href %q: %v", ErrMalformedHATEOASLink, href, err)
+		}
+
+		// Security assertion: Host must strictly match expected base URL host if present
+		if u.Host != "" {
+			if strings.ToLower(u.Host) != expectedHost {
+				return "", fmt.Errorf("%w: link host %q does not match expected host %q", ErrUntrustedHATEOASHost, u.Host, expectedHost)
+			}
+		}
+
+		// Security assertion: Scheme must match expected base URL scheme if present
+		if u.Scheme != "" {
+			if strings.ToLower(u.Scheme) != expectedScheme {
+				return "", fmt.Errorf("%w: link scheme %q does not match expected scheme %q", ErrUntrustedHATEOASHost, u.Scheme, expectedScheme)
+			}
+		}
+
+		// Validate path: must be /v1/payments/payouts/{batch_id}
+		cleanPath := strings.Trim(u.Path, "/")
+		parts := strings.Split(cleanPath, "/")
+
+		var batchID string
+		if len(parts) == 4 && parts[0] == "v1" && parts[1] == "payments" && parts[2] == "payouts" {
+			batchID = parts[3]
+		} else if len(parts) == 3 && parts[0] == "payments" && parts[1] == "payouts" {
+			batchID = parts[2]
+		}
+
+		if batchID != "" {
+			if strings.ContainsAny(batchID, "/\\?%#") || strings.Contains(batchID, "..") {
+				return "", fmt.Errorf("%w: invalid characters or traversal in batch ID %q", ErrMalformedHATEOASLink, batchID)
+			}
+			return batchID, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: no matching payout batch route found in links", ErrMalformedHATEOASLink)
 }
 
 // CreatePayoutRequest specifies payout creation parameters.
@@ -676,6 +776,40 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 		return nil, ErrForbidden
 	}
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		var apiErr APIErrorResponse
+		if jsonErr := json.Unmarshal(bodyBytes, &apiErr); jsonErr == nil {
+			isDup := strings.EqualFold(apiErr.Name, "DUPLICATE_REQUEST") ||
+				strings.EqualFold(apiErr.Name, "DUPLICATE_TRANSACTION") ||
+				strings.Contains(strings.ToUpper(apiErr.Message), "DUPLICATE")
+			if !isDup {
+				for _, detail := range apiErr.Details {
+					if strings.Contains(strings.ToUpper(detail.Issue), "DUPLICATE") ||
+						strings.Contains(strings.ToUpper(detail.Issue), "ALREADY SUBMITTED") {
+						isDup = true
+						break
+					}
+				}
+			}
+
+			if isDup {
+				batchID, extractErr := ExtractAndValidateBatchIDFromHATEOAS(apiErr.Links, c.baseURL)
+				if extractErr != nil {
+					return nil, &DuplicatePayoutError{
+						OriginalBatchID: "",
+						RawResponse:     string(bodyBytes),
+						Links:           apiErr.Links,
+						Message:         fmt.Sprintf("%s (link validation error: %v)", apiErr.Message, extractErr),
+					}
+				}
+				return nil, &DuplicatePayoutError{
+					OriginalBatchID: batchID,
+					RawResponse:     string(bodyBytes),
+					Links:           apiErr.Links,
+					Message:         apiErr.Message,
+				}
+			}
+		}
+
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))
 		return nil, fmt.Errorf("paypal create payout failed with status %d: %s", resp.StatusCode, sanitizedBody)
 	}

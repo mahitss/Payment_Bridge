@@ -673,13 +673,13 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 	query := `
 		INSERT INTO payout_operations (
 			payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
-			amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
+			amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
 			paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
 			requires_dual_approval, approved_by_user_id, approved_at, submitted_at,
 			completed_at, cancelled_at, is_synthetic_fixture, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW()
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
 	`
@@ -692,6 +692,7 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 		op.AmountCents,
 		op.Currency,
 		op.Status,
+		op.SubmissionFingerprint,
 		op.PayPalPayoutBatchID,
 		op.PayPalBatchStatus,
 		op.PayPalPayoutItemID,
@@ -716,7 +717,7 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 func (r *PostgresRepository) GetPayoutOperationByID(ctx context.Context, orgID, opID string) (*PayoutOperation, error) {
 	query := `
 		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
-		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
+		       amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
 		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
 		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
 		       cancelled_at, is_synthetic_fixture, created_at, updated_at
@@ -727,7 +728,7 @@ func (r *PostgresRepository) GetPayoutOperationByID(ctx context.Context, orgID, 
 	var rawJSON []byte
 	err := r.pool.QueryRow(ctx, query, opID, orgID).Scan(
 		&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
-		&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
+		&op.AmountCents, &op.Currency, &op.Status, &op.SubmissionFingerprint, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
 		&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
 		&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
 		&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
@@ -747,7 +748,7 @@ func (r *PostgresRepository) GetPayoutOperationByID(ctx context.Context, orgID, 
 func (r *PostgresRepository) GetPayoutOperationBySenderBatchID(ctx context.Context, senderBatchID string) (*PayoutOperation, error) {
 	query := `
 		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
-		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
+		       amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
 		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
 		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
 		       cancelled_at, is_synthetic_fixture, created_at, updated_at
@@ -758,7 +759,7 @@ func (r *PostgresRepository) GetPayoutOperationBySenderBatchID(ctx context.Conte
 	var rawJSON []byte
 	err := r.pool.QueryRow(ctx, query, senderBatchID).Scan(
 		&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
-		&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
+		&op.AmountCents, &op.Currency, &op.Status, &op.SubmissionFingerprint, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
 		&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
 		&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
 		&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
@@ -778,7 +779,7 @@ func (r *PostgresRepository) GetPayoutOperationBySenderBatchID(ctx context.Conte
 func (r *PostgresRepository) ListPayoutOperationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutOperation, error) {
 	query := `
 		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
-		       amount_cents, currency, status, paypal_payout_batch_id, paypal_batch_status,
+		       amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
 		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
 		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
 		       cancelled_at, is_synthetic_fixture, created_at, updated_at
@@ -798,7 +799,7 @@ func (r *PostgresRepository) ListPayoutOperationsByCaseID(ctx context.Context, o
 		var rawJSON []byte
 		err := rows.Scan(
 			&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
-			&op.AmountCents, &op.Currency, &op.Status, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
+			&op.AmountCents, &op.Currency, &op.Status, &op.SubmissionFingerprint, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
 			&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
 			&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
 			&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
@@ -822,14 +823,16 @@ func (r *PostgresRepository) UpdatePayoutOperation(ctx context.Context, op *Payo
 
 	query := `
 		UPDATE payout_operations
-		SET status = $1, paypal_payout_batch_id = $2, paypal_batch_status = $3,
-		    paypal_payout_item_id = $4, paypal_item_status = $5, error_message = $6,
-		    raw_provider_response = $7, submitted_at = $8, completed_at = $9,
-		    cancelled_at = $10, updated_at = NOW()
-		WHERE id = $11 AND organization_id = $12
+		SET status = $1, submission_fingerprint = COALESCE($2, submission_fingerprint),
+		    paypal_payout_batch_id = $3, paypal_batch_status = $4,
+		    paypal_payout_item_id = $5, paypal_item_status = $6, error_message = $7,
+		    raw_provider_response = $8, submitted_at = $9, completed_at = $10,
+		    cancelled_at = $11, updated_at = NOW()
+		WHERE id = $12 AND organization_id = $13
 	`
 	res, err := r.pool.Exec(ctx, query,
 		op.Status,
+		op.SubmissionFingerprint,
 		op.PayPalPayoutBatchID,
 		op.PayPalBatchStatus,
 		op.PayPalPayoutItemID,

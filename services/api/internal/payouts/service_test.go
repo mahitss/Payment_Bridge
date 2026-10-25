@@ -1139,3 +1139,576 @@ func TestPayoutService_SyncPayoutCase_PreserveLocalCancellation(t *testing.T) {
 		t.Errorf("expected op status CANCELLED to be preserved, got %s", updatedOp.Status)
 	}
 }
+
+func TestPayoutService_SyncPayoutCase_WithoutBatchID_ReturnsError(t *testing.T) {
+	// Mission 030 Requirement 2:
+	// In SyncPayoutCase, do not call GET /v1/payments/payouts/{id} with internal SenderBatchID.
+	// When no PayPal batch ID is known, return clear actionable ErrNoPayPalBatchID.
+	var paypalCalls int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&paypalCalls, 1)
+		http.Error(w, "should not be called", http.StatusInternalServerError)
+	})
+
+	svc, _, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, err := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com",
+		RecipientName:  "Jane Claimant",
+		Title:          "No Batch ID Sync Test",
+		AmountCents:    10000,
+	})
+	if err != nil {
+		t.Fatalf("failed to create case: %v", err)
+	}
+
+	op, err := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	if err != nil {
+		t.Fatalf("failed to initiate op: %v", err)
+	}
+
+	op.Status = "RECONCILIATION_REQUIRED"
+	op.PayPalPayoutBatchID = nil
+	_ = svc.repo.UpdatePayoutOperation(ctx, op)
+
+	_, _, err = svc.SyncPayoutCase(ctx, org.ID, pCase.ID)
+	if !errors.Is(err, ErrNoPayPalBatchID) {
+		t.Fatalf("expected ErrNoPayPalBatchID, got: %v", err)
+	}
+
+	// Must never make an outbound call with SenderBatchID
+	if calls := atomic.LoadInt32(&paypalCalls); calls != 0 {
+		t.Errorf("expected 0 calls to PayPal, got %d", calls)
+	}
+}
+
+func TestPayoutService_Recovery_TimeoutFollowedByDuplicateRecovery(t *testing.T) {
+	// Mission 030 Scenario:
+	// A first request times out after PayPal has accepted it; recovery finds the original batch
+	// through PayPal's duplicate response and retrieves its real status.
+	var postCount int32
+	var getBatchCount int32
+	var capturedSenderBatchID string
+	var capturedSenderItemID string
+
+	var tsURL string
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+			return
+		}
+
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			n := atomic.AddInt32(&postCount, 1)
+			var payload map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+
+			if header, ok := payload["sender_batch_header"].(map[string]interface{}); ok {
+				capturedSenderBatchID = header["sender_batch_id"].(string)
+			}
+			if items, ok := payload["items"].([]interface{}); ok && len(items) > 0 {
+				if item, ok := items[0].(map[string]interface{}); ok {
+					capturedSenderItemID = item["sender_item_id"].(string)
+				}
+			}
+
+			if n == 1 {
+				// Simulate server timeout on first request (hang or close)
+				hj, ok := w.(http.Hijacker)
+				if ok {
+					conn, _, _ := hj.Hijack()
+					_ = conn.Close()
+					return
+				}
+				http.Error(w, "timeout", http.StatusGatewayTimeout)
+				return
+			}
+
+			// Call 2 (Recovery replay): Returns duplicate error with link to original batch
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"name":    "DUPLICATE_REQUEST",
+				"message": "A payout request with the same sender_batch_id was already submitted.",
+				"links": []map[string]string{
+					{
+						"href":   tsURL + "/v1/payments/payouts/RECOVERED-PAYPAL-BATCH-123",
+						"rel":    "payouts",
+						"method": "GET",
+					},
+				},
+			})
+			return
+		}
+
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/payments/payouts/RECOVERED-PAYPAL-BATCH-123" {
+			atomic.AddInt32(&getBatchCount, 1)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "RECOVERED-PAYPAL-BATCH-123",
+					"batch_status":    "SUCCESS",
+				},
+				"items": []map[string]interface{}{
+					{
+						"payout_item_id":     "RECOVERED-ITEM-001",
+						"transaction_status": "SUCCESS",
+						"payout_item": map[string]interface{}{
+							"sender_item_id": capturedSenderItemID,
+						},
+					},
+				},
+			})
+			return
+		}
+
+		http.NotFound(w, r)
+	})
+
+	ts := httptest.NewServer(paypalHandler)
+	defer ts.Close()
+	tsURL = ts.URL
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "test-client-id",
+		PayPalClientSecret:   "test-client-secret",
+		PayPalRequestTimeout: 2 * time.Second,
+	}
+
+	client, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	repo := db.NewMockRepository()
+	ctx := context.Background()
+	userA, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{
+		Email: "user@example.com", Name: "Alice", EmailVerified: true,
+	}, "Alice Corp")
+
+	svc := NewService(cfg, repo, policy.NewEngine(""), client)
+
+	// Create case and operation
+	pCase, err := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com",
+		RecipientName:  "Jane Claimant",
+		Title:          "Recovery Test Claim",
+		AmountCents:    10000,
+	})
+	if err != nil {
+		t.Fatalf("failed to create case: %v", err)
+	}
+
+	op, err := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	if err != nil {
+		t.Fatalf("failed to initiate op: %v", err)
+	}
+
+	origSenderBatchID := op.SenderBatchID
+	origSenderItemID := op.SenderItemID
+
+	// 1. Submit payout operation -> times out
+	timedOutOp, err := svc.SubmitPayoutOperation(ctx, userA, org, pCase.ID, op.ID)
+	if err == nil {
+		t.Fatalf("expected timeout error on first submission, got nil")
+	}
+	if timedOutOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Fatalf("expected status RECONCILIATION_REQUIRED, got %s", timedOutOp.Status)
+	}
+	if timedOutOp.SubmissionFingerprint == nil || *timedOutOp.SubmissionFingerprint == "" {
+		t.Fatalf("expected submission fingerprint to be persisted before outbound call")
+	}
+
+	// 2. Perform explicit recovery
+	recoveredCase, recoveredOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, timedOutOp.ID)
+	if err != nil {
+		t.Fatalf("recovery failed: %v", err)
+	}
+
+	if outcome != "ORIGINAL_BATCH_RECOVERED" {
+		t.Errorf("expected outcome ORIGINAL_BATCH_RECOVERED, got %s", outcome)
+	}
+	if recoveredOp.Status != "SUCCEEDED" {
+		t.Errorf("expected op status SUCCEEDED, got %s", recoveredOp.Status)
+	}
+	if recoveredCase.Status != "COMPLETED" {
+		t.Errorf("expected case status COMPLETED, got %s", recoveredCase.Status)
+	}
+	if recoveredOp.PayPalPayoutBatchID == nil || *recoveredOp.PayPalPayoutBatchID != "RECOVERED-PAYPAL-BATCH-123" {
+		t.Errorf("expected recovered batch ID RECOVERED-PAYPAL-BATCH-123, got %v", recoveredOp.PayPalPayoutBatchID)
+	}
+	if recoveredOp.PayPalPayoutItemID == nil || *recoveredOp.PayPalPayoutItemID != "RECOVERED-ITEM-001" {
+		t.Errorf("expected recovered item ID RECOVERED-ITEM-001, got %v", recoveredOp.PayPalPayoutItemID)
+	}
+
+	// Invariant: The exact same durable identifiers were reused; no replacement generated!
+	if capturedSenderBatchID != origSenderBatchID {
+		t.Errorf("expected sender batch ID %s, got %s", origSenderBatchID, capturedSenderBatchID)
+	}
+	if capturedSenderItemID != origSenderItemID {
+		t.Errorf("expected sender item ID %s, got %s", origSenderItemID, capturedSenderItemID)
+	}
+	if atomic.LoadInt32(&getBatchCount) != 1 {
+		t.Errorf("expected 1 GET batch lookup, got %d", atomic.LoadInt32(&getBatchCount))
+	}
+}
+
+func TestPayoutService_Recovery_FirstRequestNeverReachedPayPal(t *testing.T) {
+	// Scenario: First request timed out without reaching PayPal.
+	// Explicit recovery submits the original request with the same identifiers and is newly accepted.
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+			return
+		}
+
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			n := atomic.AddInt32(&postCount, 1)
+			if n == 1 {
+				// Timeout before PayPal processes
+				hj, ok := w.(http.Hijacker)
+				if ok {
+					conn, _, _ := hj.Hijack()
+					_ = conn.Close()
+					return
+				}
+				http.Error(w, "network error", http.StatusGatewayTimeout)
+				return
+			}
+
+			// Call 2 (Recovery): Accepted as new creation
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "PAYPAL-NEW-BATCH-555",
+					"batch_status":    "PENDING",
+					"time_created":    "2026-10-25T12:00:00Z",
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	ts := httptest.NewServer(paypalHandler)
+	defer ts.Close()
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 2 * time.Second,
+	}
+	client, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	repo := db.NewMockRepository()
+	ctx := context.Background()
+	userA, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{Email: "user@example.com", Name: "Alice"}, "Alice Corp")
+	svc := NewService(cfg, repo, policy.NewEngine(""), client)
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Jane", Title: "Fresh Accept Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+
+	_, err = svc.SubmitPayoutOperation(ctx, userA, org, pCase.ID, op.ID)
+	if err == nil {
+		t.Fatal("expected first submission to time out")
+	}
+
+	recoveredCase, recoveredOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if err != nil {
+		t.Fatalf("expected recovery to succeed, got %v", err)
+	}
+
+	if outcome != "REQUEST_NEWLY_ACCEPTED" {
+		t.Errorf("expected outcome REQUEST_NEWLY_ACCEPTED, got %s", outcome)
+	}
+	if recoveredOp.Status != "SUBMITTED" {
+		t.Errorf("expected op status SUBMITTED, got %s", recoveredOp.Status)
+	}
+	if recoveredCase.Status != "SUBMITTED" {
+		t.Errorf("expected case status SUBMITTED, got %s", recoveredCase.Status)
+	}
+	if recoveredOp.PayPalPayoutBatchID == nil || *recoveredOp.PayPalPayoutBatchID != "PAYPAL-NEW-BATCH-555" {
+		t.Errorf("expected batch ID PAYPAL-NEW-BATCH-555, got %v", recoveredOp.PayPalPayoutBatchID)
+	}
+}
+
+func TestPayoutService_Recovery_UnclaimedItemDoesNotCompleteCase(t *testing.T) {
+	// Scenario: Recovered batch contains an UNCLAIMED item; case is NOT marked completed.
+	var tsURL string
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+			})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"name":    "DUPLICATE_REQUEST",
+				"message": "duplicate sender batch",
+				"links": []map[string]string{
+					{"href": tsURL + "/v1/payments/payouts/BATCH-UNCLAIMED", "rel": "payouts", "method": "GET"},
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/payments/payouts/BATCH-UNCLAIMED" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "BATCH-UNCLAIMED",
+					"batch_status":    "SUCCESS", // Batch header says SUCCESS but item is UNCLAIMED!
+				},
+				"items": []map[string]interface{}{
+					{
+						"payout_item_id":     "ITEM-UNCLAIMED-01",
+						"transaction_status": "UNCLAIMED",
+						"payout_item": map[string]interface{}{
+							"sender_item_id": "CB-ITEM-UNCLAIMED",
+						},
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	ts := httptest.NewServer(paypalHandler)
+	defer ts.Close()
+	tsURL = ts.URL
+
+	cfg := &config.Config{
+		AppEnv: "development", PayPalEnv: "sandbox", PayPalBaseURL: ts.URL, PayPalClientID: "id", PayPalClientSecret: "sec",
+	}
+	client, _ := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	repo := db.NewMockRepository()
+	ctx := context.Background()
+	userA, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{Email: "user@example.com", Name: "Alice"}, "Alice Corp")
+	svc := NewService(cfg, repo, policy.NewEngine(""), client)
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Jane", Title: "Unclaimed Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.SenderItemID = "CB-ITEM-UNCLAIMED"
+	op.Status = "RECONCILIATION_REQUIRED"
+
+	// Set valid submission fingerprint
+	amountStr := "100.00"
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        amountStr,
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	recCase, recOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if err != nil {
+		t.Fatalf("recovery failed: %v", err)
+	}
+
+	if outcome != "ORIGINAL_BATCH_RECOVERED" {
+		t.Errorf("expected ORIGINAL_BATCH_RECOVERED, got %s", outcome)
+	}
+	// Item UNCLAIMED must NOT mark case COMPLETED!
+	if recCase.Status == "COMPLETED" {
+		t.Errorf("security violation: case was marked COMPLETED for UNCLAIMED item")
+	}
+	if recOp.Status != "SUBMITTED" {
+		t.Errorf("expected op status SUBMITTED for UNCLAIMED item, got %s", recOp.Status)
+	}
+}
+
+func TestPayoutService_Recovery_UntrustedHATEOASLinkFailsClosed(t *testing.T) {
+	// Scenario: Duplicate errors with untrusted HATEOAS links fail closed without sending OAuth credentials to another host.
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"name":    "DUPLICATE_REQUEST",
+				"message": "duplicate batch",
+				"links": []map[string]string{
+					// Untrusted external host!
+					{"href": "https://attacker-steals-tokens.com/v1/payments/payouts/STOLEN", "rel": "payouts", "method": "GET"},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	ts := httptest.NewServer(paypalHandler)
+	defer ts.Close()
+
+	cfg := &config.Config{
+		AppEnv: "development", PayPalEnv: "sandbox", PayPalBaseURL: ts.URL, PayPalClientID: "id", PayPalClientSecret: "sec",
+	}
+	client, _ := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	repo := db.NewMockRepository()
+	ctx := context.Background()
+	userA, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{Email: "user@example.com", Name: "Alice"}, "Alice Corp")
+	svc := NewService(cfg, repo, policy.NewEngine(""), client)
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Jane", Title: "Untrusted Link Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	_, recOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if err == nil {
+		t.Fatal("expected error on untrusted HATEOAS link, got nil")
+	}
+	if !errors.Is(err, ErrManualReconciliationRequired) {
+		t.Errorf("expected ErrManualReconciliationRequired, got %v", err)
+	}
+	if outcome != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got %s", outcome)
+	}
+	if recOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected status RECONCILIATION_REQUIRED, got %s", recOp.Status)
+	}
+}
+
+func TestPayoutService_Recovery_ChangedFingerprintBlocksRecovery(t *testing.T) {
+	// Scenario: A changed payload fingerprint blocks recovery.
+	svc, _, userA, _, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Jane", Title: "Tamper Test Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+
+	// Persist an arbitrary fingerprint that does NOT match current case parameters
+	bogusFP := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	op.SubmissionFingerprint = &bogusFP
+	_ = svc.repo.UpdatePayoutOperation(ctx, op)
+
+	_, _, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err, ErrFingerprintMismatch) {
+		t.Fatalf("expected ErrFingerprintMismatch, got: %v", err)
+	}
+	if outcome != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got %s", outcome)
+	}
+}
+
+func TestPayoutService_Recovery_MissingFingerprintBlocksRecovery(t *testing.T) {
+	// Scenario: Missing fingerprint fails closed into manual reconciliation.
+	svc, _, userA, _, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Jane", Title: "Missing Fingerprint Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	op.SubmissionFingerprint = nil // No fingerprint recorded
+	_ = svc.repo.UpdatePayoutOperation(ctx, op)
+
+	_, _, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err, ErrFingerprintMissing) {
+		t.Fatalf("expected ErrFingerprintMissing, got: %v", err)
+	}
+	if outcome != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got %s", outcome)
+	}
+}
+
+func TestPayoutService_Recovery_ConcurrentRecoveryBlocked(t *testing.T) {
+	// Scenario: Concurrent recovery attempts cannot submit a second conflicting operation.
+	svc, _, userA, _, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Jane", Title: "Concurrent Test Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+
+	// Simulate op currently in RECOVERING state from another thread
+	op.Status = "RECOVERING"
+	_ = svc.repo.UpdatePayoutOperation(ctx, op)
+
+	_, _, _, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err, ErrRecoveryAlreadyInProgress) {
+		t.Fatalf("expected ErrRecoveryAlreadyInProgress, got: %v", err)
+	}
+}
+
+func TestPayoutService_Recovery_SyntheticFixtureAndCrossTenantRejected(t *testing.T) {
+	svc, _, userA, _, orgA := setupTestService(t, nil)
+	ctx := context.Background()
+
+	// 1. Synthetic Fixture Rejection
+	pCaseFixture, _ := svc.CreatePayoutCase(ctx, userA, orgA, CreateCaseRequest{
+		RecipientEmail: "demo@example.com", RecipientName: "Demo Claimant", Title: "Demo Fixture", AmountCents: 10000,
+	})
+	opFixture, _ := svc.InitiatePayoutOperation(ctx, userA, orgA, pCaseFixture.ID)
+	pCaseFixture.IsSyntheticFixture = true
+	opFixture.IsSyntheticFixture = true
+	opFixture.Status = "RECONCILIATION_REQUIRED"
+	fp := "some-fingerprint"
+	opFixture.SubmissionFingerprint = &fp
+	_ = svc.repo.UpdatePayoutOperation(ctx, opFixture)
+
+	_, _, _, err := svc.RecoverPayoutOperation(ctx, userA, orgA, opFixture.ID)
+	if !errors.Is(err, ErrFixtureExternalOperationForbidden) {
+		t.Errorf("expected ErrFixtureExternalOperationForbidden for synthetic fixture, got: %v", err)
+	}
+
+	// 2. Cross-Tenant Rejection
+	userB, orgB, _ := svc.repo.CreateUserWithPersonalOrg(ctx, &db.User{Email: "hacker@evil.com", Name: "Eve"}, "Evil Corp")
+	_, _, _, err = svc.RecoverPayoutOperation(ctx, userB, orgB, opFixture.ID)
+	if err == nil {
+		t.Fatal("expected cross-tenant access to fail, got nil")
+	}
+}

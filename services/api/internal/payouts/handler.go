@@ -3,6 +3,7 @@ package payouts
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -49,10 +50,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/payout-operations/{operation_id}/approve", h.handleApprovePayoutOperation)
 	mux.HandleFunc("POST /api/v1/payout-operations/{operation_id}/submit", h.handleSubmitPayoutOperation)
 	mux.HandleFunc("POST /api/v1/payout-operations/{operation_id}/cancel", h.handleCancelPayoutOperation)
+	mux.HandleFunc("POST /api/v1/payout-operations/{operation_id}/recover", h.handleRecoverPayoutOperation)
 
 	// Convenience Aliases
 	mux.HandleFunc("POST /api/v1/payout-cases/{case_id}/operations/{operation_id}/submit", h.handleSubmitPayoutOperation)
 	mux.HandleFunc("POST /api/v1/payout-cases/{case_id}/operations/{operation_id}/cancel", h.handleCancelPayoutOperation)
+	mux.HandleFunc("POST /api/v1/payout-cases/{case_id}/operations/{operation_id}/recover", h.handleRecoverPayoutOperation)
 }
 
 func (h *Handler) getAuth(r *http.Request) (*db.User, *db.Organization, error) {
@@ -223,6 +226,13 @@ func (h *Handler) handleSyncPayoutCase(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error": err.Error(),
 				"code":  "FIXTURE_EXTERNAL_OPERATION_FORBIDDEN",
+			})
+		case errors.Is(err, ErrNoPayPalBatchID):
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "NO_PAYPAL_BATCH_ID",
+				"case":      pCase,
+				"operation": op,
 			})
 		case errors.Is(err, ErrNoOperationsToSync):
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -425,6 +435,98 @@ func (h *Handler) handleCancelPayoutOperation(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"operation": op,
 		"message":   "Payout operation successfully cancelled",
+	})
+}
+
+// POST /api/v1/payout-operations/{operation_id}/recover
+func (h *Handler) handleRecoverPayoutOperation(w http.ResponseWriter, r *http.Request) {
+	user, org, err := h.getAuth(r)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return
+	}
+
+	opID := r.PathValue("operation_id")
+	if opID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "operation_id is required"})
+		return
+	}
+
+	pCase, op, outcome, err := h.service.RecoverPayoutOperation(r.Context(), user, org, opID)
+	if err != nil {
+		switch {
+		case errors.Is(err, db.ErrPayoutOperationNotFound), errors.Is(err, db.ErrPayoutCaseNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error(), "code": "NOT_FOUND"})
+		case errors.Is(err, ErrFixtureExternalOperationForbidden):
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": err.Error(),
+				"code":  "FIXTURE_EXTERNAL_OPERATION_FORBIDDEN",
+			})
+		case errors.Is(err, ErrOperationNotApproved):
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": err.Error(),
+				"code":  "OPERATION_NOT_APPROVED",
+			})
+		case errors.Is(err, ErrRecoveryAlreadyInProgress):
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error":   err.Error(),
+				"code":    "RECOVERY_ALREADY_IN_PROGRESS",
+				"outcome": outcome,
+			})
+		case errors.Is(err, ErrOperationNotEligibleForRecovery):
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error":   err.Error(),
+				"code":    "OPERATION_NOT_ELIGIBLE",
+				"outcome": outcome,
+			})
+		case errors.Is(err, ErrCaseInTerminalState):
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error":   err.Error(),
+				"code":    "CASE_IN_TERMINAL_STATE",
+				"outcome": outcome,
+			})
+		case errors.Is(err, ErrFingerprintMismatch):
+			writeJSON(w, http.StatusPreconditionFailed, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "FINGERPRINT_MISMATCH",
+				"outcome":   outcome,
+				"operation": op,
+			})
+		case errors.Is(err, ErrFingerprintMissing):
+			writeJSON(w, http.StatusPreconditionFailed, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "FINGERPRINT_MISSING",
+				"outcome":   outcome,
+				"operation": op,
+			})
+		case errors.Is(err, ErrManualReconciliationRequired):
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "MANUAL_RECONCILIATION_REQUIRED",
+				"outcome":   outcome,
+				"operation": op,
+			})
+		default:
+			slog.ErrorContext(r.Context(), "Payout recovery attempt unresolved",
+				slog.String("operation_id", opID),
+				slog.String("outcome", outcome),
+				slog.String("error", err.Error()),
+			)
+			writeJSON(w, http.StatusBadGateway, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "RECOVERY_UNRESOLVED",
+				"outcome":   outcome,
+				"operation": op,
+			})
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"case":      pCase,
+		"operation": op,
+		"outcome":   outcome,
+		"message":   fmt.Sprintf("Payout recovery completed with outcome: %s", outcome),
 	})
 }
 

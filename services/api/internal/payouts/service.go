@@ -2,6 +2,8 @@ package payouts
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -33,6 +35,12 @@ var (
 	ErrOperationAlreadyCancelled         = errors.New("payout operation is already cancelled")
 	ErrFixtureExternalOperationForbidden = errors.New("forbidden on synthetic demo fixtures: cannot perform external PayPal operation on synthetic demo fixture: demo fixtures are strictly isolated from live financial destinations")
 	ErrEvidenceNotFound                  = errors.New("evidence reference not found")
+	ErrNoPayPalBatchID                   = errors.New("cannot sync payout case: no paypal payout batch id known; recovery action or manual reconciliation required")
+	ErrManualReconciliationRequired      = errors.New("manual reconciliation required: cannot safely recover ambiguous payout submission")
+	ErrRecoveryAlreadyInProgress         = errors.New("recovery is already in progress for this operation")
+	ErrFingerprintMismatch               = errors.New("security violation: reconstructed payout request does not match persisted submission fingerprint")
+	ErrFingerprintMissing                = errors.New("missing submission fingerprint: ambiguous operation cannot be replayed without cryptographic evidence of intent")
+	ErrOperationNotEligibleForRecovery   = errors.New("operation is not eligible for recovery: must be in RECONCILIATION_REQUIRED state without a known paypal batch id")
 )
 
 // EvidenceField represents an allowlisted safe key-value pair for evidence inspection.
@@ -201,6 +209,25 @@ func generateSafeCorrelationID(prefix, reference, suffix string, maxLen int) str
 	return prefix + ref + suffix
 }
 
+// ComputeSubmissionFingerprint generates a deterministic SHA-256 hex digest of a canonical representation
+// of the outbound PayPal payout request.
+// Invariants:
+// - Includes all fields that affect the actual outgoing request.
+// - Does not store or contain credentials, access tokens, or sensitive raw payloads.
+func ComputeSubmissionFingerprint(req paypal.CreatePayoutRequest) string {
+	canonical := fmt.Sprintf("v1|sender_batch_id=%s|sender_item_id=%s|recipient=%s|amount=%s|currency=%s|note=%s|email_subject=%s",
+		strings.TrimSpace(req.SenderBatchID),
+		strings.TrimSpace(req.SenderItemID),
+		strings.ToLower(strings.TrimSpace(req.Recipient)),
+		strings.TrimSpace(req.Amount),
+		strings.ToUpper(strings.TrimSpace(req.Currency)),
+		strings.TrimSpace(req.Note),
+		strings.TrimSpace(req.EmailSubject),
+	)
+	h := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(h[:])
+}
+
 // InitiatePayoutOperation prepares a new durable operation with unique idempotency keys.
 func (s *Service) InitiatePayoutOperation(ctx context.Context, user *db.User, org *db.Organization, caseID string) (*db.PayoutOperation, error) {
 	pCase, err := s.repo.GetPayoutCaseByID(ctx, org.ID, caseID)
@@ -361,15 +388,7 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 		}
 	}
 
-	// 1. Transactionally transition to SUBMITTING before outbound call
-	op.Status = "SUBMITTING"
-	now := time.Now().UTC()
-	op.SubmittedAt = &now
-	if err := s.repo.UpdatePayoutOperation(ctx, op); err != nil {
-		return nil, fmt.Errorf("failed to update operation to SUBMITTING: %w", err)
-	}
-
-	// 2. Call PayPal Sandbox
+	// 1. Compute canonical fingerprint and transactionally transition to SUBMITTING before outbound call
 	amountStr := fmt.Sprintf("%.2f", float64(op.AmountCents)/100.0)
 	paypalReq := paypal.CreatePayoutRequest{
 		SenderBatchID: op.SenderBatchID,
@@ -381,6 +400,16 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 		EmailSubject:  fmt.Sprintf("Payment for Claim %s", pCase.Reference),
 	}
 
+	fp := ComputeSubmissionFingerprint(paypalReq)
+	op.SubmissionFingerprint = &fp
+	op.Status = "SUBMITTING"
+	now := time.Now().UTC()
+	op.SubmittedAt = &now
+	if err := s.repo.UpdatePayoutOperation(ctx, op); err != nil {
+		return nil, fmt.Errorf("failed to update operation to SUBMITTING: %w", err)
+	}
+
+	// 2. Call PayPal Sandbox
 	paypalResp, err := s.paypalClient.CreatePayout(ctx, paypalReq)
 	if err != nil {
 		// SAFETY: If ambiguous timeout, transition to RECONCILIATION_REQUIRED
@@ -457,6 +486,10 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 }
 
 // SyncPayoutCase queries PayPal for the latest status of the case's payout operation.
+// Invariants:
+// - Never calls PayPal GET /v1/payments/payouts/{id} with internal SenderBatchID.
+// - Returns ErrNoPayPalBatchID if the operation has no known PayPalPayoutBatchID.
+// - Preserves item-authoritative status evaluation rules.
 func (s *Service) SyncPayoutCase(ctx context.Context, orgID, caseID string) (*db.PayoutCase, *db.PayoutOperation, error) {
 	pCase, ops, err := s.GetPayoutCase(ctx, orgID, caseID)
 	if err != nil {
@@ -470,17 +503,11 @@ func (s *Service) SyncPayoutCase(ctx context.Context, orgID, caseID string) (*db
 	// Get latest operation
 	op := ops[0]
 
-	// Determine lookup identifier: prefer PayPalPayoutBatchID; fallback to SenderBatchID if operation is awaiting reconciliation
-	batchLookupID := ""
-	if op.PayPalPayoutBatchID != nil && *op.PayPalPayoutBatchID != "" {
-		batchLookupID = *op.PayPalPayoutBatchID
-	} else if op.SenderBatchID != "" && op.Status == "RECONCILIATION_REQUIRED" {
-		batchLookupID = op.SenderBatchID
+	// Look up by PayPalPayoutBatchID only; never query GET /v1/payments/payouts/{id} with internal SenderBatchID
+	if op.PayPalPayoutBatchID == nil || strings.TrimSpace(*op.PayPalPayoutBatchID) == "" {
+		return pCase, &op, ErrNoPayPalBatchID
 	}
-
-	if batchLookupID == "" {
-		return pCase, &op, nil
-	}
+	batchLookupID := strings.TrimSpace(*op.PayPalPayoutBatchID)
 
 	// Synthetic fixture boundary: demo fixtures cannot be synchronized with live PayPal
 	if pCase.IsSyntheticFixture || op.IsSyntheticFixture {
@@ -492,6 +519,20 @@ func (s *Service) SyncPayoutCase(ctx context.Context, orgID, caseID string) (*db
 		return nil, nil, fmt.Errorf("failed to query paypal payout batch: %w", err)
 	}
 
+	return s.reconcileBatchResponse(ctx, nil, orgID, caseID, &op, batchResp, "PAYOUT_STATUS_SYNCHRONIZED", nil)
+}
+
+// reconcileBatchResponse applies authoritative item-level status reconciliation rules
+// from PayPal batch responses to ensure completion is determined from actual recipient evidence.
+func (s *Service) reconcileBatchResponse(
+	ctx context.Context,
+	user *db.User,
+	orgID, caseID string,
+	op *db.PayoutOperation,
+	batchResp *paypal.PayoutBatchResponse,
+	auditEventType string,
+	extraAuditMetadata map[string]interface{},
+) (*db.PayoutCase, *db.PayoutOperation, error) {
 	batchResp.Normalize()
 	if batchResp.BatchHeader.PayoutBatchID != "" {
 		op.PayPalPayoutBatchID = &batchResp.BatchHeader.PayoutBatchID
@@ -645,7 +686,7 @@ func (s *Service) SyncPayoutCase(ctx context.Context, orgID, caseID string) (*db
 	}
 	op.RawProviderResponse = rawResp
 
-	if err := s.repo.UpdatePayoutOperation(ctx, &op); err != nil {
+	if err := s.repo.UpdatePayoutOperation(ctx, op); err != nil {
 		return nil, nil, fmt.Errorf("failed to update payout operation: %w", err)
 	}
 
@@ -660,22 +701,265 @@ func (s *Service) SyncPayoutCase(ctx context.Context, orgID, caseID string) (*db
 		return nil, nil, fmt.Errorf("failed to create payout status snapshot: %w", err)
 	}
 
+	metadata := map[string]interface{}{
+		"operation_id": op.ID,
+		"batch_status": batchResp.BatchHeader.BatchStatus,
+		"item_status":  op.PayPalItemStatus,
+		"op_status":    op.Status,
+	}
+	for k, v := range extraAuditMetadata {
+		metadata[k] = v
+	}
+
+	var userID *string
+	if user != nil {
+		userID = &user.ID
+	}
 	_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+		UserID:         userID,
 		OrganizationID: &orgID,
-		EventType:      "PAYOUT_STATUS_SYNCHRONIZED",
+		EventType:      auditEventType,
+		Metadata:       metadata,
+	})
+
+	pCase, err := s.repo.GetPayoutCaseByID(ctx, orgID, caseID)
+	if err != nil {
+		return nil, op, fmt.Errorf("failed to retrieve updated payout case: %w", err)
+	}
+	return pCase, op, nil
+}
+
+// RecoverPayoutOperation safely recovers an ambiguous payout operation in RECONCILIATION_REQUIRED state.
+// Invariants:
+// - Resolves operation and case within authenticated organization.
+// - Bounded strictly to RECONCILIATION_REQUIRED with no known PayPalPayoutBatchID.
+// - Rejects synthetic fixtures, terminal cases, and unapproved dual-custody operations.
+// - Verifies the cryptographic submission fingerprint matches the original intent.
+// - Uses the durable sender_batch_id and sender_item_id without generating replacement IDs.
+// - Prevents concurrent recovery attempts by locking state to RECOVERING.
+// - Extracts and validates duplicate-error HATEOAS links without following untrusted hosts.
+// - Feeds recovered batch responses into item-authoritative reconciliation logic.
+func (s *Service) RecoverPayoutOperation(ctx context.Context, user *db.User, org *db.Organization, opID string) (*db.PayoutCase, *db.PayoutOperation, string, error) {
+	op, err := s.repo.GetPayoutOperationByID(ctx, org.ID, opID)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	pCase, err := s.repo.GetPayoutCaseByID(ctx, org.ID, op.PayoutCaseID)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	// Synthetic fixture boundary: demo fixtures cannot be recovered or sent to live PayPal
+	if pCase.IsSyntheticFixture || op.IsSyntheticFixture {
+		return nil, nil, "", ErrFixtureExternalOperationForbidden
+	}
+
+	// Terminal case or operation
+	if pCase.Status == "COMPLETED" || pCase.Status == "CANCELLED" || op.Status == "SUCCEEDED" || op.Status == "CANCELLED" {
+		return nil, nil, "", fmt.Errorf("%w: cannot recover operation for case in status %s (op status: %s)", ErrCaseInTerminalState, pCase.Status, op.Status)
+	}
+
+	// Concurrency guard: already recovering
+	if op.Status == "RECOVERING" {
+		return nil, nil, "", ErrRecoveryAlreadyInProgress
+	}
+
+	// Recovery eligibility check: only RECONCILIATION_REQUIRED with no known PayPal batch ID
+	if op.Status != "RECONCILIATION_REQUIRED" {
+		return nil, nil, "", fmt.Errorf("%w: operation status is %s (must be RECONCILIATION_REQUIRED)", ErrOperationNotEligibleForRecovery, op.Status)
+	}
+	if op.PayPalPayoutBatchID != nil && strings.TrimSpace(*op.PayPalPayoutBatchID) != "" {
+		return nil, nil, "", fmt.Errorf("%w: paypal batch id is already known (%s); run sync instead", ErrOperationNotEligibleForRecovery, *op.PayPalPayoutBatchID)
+	}
+
+	// Dual-custody authorization check: must have been approved if required
+	if op.RequiresDualApproval && (op.ApprovedByUserID == nil || *op.ApprovedByUserID == "") {
+		return nil, nil, "", ErrOperationNotApproved
+	}
+
+	// Submission fingerprint verification: must exist and match canonical request
+	if op.SubmissionFingerprint == nil || strings.TrimSpace(*op.SubmissionFingerprint) == "" {
+		_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+			UserID:         &user.ID,
+			OrganizationID: &org.ID,
+			EventType:      "PAYOUT_RECOVERY_BLOCKED",
+			Metadata: map[string]interface{}{
+				"operation_id": op.ID,
+				"reason":       "missing_submission_fingerprint",
+				"outcome":      "MANUAL_RECONCILIATION_REQUIRED",
+			},
+		})
+		return nil, op, "MANUAL_RECONCILIATION_REQUIRED", ErrFingerprintMissing
+	}
+
+	// Reconstruct exact previously authorized payout request
+	amountStr := fmt.Sprintf("%.2f", float64(op.AmountCents)/100.0)
+	paypalReq := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        amountStr,
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  fmt.Sprintf("Payment for Claim %s", pCase.Reference),
+	}
+
+	currentFP := ComputeSubmissionFingerprint(paypalReq)
+	if currentFP != *op.SubmissionFingerprint {
+		_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+			UserID:         &user.ID,
+			OrganizationID: &org.ID,
+			EventType:      "PAYOUT_RECOVERY_BLOCKED",
+			Metadata: map[string]interface{}{
+				"operation_id": op.ID,
+				"reason":       "submission_fingerprint_mismatch",
+				"outcome":      "MANUAL_RECONCILIATION_REQUIRED",
+			},
+		})
+		return nil, op, "MANUAL_RECONCILIATION_REQUIRED", ErrFingerprintMismatch
+	}
+
+	// Lock operation state to RECOVERING to block concurrent recovery attempts
+	op.Status = "RECOVERING"
+	if err := s.repo.UpdatePayoutOperation(ctx, op); err != nil {
+		return nil, nil, "", fmt.Errorf("failed to update operation status to RECOVERING: %w", err)
+	}
+
+	// Replay exact request to PayPal Sandbox
+	paypalResp, err := s.paypalClient.CreatePayout(ctx, paypalReq)
+	if err == nil {
+		// Outcome 1: Request newly accepted by PayPal (first request never reached PayPal)
+		op.Status = "SUBMITTED"
+		op.PayPalPayoutBatchID = &paypalResp.BatchHeader.PayoutBatchID
+		op.PayPalBatchStatus = &paypalResp.BatchHeader.BatchStatus
+		op.ErrorMessage = nil
+		op.RawProviderResponse = map[string]interface{}{
+			"payout_batch_id": paypalResp.BatchHeader.PayoutBatchID,
+			"batch_status":    paypalResp.BatchHeader.BatchStatus,
+			"time_created":    paypalResp.BatchHeader.TimeCreated,
+			"recovery_mode":   "REQUEST_NEWLY_ACCEPTED",
+		}
+
+		if err := s.repo.UpdatePayoutOperation(ctx, op); err != nil {
+			return nil, nil, "", fmt.Errorf("failed to record newly accepted recovered operation: %w", err)
+		}
+		_ = s.repo.UpdatePayoutCaseStatus(ctx, org.ID, pCase.ID, "SUBMITTED")
+		_ = s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
+			PayoutOperationID: op.ID,
+			OrganizationID:    org.ID,
+			Provider:          "PAYPAL",
+			BatchStatus:       paypalResp.BatchHeader.BatchStatus,
+			RawResponse:       op.RawProviderResponse,
+		})
+
+		_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+			UserID:         &user.ID,
+			OrganizationID: &org.ID,
+			EventType:      "PAYOUT_RECOVERY_ACCEPTED",
+			Metadata: map[string]interface{}{
+				"operation_id":           op.ID,
+				"case_id":                pCase.ID,
+				"sender_batch_id":        op.SenderBatchID,
+				"paypal_payout_batch_id": paypalResp.BatchHeader.PayoutBatchID,
+				"batch_status":           paypalResp.BatchHeader.BatchStatus,
+				"outcome":                "REQUEST_NEWLY_ACCEPTED",
+			},
+		})
+
+		pCase, _ = s.repo.GetPayoutCaseByID(ctx, org.ID, op.PayoutCaseID)
+		return pCase, op, "REQUEST_NEWLY_ACCEPTED", nil
+	}
+
+	// Outcome 2: PayPal returned duplicate request error
+	var dupErr *paypal.DuplicatePayoutError
+	if errors.As(err, &dupErr) {
+		if dupErr.OriginalBatchID == "" {
+			// Malformed link or untrusted HATEOAS host: fail closed into manual reconciliation
+			op.Status = "RECONCILIATION_REQUIRED"
+			errMsg := fmt.Sprintf("PayPal duplicate error link validation failed: %s", dupErr.Message)
+			op.ErrorMessage = &errMsg
+			_ = s.repo.UpdatePayoutOperation(ctx, op)
+
+			_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+				UserID:         &user.ID,
+				OrganizationID: &org.ID,
+				EventType:      "PAYOUT_RECOVERY_UNRESOLVED",
+				Metadata: map[string]interface{}{
+					"operation_id": op.ID,
+					"case_id":      pCase.ID,
+					"outcome":      "MANUAL_RECONCILIATION_REQUIRED",
+					"error":        errMsg,
+				},
+			})
+			return pCase, op, "MANUAL_RECONCILIATION_REQUIRED", fmt.Errorf("%w: %s", ErrManualReconciliationRequired, errMsg)
+		}
+
+		// Valid batch ID recovered from PayPal duplicate response.
+		// Query the recovered batch via the existing validated PayPal client
+		recoveredBatchID := dupErr.OriginalBatchID
+		batchResp, queryErr := s.paypalClient.GetPayoutBatch(ctx, recoveredBatchID)
+		if queryErr != nil {
+			op.Status = "RECONCILIATION_REQUIRED"
+			op.PayPalPayoutBatchID = &recoveredBatchID
+			errMsg := fmt.Sprintf("Recovered original PayPal batch ID %s, but query failed: %v", recoveredBatchID, queryErr)
+			op.ErrorMessage = &errMsg
+			_ = s.repo.UpdatePayoutOperation(ctx, op)
+
+			_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+				UserID:         &user.ID,
+				OrganizationID: &org.ID,
+				EventType:      "PAYOUT_RECOVERY_UNRESOLVED",
+				Metadata: map[string]interface{}{
+					"operation_id":       op.ID,
+					"case_id":            pCase.ID,
+					"outcome":            "UNRESOLVED_OUTCOME",
+					"recovered_batch_id": recoveredBatchID,
+					"error":              queryErr.Error(),
+				},
+			})
+			return pCase, op, "UNRESOLVED_OUTCOME", queryErr
+		}
+
+		// Feed recovered batch into authoritative item reconciliation
+		updatedCase, updatedOp, reconErr := s.reconcileBatchResponse(
+			ctx,
+			user,
+			org.ID,
+			pCase.ID,
+			op,
+			batchResp,
+			"PAYOUT_RECOVERY_RECONCILED",
+			map[string]interface{}{
+				"outcome":            "ORIGINAL_BATCH_RECOVERED",
+				"recovered_batch_id": recoveredBatchID,
+			},
+		)
+		if reconErr != nil {
+			return nil, nil, "", reconErr
+		}
+		return updatedCase, updatedOp, "ORIGINAL_BATCH_RECOVERED", nil
+	}
+
+	// Outcome 3: Ambiguous timeout, server error, or network error during recovery replay
+	op.Status = "RECONCILIATION_REQUIRED"
+	errMsg := fmt.Sprintf("Recovery attempt failed: %v", err)
+	op.ErrorMessage = &errMsg
+	_ = s.repo.UpdatePayoutOperation(ctx, op)
+
+	_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+		UserID:         &user.ID,
+		OrganizationID: &org.ID,
+		EventType:      "PAYOUT_RECOVERY_UNRESOLVED",
 		Metadata: map[string]interface{}{
 			"operation_id": op.ID,
-			"batch_status": batchResp.BatchHeader.BatchStatus,
-			"item_status":  op.PayPalItemStatus,
-			"op_status":    op.Status,
+			"case_id":      pCase.ID,
+			"outcome":      "UNRESOLVED_OUTCOME",
+			"error":        errMsg,
 		},
 	})
 
-	pCase, err = s.repo.GetPayoutCaseByID(ctx, orgID, caseID)
-	if err != nil {
-		return nil, &op, fmt.Errorf("failed to retrieve updated payout case: %w", err)
-	}
-	return pCase, &op, nil
+	return pCase, op, "UNRESOLVED_OUTCOME", err
 }
 
 // CancelPayoutOperation cancels an eligible payout operation locally or via PayPal Sandbox.

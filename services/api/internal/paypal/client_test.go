@@ -757,3 +757,148 @@ func TestClient_CreatePayout_SendsSenderItemID(t *testing.T) {
 		t.Errorf("expected sender_item_id CB-ITEM-TEST-001, got %v", firstItem["sender_item_id"])
 	}
 }
+
+func TestExtractAndValidateBatchIDFromHATEOAS_Valid(t *testing.T) {
+	baseURL := "https://api-m.sandbox.paypal.com"
+	links := []LinkDescription{
+		{
+			Href:   "https://api-m.sandbox.paypal.com/v1/payments/payouts/RECOVERED-BATCH-999",
+			Rel:    "payouts",
+			Method: "GET",
+		},
+	}
+
+	batchID, err := ExtractAndValidateBatchIDFromHATEOAS(links, baseURL)
+	if err != nil {
+		t.Fatalf("unexpected error extracting batch id: %v", err)
+	}
+	if batchID != "RECOVERED-BATCH-999" {
+		t.Errorf("expected batch ID RECOVERED-BATCH-999, got %q", batchID)
+	}
+}
+
+func TestExtractAndValidateBatchIDFromHATEOAS_UntrustedHost(t *testing.T) {
+	baseURL := "https://api-m.sandbox.paypal.com"
+	links := []LinkDescription{
+		{
+			Href:   "https://attacker-steals-tokens.com/v1/payments/payouts/RECOVERED-BATCH-999",
+			Rel:    "payouts",
+			Method: "GET",
+		},
+	}
+
+	_, err := ExtractAndValidateBatchIDFromHATEOAS(links, baseURL)
+	if err == nil {
+		t.Fatal("expected error for untrusted HATEOAS host, got nil")
+	}
+	if !errors.Is(err, ErrUntrustedHATEOASHost) {
+		t.Errorf("expected ErrUntrustedHATEOASHost, got: %v", err)
+	}
+}
+
+func TestExtractAndValidateBatchIDFromHATEOAS_UntrustedScheme(t *testing.T) {
+	baseURL := "https://api-m.sandbox.paypal.com"
+	links := []LinkDescription{
+		{
+			Href:   "http://api-m.sandbox.paypal.com/v1/payments/payouts/RECOVERED-BATCH-999",
+			Rel:    "payouts",
+			Method: "GET",
+		},
+	}
+
+	_, err := ExtractAndValidateBatchIDFromHATEOAS(links, baseURL)
+	if err == nil {
+		t.Fatal("expected error for insecure HTTP scheme, got nil")
+	}
+	if !errors.Is(err, ErrUntrustedHATEOASHost) {
+		t.Errorf("expected ErrUntrustedHATEOASHost, got: %v", err)
+	}
+}
+
+func TestExtractAndValidateBatchIDFromHATEOAS_MalformedPath(t *testing.T) {
+	baseURL := "https://api-m.sandbox.paypal.com"
+	badLinks := [][]LinkDescription{
+		{{Href: "https://api-m.sandbox.paypal.com/v1/other/service/123", Rel: "self"}},
+		{{Href: "https://api-m.sandbox.paypal.com/v1/payments/payouts/../traversal", Rel: "payouts"}},
+		{{Href: "https://api-m.sandbox.paypal.com/v1/payments/payouts/", Rel: "payouts"}},
+	}
+
+	for _, links := range badLinks {
+		_, err := ExtractAndValidateBatchIDFromHATEOAS(links, baseURL)
+		if err == nil {
+			t.Errorf("expected error for malformed link %v, got nil", links)
+		}
+		if !errors.Is(err, ErrMalformedHATEOASLink) {
+			t.Errorf("expected ErrMalformedHATEOASLink, got: %v", err)
+		}
+	}
+}
+
+func TestClient_CreatePayout_DuplicateResponseWithHATEOAS(t *testing.T) {
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(OAuthTokenResponse{
+				AccessToken: "A21AA_TEST_TOKEN",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+			})
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(APIErrorResponse{
+				Name:    "DUPLICATE_REQUEST",
+				Message: "A payout request with the same sender_batch_id was already submitted.",
+				Links: []LinkDescription{
+					{
+						Href:   ts.URL + "/v1/payments/payouts/ORIGINAL-BATCH-XYZ-789",
+						Rel:    "payouts",
+						Method: "GET",
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	req := CreatePayoutRequest{
+		SenderBatchID: "CB-BATCH-DUPLICATE",
+		SenderItemID:  "CB-ITEM-DUPLICATE",
+		Recipient:     "user@example.com",
+		Amount:        "50.00",
+		Currency:      "USD",
+		Note:          "Note",
+		EmailSubject:  "Subject",
+	}
+
+	_, err = client.CreatePayout(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected duplicate error, got nil")
+	}
+
+	var dupErr *DuplicatePayoutError
+	if !errors.As(err, &dupErr) {
+		t.Fatalf("expected *DuplicatePayoutError, got %T: %v", err, err)
+	}
+
+	if dupErr.OriginalBatchID != "ORIGINAL-BATCH-XYZ-789" {
+		t.Errorf("expected original batch ID ORIGINAL-BATCH-XYZ-789, got %q", dupErr.OriginalBatchID)
+	}
+}
