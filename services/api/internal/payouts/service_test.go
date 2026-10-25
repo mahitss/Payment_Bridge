@@ -1515,6 +1515,8 @@ func TestPayoutService_Recovery_UnclaimedItemDoesNotCompleteCase(t *testing.T) {
 	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
 	op.SenderItemID = "CB-ITEM-UNCLAIMED"
 	op.Status = "RECONCILIATION_REQUIRED"
+	now := time.Now().UTC()
+	op.SubmittedAt = &now
 
 	// Set valid submission fingerprint
 	amountStr := "100.00"
@@ -1562,7 +1564,6 @@ func TestPayoutService_Recovery_UntrustedHATEOASLinkFailsClosed(t *testing.T) {
 				"name":    "DUPLICATE_REQUEST",
 				"message": "duplicate batch",
 				"links": []map[string]string{
-					// Untrusted external host!
 					{"href": "https://attacker-steals-tokens.com/v1/payments/payouts/STOLEN", "rel": "payouts", "method": "GET"},
 				},
 			})
@@ -1588,6 +1589,8 @@ func TestPayoutService_Recovery_UntrustedHATEOASLinkFailsClosed(t *testing.T) {
 	})
 	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
 	op.Status = "RECONCILIATION_REQUIRED"
+	now := time.Now().UTC()
+	op.SubmittedAt = &now
 
 	req := paypal.CreatePayoutRequest{
 		SenderBatchID: op.SenderBatchID,
@@ -1627,9 +1630,11 @@ func TestPayoutService_Recovery_ChangedFingerprintBlocksRecovery(t *testing.T) {
 	})
 	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
 	op.Status = "RECONCILIATION_REQUIRED"
+	now := time.Now().UTC()
+	op.SubmittedAt = &now
 
 	// Persist an arbitrary fingerprint that does NOT match current case parameters
-	bogusFP := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	bogusFP := "v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	op.SubmissionFingerprint = &bogusFP
 	_ = svc.repo.UpdatePayoutOperation(ctx, op)
 
@@ -1652,6 +1657,8 @@ func TestPayoutService_Recovery_MissingFingerprintBlocksRecovery(t *testing.T) {
 	})
 	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
 	op.Status = "RECONCILIATION_REQUIRED"
+	now := time.Now().UTC()
+	op.SubmittedAt = &now
 	op.SubmissionFingerprint = nil // No fingerprint recorded
 	_ = svc.repo.UpdatePayoutOperation(ctx, op)
 
@@ -1674,7 +1681,10 @@ func TestPayoutService_Recovery_ConcurrentRecoveryBlocked(t *testing.T) {
 	})
 	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
 
-	// Simulate op currently in RECOVERING state from another thread
+	now := time.Now().UTC()
+	op.SubmittedAt = &now
+	lease := now.Add(5 * time.Minute)
+	op.RecoveryLeaseExpiresAt = &lease
 	op.Status = "RECOVERING"
 	_ = svc.repo.UpdatePayoutOperation(ctx, op)
 
@@ -1696,7 +1706,9 @@ func TestPayoutService_Recovery_SyntheticFixtureAndCrossTenantRejected(t *testin
 	pCaseFixture.IsSyntheticFixture = true
 	opFixture.IsSyntheticFixture = true
 	opFixture.Status = "RECONCILIATION_REQUIRED"
-	fp := "some-fingerprint"
+	now := time.Now().UTC()
+	opFixture.SubmittedAt = &now
+	fp := "v2:some-fingerprint"
 	opFixture.SubmissionFingerprint = &fp
 	_ = svc.repo.UpdatePayoutOperation(ctx, opFixture)
 
@@ -1710,5 +1722,757 @@ func TestPayoutService_Recovery_SyntheticFixtureAndCrossTenantRejected(t *testin
 	_, _, _, err = svc.RecoverPayoutOperation(ctx, userB, orgB, opFixture.ID)
 	if err == nil {
 		t.Fatal("expected cross-tenant access to fail, got nil")
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Mission 031: 14 Required Regression Tests
+// -----------------------------------------------------------------------------
+
+// Req 1: A fresh eligible operation can enter recovery.
+func TestMission031_Req01_FreshEligibleOperationCanEnterRecovery(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			atomic.AddInt32(&postCount, 1)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "PAYPAL-NEW-001",
+					"batch_status":    "PENDING",
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "recipient@fresh.com", RecipientName: "Fresh Claimant", Title: "Fresh Recovery", AmountCents: 15000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-2 * time.Hour) // 2 hours ago (well within 27 days)
+	op.SubmittedAt = &submitted
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "150.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	recoveredCase, recoveredOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if err != nil {
+		t.Fatalf("expected recovery to succeed, got: %v", err)
+	}
+	if outcome != "REQUEST_NEWLY_ACCEPTED" {
+		t.Errorf("expected REQUEST_NEWLY_ACCEPTED, got: %s", outcome)
+	}
+	if recoveredOp.Status != "SUBMITTED" {
+		t.Errorf("expected op status SUBMITTED, got: %s", recoveredOp.Status)
+	}
+	if recoveredCase.Status != "SUBMITTED" {
+		t.Errorf("expected case status SUBMITTED, got: %s", recoveredCase.Status)
+	}
+	if atomic.LoadInt32(&postCount) != 1 {
+		t.Errorf("expected 1 POST to paypal, got: %d", atomic.LoadInt32(&postCount))
+	}
+	// SubmittedAt MUST NOT have been overwritten
+	if !recoveredOp.SubmittedAt.Equal(submitted) {
+		t.Errorf("expected submitted_at to be preserved (%v), got (%v)", submitted, recoveredOp.SubmittedAt)
+	}
+}
+
+// Req 2: An operation older than the allowed recovery window (27 days) is rejected before any provider POST.
+func TestMission031_Req02_OperationOlderThan27DaysRejectedBeforeProviderCall(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			atomic.AddInt32(&postCount, 1)
+		}
+		http.NotFound(w, r)
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "old@example.com", RecipientName: "Old Claimant", Title: "Old Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	oldTimestamp := time.Now().UTC().Add(-28 * 24 * time.Hour) // 28 days ago (> 27 days cutoff)
+	op.SubmittedAt = &oldTimestamp
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	_, _, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err, ErrRecoveryWindowExpired) {
+		t.Fatalf("expected ErrRecoveryWindowExpired, got: %v", err)
+	}
+	if outcome != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got: %s", outcome)
+	}
+	// Zero mutation requests to PayPal!
+	if atomic.LoadInt32(&postCount) != 0 {
+		t.Errorf("security violation: expected 0 POST requests to provider, got: %d", atomic.LoadInt32(&postCount))
+	}
+}
+
+// Req 3: Missing or invalid original submission timestamps require manual reconciliation.
+func TestMission031_Req03_MissingOrInvalidSubmissionTimestampRequiresManualRecon(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			atomic.AddInt32(&postCount, 1)
+		}
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	// 3a. Missing submitted_at
+	pCase1, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "missing@example.com", RecipientName: "Missing", Title: "Missing Stamp", AmountCents: 10000,
+	})
+	op1, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase1.ID)
+	op1.Status = "RECONCILIATION_REQUIRED"
+	op1.SubmittedAt = nil // Missing!
+	req1 := paypal.CreatePayoutRequest{
+		SenderBatchID: op1.SenderBatchID, SenderItemID: op1.SenderItemID,
+		Recipient: pCase1.RecipientEmail, Amount: "100.00", Currency: op1.Currency,
+		Note: pCase1.Title, EmailSubject: "Payment for Claim " + pCase1.Reference,
+	}
+	fp1 := ComputeSubmissionFingerprint(req1)
+	op1.SubmissionFingerprint = &fp1
+	_ = repo.UpdatePayoutOperation(ctx, op1)
+
+	_, _, outcome1, err1 := svc.RecoverPayoutOperation(ctx, userA, org, op1.ID)
+	if !errors.Is(err1, ErrSubmissionTimestampMissing) {
+		t.Errorf("expected ErrSubmissionTimestampMissing, got: %v", err1)
+	}
+	if outcome1 != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got: %s", outcome1)
+	}
+
+	// 3b. Invalid future submitted_at (beyond 5 min clock skew)
+	pCase2, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "future@example.com", RecipientName: "Future", Title: "Future Stamp", AmountCents: 10000,
+	})
+	op2, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase2.ID)
+	op2.Status = "RECONCILIATION_REQUIRED"
+	futureStamp := time.Now().UTC().Add(1 * time.Hour) // 1 hour in the future!
+	op2.SubmittedAt = &futureStamp
+	req2 := paypal.CreatePayoutRequest{
+		SenderBatchID: op2.SenderBatchID, SenderItemID: op2.SenderItemID,
+		Recipient: pCase2.RecipientEmail, Amount: "100.00", Currency: op2.Currency,
+		Note: pCase2.Title, EmailSubject: "Payment for Claim " + pCase2.Reference,
+	}
+	fp2 := ComputeSubmissionFingerprint(req2)
+	op2.SubmissionFingerprint = &fp2
+	_ = repo.UpdatePayoutOperation(ctx, op2)
+
+	_, _, outcome2, err2 := svc.RecoverPayoutOperation(ctx, userA, org, op2.ID)
+	if !errors.Is(err2, ErrSubmissionTimestampInvalid) {
+		t.Errorf("expected ErrSubmissionTimestampInvalid, got: %v", err2)
+	}
+	if outcome2 != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got: %s", outcome2)
+	}
+
+	// Both cases resulted in ZERO provider POST requests
+	if atomic.LoadInt32(&postCount) != 0 {
+		t.Errorf("security violation: expected 0 provider POST requests, got: %d", atomic.LoadInt32(&postCount))
+	}
+}
+
+// Req 4 & 5: Exactly one of two concurrent recovery attempts can claim an operation,
+// and losing callers produce zero provider mutation requests.
+func TestMission031_Req04_Req05_ConcurrentRecoveryExactlyOneWinsZeroDuplicatePOST(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			atomic.AddInt32(&postCount, 1)
+			// Simulate network latency so a concurrent caller has time to attempt
+			time.Sleep(50 * time.Millisecond)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "CONCURRENT-WINNER-BATCH",
+					"batch_status":    "PENDING",
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@race.com", RecipientName: "Jane", Title: "Race Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	// Launch two concurrent recovery attempts
+	startBarrier := make(chan struct{})
+	type res struct {
+		outcome string
+		err     error
+	}
+	resultsChan := make(chan res, 2)
+
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-startBarrier
+			_, _, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+			resultsChan <- res{outcome: outcome, err: err}
+		}()
+	}
+
+	// Release both goroutines simultaneously
+	close(startBarrier)
+
+	r1 := <-resultsChan
+	r2 := <-resultsChan
+
+	var successes, conflicts int
+	for _, r := range []res{r1, r2} {
+		if r.err == nil && r.outcome == "REQUEST_NEWLY_ACCEPTED" {
+			successes++
+		} else if errors.Is(r.err, ErrRecoveryAlreadyInProgress) || errors.Is(r.err, ErrRecoveryClaimConflict) {
+			conflicts++
+		}
+	}
+
+	if successes != 1 {
+		t.Errorf("expected exactly 1 winner, got %d (r1: %v, r2: %v)", successes, r1.err, r2.err)
+	}
+	if conflicts != 1 {
+		t.Errorf("expected exactly 1 safe conflict, got %d (r1: %v, r2: %v)", conflicts, r1.err, r2.err)
+	}
+	// Zero duplicate provider mutations: exactly 1 POST to PayPal
+	if atomic.LoadInt32(&postCount) != 1 {
+		t.Errorf("expected exactly 1 provider POST, got: %d", atomic.LoadInt32(&postCount))
+	}
+}
+
+// Req 6: A stale claim cannot be silently finalized by another attempt.
+func TestMission031_Req06_StaleClaimCannotBeSilentlyFinalizedOrReplayed(t *testing.T) {
+	svc, repo, userA, _, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@stale.com", RecipientName: "Jane", Title: "Stale Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+
+	// Simulate op in RECOVERING owned by attempt A
+	op.Status = "RECOVERING"
+	attemptA := "attempt-uuid-AAA"
+	op.RecoveryAttemptID = &attemptA
+	submitted := time.Now().UTC().Add(-2 * time.Hour)
+	op.SubmittedAt = &submitted
+	// Lease expired 10 minutes ago
+	expiredLease := time.Now().UTC().Add(-10 * time.Minute)
+	op.RecoveryLeaseExpiresAt = &expiredLease
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	// 6a. Attempt B cannot finalize an operation owned by Attempt A
+	attemptB := "attempt-uuid-BBB"
+	op.Status = "SUBMITTED"
+	err := repo.FinalizeRecoveryOperation(ctx, op, attemptB)
+	if !errors.Is(err, ErrRecoveryClaimConflict) {
+		t.Errorf("expected ErrRecoveryClaimConflict on mismatched attempt ID, got: %v", err)
+	}
+
+	// 6b. An expired lease fails closed into manual reconciliation instead of automatic replay
+	op.Status = "RECOVERING"
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	_, _, outcome, recoverErr := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(recoverErr, ErrStaleRecoveryClaim) {
+		t.Errorf("expected ErrStaleRecoveryClaim on expired lease, got: %v", recoverErr)
+	}
+	if outcome != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got: %s", outcome)
+	}
+}
+
+// Req 7: Repeated requests cannot bypass the recovery claim while lease is active.
+func TestMission031_Req07_RepeatedRequestsCannotBypassActiveRecoveryClaim(t *testing.T) {
+	svc, repo, userA, _, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@repeat.com", RecipientName: "Jane", Title: "Repeat Test", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECOVERING"
+	attempt := "attempt-active-123"
+	op.RecoveryAttemptID = &attempt
+	activeLease := time.Now().UTC().Add(4 * time.Minute) // active lease!
+	op.RecoveryLeaseExpiresAt = &activeLease
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	for i := 0; i < 3; i++ {
+		_, _, _, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+		if !errors.Is(err, ErrRecoveryAlreadyInProgress) {
+			t.Fatalf("call %d: expected ErrRecoveryAlreadyInProgress, got: %v", i, err)
+		}
+	}
+}
+
+// Req 8: Process-failure/timeout path preserves an honest unresolved outcome.
+func TestMission031_Req08_ProcessFailurePreservesHonestUnresolvedOutcome(t *testing.T) {
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			// Simulate provider 500 internal server error during recovery replay
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"name":    "INTERNAL_SERVER_ERROR",
+				"message": "PayPal system temporarily unavailable",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "fail@example.com", RecipientName: "Jane", Title: "Failure Test", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	_, recoveredOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if err == nil {
+		t.Fatal("expected error on provider failure, got nil")
+	}
+	if outcome != "UNRESOLVED_OUTCOME" {
+		t.Errorf("expected UNRESOLVED_OUTCOME, got: %s", outcome)
+	}
+	if recoveredOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected op status RECONCILIATION_REQUIRED, got: %s", recoveredOp.Status)
+	}
+	if recoveredOp.ErrorMessage == nil || !strings.Contains(*recoveredOp.ErrorMessage, "Recovery attempt failed") {
+		t.Errorf("expected diagnostic error message, got: %v", recoveredOp.ErrorMessage)
+	}
+}
+
+// Req 9: Synthetic payout fixtures can never reach the external PayPal client.
+func TestMission031_Req09_SyntheticFixtureNeverReachesPayPal(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			atomic.AddInt32(&postCount, 1)
+		}
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "demo@claimbridge.internal", RecipientName: "Demo", Title: "Demo Fixture", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.IsSyntheticFixture = true
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+	fp := "v2:demo-fingerprint"
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	_, _, _, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err, ErrFixtureExternalOperationForbidden) {
+		t.Fatalf("expected ErrFixtureExternalOperationForbidden, got: %v", err)
+	}
+	if atomic.LoadInt32(&postCount) != 0 {
+		t.Errorf("security violation: synthetic fixture issued %d POST requests", atomic.LoadInt32(&postCount))
+	}
+}
+
+// Req 10: Cross-tenant recovery remains denied.
+func TestMission031_Req10_CrossTenantRecoveryDenied(t *testing.T) {
+	svc, repo, userA, _, orgA := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, orgA, CreateCaseRequest{
+		RecipientEmail: "orgA@claimbridge.internal", RecipientName: "Jane", Title: "OrgA Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, orgA, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	// User B from Org B
+	userB, orgB, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{Email: "userB@orgB.com", Name: "Bob"}, "Org B")
+
+	_, _, _, err := svc.RecoverPayoutOperation(ctx, userB, orgB, op.ID)
+	if err == nil {
+		t.Fatal("expected cross-tenant recovery to fail, got nil")
+	}
+	if !errors.Is(err, db.ErrPayoutOperationNotFound) {
+		t.Errorf("expected ErrPayoutOperationNotFound, got: %v", err)
+	}
+}
+
+// Req 11: Missing or mismatched fingerprints remain fail-closed.
+func TestMission031_Req11_MissingOrMismatchedFingerprintFailClosed(t *testing.T) {
+	svc, repo, userA, _, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "recipient@test.com", RecipientName: "Jane", Title: "FP Test", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+
+	// 11a. Missing fingerprint
+	op.SubmissionFingerprint = nil
+	_ = repo.UpdatePayoutOperation(ctx, op)
+	_, _, outcome1, err1 := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err1, ErrFingerprintMissing) {
+		t.Errorf("expected ErrFingerprintMissing, got: %v", err1)
+	}
+	if outcome1 != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got: %s", outcome1)
+	}
+
+	// 11b. Mismatched fingerprint
+	tamperedFP := "v2:ba5d0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab"
+	op.SubmissionFingerprint = &tamperedFP
+	_ = repo.UpdatePayoutOperation(ctx, op)
+	_, _, outcome2, err2 := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err2, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch, got: %v", err2)
+	}
+	if outcome2 != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got: %s", outcome2)
+	}
+}
+
+// Req 12: Canonical fingerprints distinguish adversarial field combinations and changed payout intent.
+func TestMission031_Req12_CanonicalFingerprintsAdversarialCases(t *testing.T) {
+	baseReq := paypal.CreatePayoutRequest{
+		SenderBatchID: "CB-BATCH-100",
+		SenderItemID:  "CB-ITEM-100",
+		Recipient:     "alice@example.com",
+		Amount:        "100.00",
+		Currency:      "USD",
+		Note:          "Valid claim payment",
+		EmailSubject:  "Payment for Claim 100",
+	}
+	baseFP := ComputeSubmissionFingerprint(baseReq)
+
+	// 12a. Delimiter injection in Note: attempting to spoof recipient and amount
+	injectedNoteReq := baseReq
+	injectedNoteReq.Note = "Valid claim payment|recipient=hacker@evil.com|amount=500.00"
+	injectedFP := ComputeSubmissionFingerprint(injectedNoteReq)
+	if baseFP == injectedFP {
+		t.Fatal("security violation: delimiter injection resulted in identical fingerprint")
+	}
+
+	// Separate payout with the spoofed values
+	spoofedReq := baseReq
+	spoofedReq.Recipient = "hacker@evil.com"
+	spoofedReq.Amount = "500.00"
+	spoofedFP := ComputeSubmissionFingerprint(spoofedReq)
+	if injectedFP == spoofedFP {
+		t.Fatal("security violation: delimiter injection collided with actual fields")
+	}
+
+	// 12b. Unusual Unicode & Accents
+	unicodeReq := baseReq
+	unicodeReq.Note = "Claim settlement: François & Noëlla — 🚀 50% paid"
+	unicodeFP := ComputeSubmissionFingerprint(unicodeReq)
+	if unicodeFP == baseFP {
+		t.Fatal("expected distinct fingerprint for Unicode string")
+	}
+	if err := VerifySubmissionFingerprint(unicodeFP, unicodeReq); err != nil {
+		t.Errorf("failed to verify Unicode fingerprint: %v", err)
+	}
+
+	// 12c. Whitespace & Casing normalization
+	casedReq := baseReq
+	casedReq.Recipient = "  Alice@Example.COM  "
+	casedReq.Amount = " 100.00 "
+	casedReq.Currency = " usd "
+	casedFP := ComputeSubmissionFingerprint(casedReq)
+	if casedFP != baseFP {
+		t.Errorf("expected casing/whitespace normalization to yield identical fingerprint, got %s vs %s", casedFP, baseFP)
+	}
+
+	// 12d. Changed payout intent: any modified field must fail verification
+	if err := VerifySubmissionFingerprint(baseFP, spoofedReq); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for changed amount/recipient, got: %v", err)
+	}
+
+	// 12e. Backward compatibility with v1 64-char hex
+	v1FP := computeSubmissionFingerprintV1(baseReq)
+	if err := VerifySubmissionFingerprint(v1FP, baseReq); err != nil {
+		t.Errorf("failed to verify valid legacy v1 fingerprint: %v", err)
+	}
+}
+
+// Req 13: Valid recent duplicate recovery still uses the original sender IDs and validated provider batch ID.
+func TestMission031_Req13_ValidRecentDuplicateUsesOriginalSenderIDsAndProviderBatchID(t *testing.T) {
+	var capturedSenderBatchID, capturedSenderItemID string
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			sbh, _ := body["sender_batch_header"].(map[string]interface{})
+			capturedSenderBatchID, _ = sbh["sender_batch_id"].(string)
+			items, _ := body["items"].([]interface{})
+			if len(items) > 0 {
+				it0, _ := items[0].(map[string]interface{})
+				capturedSenderItemID, _ = it0["sender_item_id"].(string)
+			}
+
+			// Return duplicate error with valid HATEOAS link
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"name":    "DUPLICATE_REQUEST",
+				"message": "duplicate batch",
+				"links": []map[string]string{
+					{"href": "http://" + r.Host + "/v1/payments/payouts/PAYPAL-ORIGINAL-BATCH-999", "rel": "payouts", "method": "GET"},
+				},
+			})
+			return
+		}
+
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/payments/payouts/PAYPAL-ORIGINAL-BATCH-999" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "PAYPAL-ORIGINAL-BATCH-999",
+					"batch_status":    "SUCCESS",
+				},
+				"items": []map[string]interface{}{
+					{
+						"payout_item_id":     "PAYPAL-ITEM-999",
+						"transaction_status": "SUCCESS",
+						"payout_item": map[string]interface{}{
+							"sender_item_id": capturedSenderItemID,
+						},
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Jane", Title: "Original IDs Test", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-3 * time.Hour) // 3 hours ago
+	op.SubmittedAt = &submitted
+
+	origSenderBatchID := op.SenderBatchID
+	origSenderItemID := op.SenderItemID
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	recoveredCase, recoveredOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if err != nil {
+		t.Fatalf("expected recovery to succeed, got: %v", err)
+	}
+
+	if outcome != "ORIGINAL_BATCH_RECOVERED" {
+		t.Errorf("expected outcome ORIGINAL_BATCH_RECOVERED, got: %s", outcome)
+	}
+	if capturedSenderBatchID != origSenderBatchID {
+		t.Errorf("expected original sender batch ID %s, got %s", origSenderBatchID, capturedSenderBatchID)
+	}
+	if capturedSenderItemID != origSenderItemID {
+		t.Errorf("expected original sender item ID %s, got %s", origSenderItemID, capturedSenderItemID)
+	}
+	if recoveredOp.PayPalPayoutBatchID == nil || *recoveredOp.PayPalPayoutBatchID != "PAYPAL-ORIGINAL-BATCH-999" {
+		t.Errorf("expected PayPalPayoutBatchID PAYPAL-ORIGINAL-BATCH-999, got: %v", recoveredOp.PayPalPayoutBatchID)
+	}
+	if recoveredCase.Status != "COMPLETED" {
+		t.Errorf("expected case status COMPLETED on SUCCESS item, got: %s", recoveredCase.Status)
+	}
+}
+
+// Req 14: A known provider batch can still be queried without replaying a payout.
+func TestMission031_Req14_KnownProviderBatchCanBeQueriedWithoutReplayingPayout(t *testing.T) {
+	var postCount, getCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Method == http.MethodPost {
+			atomic.AddInt32(&postCount, 1)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/payments/payouts/KNOWN-PAYPAL-BATCH-40DAYS" {
+			atomic.AddInt32(&getCount, 1)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "KNOWN-PAYPAL-BATCH-40DAYS",
+					"batch_status":    "SUCCESS",
+				},
+				"items": []map[string]interface{}{
+					{
+						"payout_item_id":     "KNOWN-ITEM-40DAYS",
+						"transaction_status": "SUCCESS",
+						"payout_item": map[string]interface{}{
+							"sender_item_id": "ITEM-40DAYS",
+						},
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@40days.com", RecipientName: "Jane", Title: "Old Sync Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.SenderItemID = "ITEM-40DAYS"
+	op.Status = "SUBMITTED"
+	batchID := "KNOWN-PAYPAL-BATCH-40DAYS"
+	op.PayPalPayoutBatchID = &batchID
+	// Operation is 40 days old (> 27 days cutoff)
+	submitted40DaysAgo := time.Now().UTC().Add(-40 * 24 * time.Hour)
+	op.SubmittedAt = &submitted40DaysAgo
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	// Syncing a known provider batch MUST succeed even if older than 27 days!
+	syncedCase, syncedOp, err := svc.SyncPayoutCase(ctx, org.ID, pCase.ID)
+	if err != nil {
+		t.Fatalf("expected SyncPayoutCase to succeed for known batch, got: %v", err)
+	}
+
+	if syncedCase.Status != "COMPLETED" {
+		t.Errorf("expected case status COMPLETED, got: %s", syncedCase.Status)
+	}
+	if syncedOp.PayPalPayoutItemID == nil || *syncedOp.PayPalPayoutItemID != "KNOWN-ITEM-40DAYS" {
+		t.Errorf("expected item ID KNOWN-ITEM-40DAYS, got: %v", syncedOp.PayPalPayoutItemID)
+	}
+	// Zero mutation requests! Only GET was called!
+	if atomic.LoadInt32(&postCount) != 0 {
+		t.Errorf("security violation: expected 0 POST requests on read-only sync, got: %d", atomic.LoadInt32(&postCount))
+	}
+	if atomic.LoadInt32(&getCount) != 1 {
+		t.Errorf("expected exactly 1 GET request, got: %d", atomic.LoadInt32(&getCount))
 	}
 }
