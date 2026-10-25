@@ -22,6 +22,7 @@ var (
 	ErrRecoveryClaimConflict      = errors.New("recovery claim conflict: operation already claimed by another process")
 	ErrRecoveryAlreadyInProgress  = errors.New("recovery is already in progress for this operation")
 	ErrStaleRecoveryClaim         = errors.New("stale recovery claim: prior recovery lease expired; manual reconciliation required")
+	ErrRecoveryLeaseExpired       = errors.New("recovery lease expired: lease time elapsed before operation could be finalized")
 	ErrRecoveryWindowExpired      = errors.New("recovery window expired: original submission is older than 27-day cutoff; manual reconciliation required")
 	ErrSubmissionTimestampMissing = errors.New("submission timestamp is missing; manual reconciliation required")
 	ErrSubmissionTimestampInvalid = errors.New("submission timestamp is in the future; manual reconciliation required")
@@ -73,7 +74,9 @@ type Repository interface {
 	UpdatePayoutOperation(ctx context.Context, op *PayoutOperation) error
 	ApprovePayoutOperation(ctx context.Context, orgID, opID, approvedByUserID string) error
 	ClaimPayoutOperationForRecovery(ctx context.Context, orgID, opID, attemptID string, claimedAt, leaseExpiresAt time.Time, maxAge time.Duration) (*PayoutOperation, error)
+	RenewRecoveryLease(ctx context.Context, orgID, opID, attemptID string, newLeaseExpiresAt time.Time) error
 	FinalizeRecoveryOperation(ctx context.Context, op *PayoutOperation, attemptID string) error
+	TransitionRecoveryToManualReview(ctx context.Context, orgID, opID, attemptID, reason string, rawProviderResponse map[string]interface{}) error
 
 	// Status Snapshots
 	CreatePayoutStatusSnapshot(ctx context.Context, snapshot *PayoutStatusSnapshot) error

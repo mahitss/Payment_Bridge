@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed migrations/*.up.sql
+//go:embed migrations/*.sql
 var MigrationsFS embed.FS
 
 // RunMigrations applies all embedded .up.sql schema migrations sequentially in ascending filename order.

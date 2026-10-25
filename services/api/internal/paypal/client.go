@@ -728,8 +728,8 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 		"receiver": req.Recipient,
 		"note":     req.Note,
 	}
-	if trimmedItem := strings.TrimSpace(req.SenderItemID); trimmedItem != "" {
-		itemMap["sender_item_id"] = trimmedItem
+	if req.SenderItemID != "" {
+		itemMap["sender_item_id"] = req.SenderItemID
 	}
 
 	payload := map[string]interface{}{

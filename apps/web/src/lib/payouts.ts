@@ -39,7 +39,8 @@ export interface PayoutOperation {
     | "FAILED"
     | "CANCELLED"
     | "RECONCILIATION_REQUIRED"
-    | "RECOVERING";
+    | "RECOVERING"
+    | "MANUAL_RECONCILIATION_REQUIRED";
   submission_fingerprint?: string;
   requires_dual_approval: boolean;
   paypal_batch_status?: string;

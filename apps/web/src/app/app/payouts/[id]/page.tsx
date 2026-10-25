@@ -695,21 +695,88 @@ export default function PayoutCaseDetailPage() {
           </div>
         )}
 
-        {/* Distinct Recovery in Progress Banner */}
+        {/* Distinct Recovery in Progress or Stale Lease Banner */}
         {latestOp?.status === "RECOVERING" && (
+          isStaleRecoveryClaim ? (
+            <div
+              role="alert"
+              data-testid="recovery-stale-panel"
+              className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-3"
+            >
+              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="space-y-1">
+                <span className="font-bold uppercase tracking-wider text-amber-300">
+                  Recovery Lease Expired
+                </span>
+                <p className="text-slate-300">
+                  The previous recovery attempt lease expired on{" "}
+                  <span className="font-mono text-white">
+                    {formatDate(latestOp.recovery_lease_expires_at!)}
+                  </span>
+                  . Worker execution timed out. To prevent duplicate payouts or unauthorized state transitions, automated finalization is halted and the operation requires reconciliation.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div
+              role="status"
+              aria-live="polite"
+              data-testid="recovery-in-progress-panel"
+              className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-3 animate-pulse"
+            >
+              <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin flex-shrink-0" aria-hidden="true" />
+              <div className="space-y-0.5">
+                <span className="font-bold uppercase tracking-wider text-indigo-300">
+                  Safe Recovery Protocol in Progress
+                </span>
+                <p className="text-slate-300">
+                  Replaying verified request to PayPal Sandbox to recover original batch evidence without creating duplicate transactions...
+                </p>
+              </div>
+            </div>
+          )
+        )}
+
+        {/* Manual Reconciliation Required Panel */}
+        {latestOp?.status === "MANUAL_RECONCILIATION_REQUIRED" && (
           <div
-            role="status"
-            aria-live="polite"
-            data-testid="recovery-in-progress-panel"
-            className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-3 animate-pulse"
+            role="alert"
+            data-testid="manual-reconciliation-required-panel"
+            className="p-5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs space-y-3 shadow-lg shadow-rose-500/5"
           >
-            <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin flex-shrink-0" aria-hidden="true" />
-            <div className="space-y-0.5">
-              <span className="font-bold uppercase tracking-wider text-indigo-300">
-                Safe Recovery Protocol in Progress
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-rose-400 flex-shrink-0" aria-hidden="true" />
+                <h3 className="text-sm font-bold uppercase tracking-wider text-rose-300">
+                  Manual Reconciliation Required — Automated Replay Disabled
+                </h3>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                STATE: MANUAL_RECONCILIATION_REQUIRED
               </span>
-              <p className="text-slate-300">
-                Replaying verified request to PayPal Sandbox to recover original batch evidence without creating duplicate transactions...
+            </div>
+
+            <p className="text-slate-300 leading-relaxed">
+              {latestOp.paypal_payout_batch_id ? (
+                <>PayPal batch ID was preserved (<span className="font-mono text-white">{latestOp.paypal_payout_batch_id}</span>). Automated recovery replay is disabled to prevent duplicate payout risk. Read-only synchronization remains available to inspect provider settlement status.</>
+              ) : (
+                <>Automated recovery failed closed or a recovery lease expired without definitive settlement. To prevent duplicate payouts or unauthorized state transitions, automated replays are disabled.</>
+              )}
+            </p>
+
+            {latestOp.error_message && (
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-rose-500/20 text-[11px] font-mono text-rose-300/90 break-words">
+                Diagnostic / Audit Note: {latestOp.error_message}
+              </div>
+            )}
+
+            <div className="p-3.5 rounded-lg bg-slate-900/80 border border-rose-500/20 text-xs space-y-1">
+              <div className="font-semibold text-rose-300 flex items-center gap-2">
+                <Info className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                <span>What Manual Reconciliation Means:</span>
+              </div>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                A human payments officer must verify whether the recipient was paid directly in the PayPal Business Portal or Resolution Center before taking further action. Do not retry or issue a replacement payout until provider settlement status is confirmed.
               </p>
             </div>
           </div>
@@ -1026,7 +1093,7 @@ export default function PayoutCaseDetailPage() {
                 className="px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-amber-600/20"
               >
                 <RefreshCw
-                  className={`w-4 h-4 ${actionLoading === "recover" || latestOp?.status === "RECOVERING" ? "animate-spin" : ""}`}
+                  className={`w-4 h-4 ${actionLoading === "recover" || (latestOp?.status === "RECOVERING" && !isStaleRecoveryClaim) ? "animate-spin" : ""}`}
                 />
                 <span>Recover Ambiguous Submission</span>
               </button>

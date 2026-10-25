@@ -1615,8 +1615,8 @@ func TestPayoutService_Recovery_UntrustedHATEOASLinkFailsClosed(t *testing.T) {
 	if outcome != "MANUAL_RECONCILIATION_REQUIRED" {
 		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got %s", outcome)
 	}
-	if recOp.Status != "RECONCILIATION_REQUIRED" {
-		t.Errorf("expected status RECONCILIATION_REQUIRED, got %s", recOp.Status)
+	if recOp.Status != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected status MANUAL_RECONCILIATION_REQUIRED, got %s", recOp.Status)
 	}
 }
 
@@ -2280,22 +2280,88 @@ func TestMission031_Req12_CanonicalFingerprintsAdversarialCases(t *testing.T) {
 		t.Errorf("failed to verify Unicode fingerprint: %v", err)
 	}
 
-	// 12c. Whitespace & Casing normalization
-	casedReq := baseReq
-	casedReq.Recipient = "  Alice@Example.COM  "
-	casedReq.Amount = " 100.00 "
-	casedReq.Currency = " usd "
-	casedFP := ComputeSubmissionFingerprint(casedReq)
-	if casedFP != baseFP {
-		t.Errorf("expected casing/whitespace normalization to yield identical fingerprint, got %s vs %s", casedFP, baseFP)
+	// 12c. Exact request integrity: leading/trailing whitespace in Note or EmailSubject produces distinct fingerprint
+	whitespaceNoteReq := baseReq
+	whitespaceNoteReq.Note = "  Valid claim payment  "
+	if ComputeSubmissionFingerprint(whitespaceNoteReq) == baseFP {
+		t.Fatal("security violation: leading/trailing whitespace in Note was silently normalized")
 	}
 
-	// 12d. Changed payout intent: any modified field must fail verification
+	whitespaceSubjectReq := baseReq
+	whitespaceSubjectReq.EmailSubject = "  Payment for Claim 100  "
+	if ComputeSubmissionFingerprint(whitespaceSubjectReq) == baseFP {
+		t.Fatal("security violation: leading/trailing whitespace in EmailSubject was silently normalized")
+	}
+
+	whitespaceRecipientReq := baseReq
+	whitespaceRecipientReq.Recipient = "  alice@example.com  "
+	if ComputeSubmissionFingerprint(whitespaceRecipientReq) == baseFP {
+		t.Fatal("security violation: leading/trailing whitespace in Recipient was silently normalized")
+	}
+
+	whitespaceAmountReq := baseReq
+	whitespaceAmountReq.Amount = " 100.00 "
+	if ComputeSubmissionFingerprint(whitespaceAmountReq) == baseFP {
+		t.Fatal("security violation: leading/trailing whitespace in Amount was silently normalized")
+	}
+
+	// 12d. Exact field changes: recipient, currency, sender IDs, amount
+	recipientReq := baseReq
+	recipientReq.Recipient = "bob@example.com"
+	if ComputeSubmissionFingerprint(recipientReq) == baseFP {
+		t.Fatal("expected distinct fingerprint for changed recipient")
+	}
+	if err := VerifySubmissionFingerprint(baseFP, recipientReq); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for changed recipient, got: %v", err)
+	}
+
+	currencyReq := baseReq
+	currencyReq.Currency = "EUR"
+	if ComputeSubmissionFingerprint(currencyReq) == baseFP {
+		t.Fatal("expected distinct fingerprint for changed currency")
+	}
+	if err := VerifySubmissionFingerprint(baseFP, currencyReq); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for changed currency, got: %v", err)
+	}
+
+	batchReq := baseReq
+	batchReq.SenderBatchID = "CB-BATCH-DIFFERENT"
+	if ComputeSubmissionFingerprint(batchReq) == baseFP {
+		t.Fatal("expected distinct fingerprint for changed sender batch ID")
+	}
+	if err := VerifySubmissionFingerprint(baseFP, batchReq); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for changed sender batch ID, got: %v", err)
+	}
+
+	itemReq := baseReq
+	itemReq.SenderItemID = "CB-ITEM-DIFFERENT"
+	if ComputeSubmissionFingerprint(itemReq) == baseFP {
+		t.Fatal("expected distinct fingerprint for changed sender item ID")
+	}
+	if err := VerifySubmissionFingerprint(baseFP, itemReq); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for changed sender item ID, got: %v", err)
+	}
+
+	amountReq := baseReq
+	amountReq.Amount = "100.01"
+	if ComputeSubmissionFingerprint(amountReq) == baseFP {
+		t.Fatal("expected distinct fingerprint for changed amount")
+	}
+	if err := VerifySubmissionFingerprint(baseFP, amountReq); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for changed amount, got: %v", err)
+	}
+
+	// 12e. Changed payout intent: spoofed payload fails verification
 	if err := VerifySubmissionFingerprint(baseFP, spoofedReq); !errors.Is(err, ErrFingerprintMismatch) {
 		t.Errorf("expected ErrFingerprintMismatch for changed amount/recipient, got: %v", err)
 	}
 
-	// 12e. Backward compatibility with v1 64-char hex
+	// 12f. Unsupported or mismatched format fails closed
+	if err := VerifySubmissionFingerprint("v3:unsupported-format", baseReq); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for unsupported format, got: %v", err)
+	}
+
+	// 12g. Backward compatibility with legacy v1 64-char hex
 	v1FP := computeSubmissionFingerprintV1(baseReq)
 	if err := VerifySubmissionFingerprint(v1FP, baseReq); err != nil {
 		t.Errorf("failed to verify valid legacy v1 fingerprint: %v", err)
@@ -2474,5 +2540,464 @@ func TestMission031_Req14_KnownProviderBatchCanBeQueriedWithoutReplayingPayout(t
 	}
 	if atomic.LoadInt32(&getCount) != 1 {
 		t.Errorf("expected exactly 1 GET request, got: %d", atomic.LoadInt32(&getCount))
+	}
+}
+
+// ============================================================================
+// MISSION 032 REGRESSION & INTEGRITY TESTS
+// ============================================================================
+
+// Finding 1: Finalization before lease expiry succeeds and records settlement.
+func TestMission032_Finding1_FinalizationBeforeExpirySucceeds(t *testing.T) {
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "BATCH-BEFORE-EXPIRY",
+					"batch_status":    "PENDING",
+					"time_created":    time.Now().UTC().Format(time.RFC3339),
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "recipient@test.com", RecipientName: "Jane", Title: "Valid Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	recoveredCase, recoveredOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if err != nil {
+		t.Fatalf("expected recovery to succeed, got: %v", err)
+	}
+
+	if outcome != "REQUEST_NEWLY_ACCEPTED" {
+		t.Errorf("expected outcome REQUEST_NEWLY_ACCEPTED, got: %s", outcome)
+	}
+	if recoveredOp.Status != "SUBMITTED" {
+		t.Errorf("expected operation status SUBMITTED, got: %s", recoveredOp.Status)
+	}
+	if recoveredOp.PayPalPayoutBatchID == nil || *recoveredOp.PayPalPayoutBatchID != "BATCH-BEFORE-EXPIRY" {
+		t.Errorf("expected batch ID BATCH-BEFORE-EXPIRY, got: %v", recoveredOp.PayPalPayoutBatchID)
+	}
+	if recoveredCase.Status != "SUBMITTED" {
+		t.Errorf("expected case status SUBMITTED, got: %s", recoveredCase.Status)
+	}
+}
+
+// Finding 1 & 2: Finalization after lease expiry fails with ErrRecoveryLeaseExpired,
+// transitions operation to MANUAL_RECONCILIATION_REQUIRED, preserves provider batch ID,
+// and does NOT falsely declare settlement or complete the case.
+func TestMission032_Finding1_FinalizationAfterExpiryQuarantinesEvidence(t *testing.T) {
+	// Custom repo where FinalizeRecoveryOperation checks lease expiry against simulated expired time
+	var attemptClaimed string
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			// PayPal accepts request, but worker took too long!
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "BATCH-LATE-ARRIVAL-123",
+					"batch_status":    "SUCCESS",
+					"time_created":    time.Now().UTC().Format(time.RFC3339),
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	ts := httptest.NewServer(paypalHandler)
+	defer ts.Close()
+
+	cfg := &config.Config{
+		AppEnv: "development", PayPalEnv: "sandbox", PayPalBaseURL: ts.URL, PayPalClientID: "id", PayPalClientSecret: "sec",
+	}
+	client, _ := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	repo := db.NewMockRepository()
+	ctx := context.Background()
+	userA, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{Email: "user@example.com", Name: "Alice"}, "Alice Corp")
+	svc := NewService(cfg, repo, policy.NewEngine(""), client)
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@test.com", RecipientName: "Jane", Title: "Late Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	// Intercept: Mock an immediate lease expiry as soon as Claim occurs by updating lease_expires_at in repo
+	attemptClaimed = "simulated-attempt-id"
+	now := time.Now().UTC()
+	pastExpiry := now.Add(-10 * time.Second) // Expired 10s ago
+	op.Status = "RECOVERING"
+	op.RecoveryAttemptID = &attemptClaimed
+	op.RecoveryLeaseExpiresAt = &pastExpiry
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	// Now try to finalize with an expired lease directly on repo
+	opToFinalize := *op
+	batchID := "BATCH-LATE-ARRIVAL-123"
+	opToFinalize.PayPalPayoutBatchID = &batchID
+	opToFinalize.Status = "SUBMITTED"
+
+	err := repo.FinalizeRecoveryOperation(ctx, &opToFinalize, attemptClaimed)
+	if !errors.Is(err, db.ErrRecoveryLeaseExpired) {
+		t.Fatalf("expected ErrRecoveryLeaseExpired on expired lease finalization, got: %v", err)
+	}
+
+	// Verify the database state: MUST be MANUAL_RECONCILIATION_REQUIRED, NOT SUBMITTED!
+	storedOp, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	if storedOp.Status != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected stored op status MANUAL_RECONCILIATION_REQUIRED, got: %s", storedOp.Status)
+	}
+	if storedOp.PayPalPayoutBatchID == nil || *storedOp.PayPalPayoutBatchID != "BATCH-LATE-ARRIVAL-123" {
+		t.Errorf("expected preserved provider batch ID BATCH-LATE-ARRIVAL-123, got: %v", storedOp.PayPalPayoutBatchID)
+	}
+
+	// Verify status snapshot was preserved for manual reconciliation
+	snaps, snapErr := repo.ListPayoutStatusSnapshots(ctx, org.ID, op.ID)
+	if snapErr != nil || len(snaps) == 0 {
+		t.Fatalf("expected status snapshot to be persisted during quarantined late finalization: %v", snapErr)
+	}
+	if snaps[0].BatchStatus != "QUARANTINED_LATE_RESPONSE" {
+		t.Errorf("expected snapshot status QUARANTINED_LATE_RESPONSE, got: %s", snaps[0].BatchStatus)
+	}
+}
+
+// Finding 1: Changed attempt ownership prevents a stale worker from overwriting newer state.
+func TestMission032_Finding1_ChangedAttemptOwnershipBlocksFinalization(t *testing.T) {
+	repo := db.NewMockRepository()
+	ctx := context.Background()
+	userA, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{Email: "user@example.com", Name: "Alice"}, "Alice Corp")
+
+	caseA := &db.PayoutCase{
+		OrganizationID:  org.ID,
+		CreatedByUserID: userA.ID,
+		Reference:       "REF-OWNERSHIP-1",
+		RecipientEmail:  "test@example.com",
+		RecipientName:   "Jane",
+		Title:           "Ownership Test",
+		AmountCents:     10000,
+		Currency:        "USD",
+		Status:          "DRAFT",
+	}
+	_ = repo.CreatePayoutCase(ctx, caseA)
+
+	now := time.Now().UTC()
+	op := &db.PayoutOperation{
+		PayoutCaseID:      caseA.ID,
+		OrganizationID:    org.ID,
+		InitiatedByUserID: userA.ID,
+		SenderBatchID:     "BATCH-OWN-1",
+		SenderItemID:      "ITEM-OWN-1",
+		AmountCents:       10000,
+		Currency:          "USD",
+		Status:            "RECONCILIATION_REQUIRED",
+		SubmittedAt:       &now,
+	}
+	_ = repo.CreatePayoutOperation(ctx, op)
+
+	// Worker 1 claims operation
+	lease1 := now.Add(2 * time.Minute)
+	attempt1 := "worker-attempt-1"
+	_, err := repo.ClaimPayoutOperationForRecovery(ctx, org.ID, op.ID, attempt1, now, lease1, 27*24*time.Hour)
+	if err != nil {
+		t.Fatalf("worker 1 claim failed: %v", err)
+	}
+
+	// Worker 2 takes over ownership (simulated after worker 1 lease expired or reassigned)
+	attempt2 := "worker-attempt-2"
+	lease2 := now.Add(5 * time.Minute)
+	activeOp, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	activeOp.RecoveryAttemptID = &attempt2
+	activeOp.RecoveryLeaseExpiresAt = &lease2
+	_ = repo.UpdatePayoutOperation(ctx, activeOp)
+
+	// Worker 1 tries to finalize using attempt 1 -> MUST be rejected with ErrRecoveryClaimConflict
+	worker1FinalizeOp := *activeOp
+	batchID := "BATCH-FROM-WORKER-1"
+	worker1FinalizeOp.PayPalPayoutBatchID = &batchID
+	worker1FinalizeOp.Status = "SUBMITTED"
+
+	err = repo.FinalizeRecoveryOperation(ctx, &worker1FinalizeOp, attempt1)
+	if !errors.Is(err, db.ErrRecoveryClaimConflict) {
+		t.Fatalf("expected ErrRecoveryClaimConflict, got: %v", err)
+	}
+
+	// Ensure stored state remains assigned to worker 2 and was not overwritten
+	storedOp, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	if storedOp.RecoveryAttemptID == nil || *storedOp.RecoveryAttemptID != attempt2 {
+		t.Errorf("security violation: stale worker overwrote newer recovery attempt ID")
+	}
+}
+
+// Finding 1: Ambiguous provider timeout during recovery transitions to MANUAL_RECONCILIATION_REQUIRED.
+func TestMission032_Finding1_AmbiguousProviderTimeout(t *testing.T) {
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
+			// Simulate network timeout by hijacking/closing connection without HTTP response
+			hj, ok := w.(http.Hijacker)
+			if ok {
+				conn, _, _ := hj.Hijack()
+				_ = conn.Close()
+				return
+			}
+			http.Error(w, "timeout", http.StatusGatewayTimeout)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "timeout@example.com", RecipientName: "Jane", Title: "Timeout Test", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECONCILIATION_REQUIRED"
+	submitted := time.Now().UTC().Add(-1 * time.Hour)
+	op.SubmittedAt = &submitted
+
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
+		Recipient:     pCase.RecipientEmail,
+		Amount:        "100.00",
+		Currency:      op.Currency,
+		Note:          pCase.Title,
+		EmailSubject:  "Payment for Claim " + pCase.Reference,
+	}
+	fp := ComputeSubmissionFingerprint(req)
+	op.SubmissionFingerprint = &fp
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	_, recoveredOp, outcome, err := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if err == nil {
+		t.Fatal("expected error on ambiguous network timeout, got nil")
+	}
+
+	if outcome != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED on timeout, got: %s", outcome)
+	}
+	if recoveredOp.Status != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected op status MANUAL_RECONCILIATION_REQUIRED on timeout, got: %s", recoveredOp.Status)
+	}
+}
+
+// Finding 1: Lease renewal is conditional on the current owner and an unexpired lease.
+func TestMission032_Finding1_ConditionalLeaseRenewal(t *testing.T) {
+	repo := db.NewMockRepository()
+	ctx := context.Background()
+	userA, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{Email: "user@example.com", Name: "Alice"}, "Alice Corp")
+
+	caseA := &db.PayoutCase{
+		OrganizationID:  org.ID,
+		CreatedByUserID: userA.ID,
+		Reference:       "REF-RENEW-1",
+		RecipientEmail:  "test@example.com",
+		RecipientName:   "Jane",
+		Title:           "Renewal Test",
+		AmountCents:     10000,
+		Currency:        "USD",
+		Status:          "DRAFT",
+	}
+	_ = repo.CreatePayoutCase(ctx, caseA)
+
+	now := time.Now().UTC()
+	op := &db.PayoutOperation{
+		PayoutCaseID:      caseA.ID,
+		OrganizationID:    org.ID,
+		InitiatedByUserID: userA.ID,
+		SenderBatchID:     "BATCH-RENEW-1",
+		SenderItemID:      "ITEM-RENEW-1",
+		AmountCents:       10000,
+		Currency:          "USD",
+		Status:            "RECONCILIATION_REQUIRED",
+		SubmittedAt:       &now,
+	}
+	_ = repo.CreatePayoutOperation(ctx, op)
+
+	leaseExpires := now.Add(2 * time.Minute)
+	attemptID := "valid-attempt-id"
+	_, err := repo.ClaimPayoutOperationForRecovery(ctx, org.ID, op.ID, attemptID, now, leaseExpires, 27*24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed initial claim: %v", err)
+	}
+
+	// 1. Legitimate renewal by current owner with unexpired lease succeeds
+	newLease := now.Add(5 * time.Minute)
+	if err := repo.RenewRecoveryLease(ctx, org.ID, op.ID, attemptID, newLease); err != nil {
+		t.Fatalf("expected lease renewal to succeed, got: %v", err)
+	}
+
+	// 2. Renewal by non-owner fails
+	if err := repo.RenewRecoveryLease(ctx, org.ID, op.ID, "impostor-attempt-id", newLease.Add(time.Minute)); !errors.Is(err, db.ErrRecoveryClaimConflict) {
+		t.Errorf("expected ErrRecoveryClaimConflict for non-owner, got: %v", err)
+	}
+
+	// 3. Renewal after lease expiry fails
+	expiredTime := now.Add(-1 * time.Minute)
+	opRenewExpired, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	opRenewExpired.RecoveryLeaseExpiresAt = &expiredTime
+	_ = repo.UpdatePayoutOperation(ctx, opRenewExpired)
+
+	if err := repo.RenewRecoveryLease(ctx, org.ID, op.ID, attemptID, now.Add(10*time.Minute)); !errors.Is(err, db.ErrStaleRecoveryClaim) && !errors.Is(err, db.ErrRecoveryLeaseExpired) {
+		t.Errorf("expected ErrStaleRecoveryClaim or ErrRecoveryLeaseExpired for expired lease renewal, got: %v", err)
+	}
+}
+
+// Finding 2: Stale operations and MANUAL_RECONCILIATION_REQUIRED cannot be replayed or bypassed.
+func TestMission032_Finding2_RepeatedRecoveryCannotBypassManualReview(t *testing.T) {
+	svc, repo, userA, _, org := setupTestService(t, nil)
+	ctx := context.Background()
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "stale@example.com", RecipientName: "Jane", Title: "Stale Claim", AmountCents: 10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	op.Status = "RECOVERING"
+	past := time.Now().UTC().Add(-5 * time.Minute)
+	op.RecoveryLeaseExpiresAt = &past
+	attempt := "stale-attempt-999"
+	op.RecoveryAttemptID = &attempt
+	_ = repo.UpdatePayoutOperation(ctx, op)
+
+	// First recovery request detects stale claim and transitions to MANUAL_RECONCILIATION_REQUIRED
+	_, recOp1, outcome1, err1 := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err1, ErrStaleRecoveryClaim) {
+		t.Fatalf("expected ErrStaleRecoveryClaim on first call, got: %v", err1)
+	}
+	if outcome1 != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED, got: %s", outcome1)
+	}
+	if recOp1.Status != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected op status MANUAL_RECONCILIATION_REQUIRED, got: %s", recOp1.Status)
+	}
+
+	// Verify database persistence: operation is durably stored as MANUAL_RECONCILIATION_REQUIRED
+	persistedOp, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	if persistedOp.Status != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Fatalf("security violation: stored operation status is %s (must be MANUAL_RECONCILIATION_REQUIRED)", persistedOp.Status)
+	}
+
+	// Repeated recovery request MUST fail closed: cannot bypass manual review
+	_, recOp2, outcome2, err2 := svc.RecoverPayoutOperation(ctx, userA, org, op.ID)
+	if !errors.Is(err2, ErrOperationNotEligibleForRecovery) {
+		t.Fatalf("security violation: expected ErrOperationNotEligibleForRecovery on repeated recovery, got: %v", err2)
+	}
+	if outcome2 != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected outcome MANUAL_RECONCILIATION_REQUIRED on repeated attempt, got: %s", outcome2)
+	}
+	if recOp2.Status != "MANUAL_RECONCILIATION_REQUIRED" {
+		t.Errorf("expected op status MANUAL_RECONCILIATION_REQUIRED, got: %s", recOp2.Status)
+	}
+
+	// Submit endpoint also rejects submission
+	_, submitErr := svc.SubmitPayoutOperation(ctx, userA, org, pCase.ID, op.ID)
+	if submitErr == nil {
+		t.Fatal("security violation: SubmitPayoutOperation accepted operation in MANUAL_RECONCILIATION_REQUIRED")
+	}
+}
+
+// Finding 4: Exact request fingerprinting without credentials or tokens.
+func TestMission032_Finding4_ExactOutboundFingerprintIntegrity(t *testing.T) {
+	req := paypal.CreatePayoutRequest{
+		SenderBatchID: "CB-BATCH-EXACT-01",
+		SenderItemID:  "CB-ITEM-EXACT-01",
+		Recipient:     "user@exact.com",
+		Amount:        "123.45",
+		Currency:      "USD",
+		Note:          "Medical Reimbursement",
+		EmailSubject:  "Payment for Claim REF-EXACT-01",
+	}
+
+	fp := ComputeSubmissionFingerprint(req)
+
+	// Must begin with v2: and be 67 characters long
+	if !strings.HasPrefix(fp, "v2:") {
+		t.Errorf("expected v2: prefix, got: %s", fp)
+	}
+	if len(fp) != 67 {
+		t.Errorf("expected 67-character v2 fingerprint, got length %d (%s)", len(fp), fp)
+	}
+
+	// Verification using constant-time comparison
+	if err := VerifySubmissionFingerprint(fp, req); err != nil {
+		t.Fatalf("verification failed for exact request: %v", err)
+	}
+
+	// Tampered Note (whitespace)
+	tamperedNote := req
+	tamperedNote.Note = " Medical Reimbursement"
+	if err := VerifySubmissionFingerprint(fp, tamperedNote); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for leading space in Note, got: %v", err)
+	}
+
+	// Tampered Subject (whitespace)
+	tamperedSubject := req
+	tamperedSubject.EmailSubject = "Payment for Claim REF-EXACT-01 "
+	if err := VerifySubmissionFingerprint(fp, tamperedSubject); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Errorf("expected ErrFingerprintMismatch for trailing space in EmailSubject, got: %v", err)
+	}
+
+	// Missing fingerprint fails closed
+	if err := VerifySubmissionFingerprint("", req); !errors.Is(err, ErrFingerprintMissing) {
+		t.Errorf("expected ErrFingerprintMissing for empty string, got: %v", err)
+	}
+	if err := VerifySubmissionFingerprint("   ", req); !errors.Is(err, ErrFingerprintMissing) {
+		t.Errorf("expected ErrFingerprintMissing for whitespace-only string, got: %v", err)
 	}
 }

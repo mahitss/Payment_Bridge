@@ -479,7 +479,7 @@ func (h *Handler) handleRecoverPayoutOperation(w http.ResponseWriter, r *http.Re
 				"code":    "RECOVERY_CLAIM_CONFLICT",
 				"outcome": outcome,
 			})
-		case errors.Is(err, ErrStaleRecoveryClaim):
+		case errors.Is(err, ErrStaleRecoveryClaim), errors.Is(err, ErrRecoveryLeaseExpired):
 			writeJSON(w, http.StatusConflict, map[string]interface{}{
 				"error":     err.Error(),
 				"code":      "STALE_RECOVERY_CLAIM",
@@ -502,9 +502,10 @@ func (h *Handler) handleRecoverPayoutOperation(w http.ResponseWriter, r *http.Re
 			})
 		case errors.Is(err, ErrOperationNotEligibleForRecovery):
 			writeJSON(w, http.StatusConflict, map[string]interface{}{
-				"error":   err.Error(),
-				"code":    "OPERATION_NOT_ELIGIBLE",
-				"outcome": outcome,
+				"error":     err.Error(),
+				"code":      "OPERATION_NOT_ELIGIBLE",
+				"outcome":   outcome,
+				"operation": op,
 			})
 		case errors.Is(err, ErrCaseInTerminalState):
 			writeJSON(w, http.StatusConflict, map[string]interface{}{

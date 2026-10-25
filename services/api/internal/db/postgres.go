@@ -52,6 +52,10 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
+func (r *PostgresRepository) Pool() *pgxpool.Pool {
+	return r.pool
+}
+
 func (r *PostgresRepository) CreateUser(ctx context.Context, user *User) (*User, error) {
 	queryUser := `
 		INSERT INTO users (email, password_hash, name, email_verified, is_active, created_at, updated_at)
@@ -880,9 +884,17 @@ func (r *PostgresRepository) ClaimPayoutOperationForRecovery(
 
 	if existing.Status == "RECOVERING" {
 		if existing.RecoveryLeaseExpiresAt != nil && claimedAt.After(*existing.RecoveryLeaseExpiresAt) {
+			attemptIDVal := ""
+			if existing.RecoveryAttemptID != nil {
+				attemptIDVal = *existing.RecoveryAttemptID
+			}
+			_ = r.TransitionRecoveryToManualReview(ctx, orgID, opID, attemptIDVal, "Stale recovery claim: recovery lease expired; manual reconciliation required", nil)
 			return nil, ErrStaleRecoveryClaim
 		}
 		return nil, ErrRecoveryAlreadyInProgress
+	}
+	if existing.Status == "MANUAL_RECONCILIATION_REQUIRED" {
+		return nil, ErrInvalidOperationTransition
 	}
 	if existing.Status != "RECONCILIATION_REQUIRED" {
 		return nil, ErrInvalidOperationTransition
@@ -913,10 +925,10 @@ func (r *PostgresRepository) FinalizeRecoveryOperation(ctx context.Context, op *
 		UPDATE payout_operations
 		SET status = $1,
 		    submission_fingerprint = COALESCE($2, submission_fingerprint),
-		    paypal_payout_batch_id = $3,
-		    paypal_batch_status = $4,
-		    paypal_payout_item_id = $5,
-		    paypal_item_status = $6,
+		    paypal_payout_batch_id = COALESCE($3, paypal_payout_batch_id),
+		    paypal_batch_status = COALESCE($4, paypal_batch_status),
+		    paypal_payout_item_id = COALESCE($5, paypal_payout_item_id),
+		    paypal_item_status = COALESCE($6, paypal_item_status),
 		    error_message = $7,
 		    raw_provider_response = $8,
 		    completed_at = $9,
@@ -926,6 +938,8 @@ func (r *PostgresRepository) FinalizeRecoveryOperation(ctx context.Context, op *
 		  AND organization_id = $12
 		  AND status = 'RECOVERING'
 		  AND recovery_attempt_id = $13
+		  AND recovery_lease_expires_at IS NOT NULL
+		  AND recovery_lease_expires_at >= NOW()
 	`
 	res, err := r.pool.Exec(ctx, query,
 		op.Status,
@@ -950,10 +964,132 @@ func (r *PostgresRepository) FinalizeRecoveryOperation(ctx context.Context, op *
 		if checkErr != nil {
 			return checkErr
 		}
+
+		// Check if lease expired: prevent silent overwrite while preserving definitive late provider response
+		if existing.Status == "RECOVERING" && existing.RecoveryAttemptID != nil && *existing.RecoveryAttemptID == attemptID {
+			if existing.RecoveryLeaseExpiresAt != nil && time.Now().UTC().After(*existing.RecoveryLeaseExpiresAt) {
+				reason := "Recovery lease expired before finalization; manual reconciliation required"
+				_ = r.TransitionRecoveryToManualReview(ctx, op.OrganizationID, op.ID, attemptID, reason, op.RawProviderResponse)
+				if op.PayPalPayoutBatchID != nil {
+					_, _ = r.pool.Exec(ctx, `
+						UPDATE payout_operations
+						SET paypal_payout_batch_id = COALESCE(paypal_payout_batch_id, $1),
+						    paypal_batch_status = COALESCE(paypal_batch_status, $2),
+						    updated_at = NOW()
+						WHERE id = $3 AND organization_id = $4
+					`, op.PayPalPayoutBatchID, op.PayPalBatchStatus, op.ID, op.OrganizationID)
+				}
+				if op.RawProviderResponse != nil || op.PayPalPayoutBatchID != nil {
+					batchStatus := "QUARANTINED_LATE_RESPONSE"
+					if op.PayPalBatchStatus != nil {
+						batchStatus = *op.PayPalBatchStatus
+					}
+					rawResp := op.RawProviderResponse
+					if rawResp == nil && op.PayPalPayoutBatchID != nil {
+						rawResp = map[string]interface{}{"paypal_payout_batch_id": *op.PayPalPayoutBatchID}
+					}
+					_ = r.CreatePayoutStatusSnapshot(ctx, &PayoutStatusSnapshot{
+						PayoutOperationID: op.ID,
+						OrganizationID:    op.OrganizationID,
+						Provider:          "PAYPAL",
+						BatchStatus:       batchStatus,
+						ItemStatus:        op.PayPalItemStatus,
+						RawResponse:       rawResp,
+					})
+				}
+				return ErrRecoveryLeaseExpired
+			}
+		}
+
 		if existing.Status != "RECOVERING" || existing.RecoveryAttemptID == nil || *existing.RecoveryAttemptID != attemptID {
+			// Ownership changed or already finalized by another process; preserve late response in snapshot for manual auditing
+			if op.RawProviderResponse != nil || op.PayPalPayoutBatchID != nil {
+				batchStatus := "QUARANTINED_LATE_RESPONSE"
+				if op.PayPalBatchStatus != nil {
+					batchStatus = *op.PayPalBatchStatus
+				}
+				rawResp := op.RawProviderResponse
+				if rawResp == nil && op.PayPalPayoutBatchID != nil {
+					rawResp = map[string]interface{}{"paypal_payout_batch_id": *op.PayPalPayoutBatchID}
+				}
+				_ = r.CreatePayoutStatusSnapshot(ctx, &PayoutStatusSnapshot{
+					PayoutOperationID: op.ID,
+					OrganizationID:    op.OrganizationID,
+					Provider:          "PAYPAL",
+					BatchStatus:       batchStatus,
+					ItemStatus:        op.PayPalItemStatus,
+					RawResponse:       rawResp,
+				})
+			}
 			return ErrRecoveryClaimConflict
 		}
+
 		return ErrPayoutOperationNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) RenewRecoveryLease(ctx context.Context, orgID, opID, attemptID string, newLeaseExpiresAt time.Time) error {
+	query := `
+		UPDATE payout_operations
+		SET recovery_lease_expires_at = $1,
+		    updated_at = NOW()
+		WHERE id = $2
+		  AND organization_id = $3
+		  AND status = 'RECOVERING'
+		  AND recovery_attempt_id = $4
+		  AND recovery_lease_expires_at IS NOT NULL
+		  AND recovery_lease_expires_at >= NOW()
+	`
+	res, err := r.pool.Exec(ctx, query, newLeaseExpiresAt, opID, orgID, attemptID)
+	if err != nil {
+		return fmt.Errorf("failed to renew recovery lease: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		existing, checkErr := r.GetPayoutOperationByID(ctx, orgID, opID)
+		if checkErr != nil {
+			return checkErr
+		}
+		if existing.Status == "RECOVERING" && existing.RecoveryAttemptID != nil && *existing.RecoveryAttemptID == attemptID {
+			if existing.RecoveryLeaseExpiresAt != nil && time.Now().UTC().After(*existing.RecoveryLeaseExpiresAt) {
+				return ErrStaleRecoveryClaim
+			}
+		}
+		return ErrRecoveryClaimConflict
+	}
+	return nil
+}
+
+func (r *PostgresRepository) TransitionRecoveryToManualReview(ctx context.Context, orgID, opID, attemptID, reason string, rawProviderResponse map[string]interface{}) error {
+	var rawJSON []byte
+	if rawProviderResponse != nil {
+		rawJSON, _ = json.Marshal(rawProviderResponse)
+	}
+
+	query := `
+		UPDATE payout_operations
+		SET status = 'MANUAL_RECONCILIATION_REQUIRED',
+		    error_message = $1,
+		    raw_provider_response = COALESCE($2, raw_provider_response),
+		    updated_at = NOW()
+		WHERE id = $3
+		  AND organization_id = $4
+		  AND (status = 'RECOVERING' OR status = 'RECONCILIATION_REQUIRED')
+		  AND (recovery_attempt_id = $5 OR $5 = '' OR recovery_attempt_id IS NULL)
+	`
+	res, err := r.pool.Exec(ctx, query, reason, rawJSON, opID, orgID, attemptID)
+	if err != nil {
+		return fmt.Errorf("failed to transition recovery to manual review: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		existing, checkErr := r.GetPayoutOperationByID(ctx, orgID, opID)
+		if checkErr != nil {
+			return checkErr
+		}
+		if existing.Status == "MANUAL_RECONCILIATION_REQUIRED" {
+			return nil
+		}
+		return ErrRecoveryClaimConflict
 	}
 	return nil
 }
