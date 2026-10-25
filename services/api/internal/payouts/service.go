@@ -179,6 +179,28 @@ func (s *Service) ListPayoutCases(ctx context.Context, orgID string, limit, offs
 	return s.repo.ListPayoutCasesByOrg(ctx, orgID, limit, offset)
 }
 
+// generateSafeCorrelationID ensures generated identifiers obey provider length limits (e.g. PayPal's 63-character limit for sender_item_id).
+func generateSafeCorrelationID(prefix, reference, suffix string, maxLen int) string {
+	if maxLen <= 0 {
+		maxLen = 63
+	}
+	fixedLen := len(prefix) + len(suffix)
+	if fixedLen >= maxLen {
+		combined := prefix + reference + suffix
+		if len(combined) > maxLen {
+			return combined[:maxLen]
+		}
+		return combined
+	}
+
+	allowedRefLen := maxLen - fixedLen
+	ref := reference
+	if len(ref) > allowedRefLen {
+		ref = ref[:allowedRefLen]
+	}
+	return prefix + ref + suffix
+}
+
 // InitiatePayoutOperation prepares a new durable operation with unique idempotency keys.
 func (s *Service) InitiatePayoutOperation(ctx context.Context, user *db.User, org *db.Organization, caseID string) (*db.PayoutOperation, error) {
 	pCase, err := s.repo.GetPayoutCaseByID(ctx, org.ID, caseID)
@@ -200,10 +222,10 @@ func (s *Service) InitiatePayoutOperation(ctx context.Context, user *db.User, or
 		}
 	}
 
-	// Generate deterministic idempotency keys
+	// Generate deterministic idempotency keys obeying provider length limits (63 chars max)
 	randomSuffix := crypto.GenerateUUID()[:8]
-	senderBatchID := fmt.Sprintf("CB-BATCH-%s-%s", pCase.Reference, randomSuffix)
-	senderItemID := fmt.Sprintf("CB-ITEM-%s-%s", pCase.Reference, randomSuffix)
+	senderBatchID := generateSafeCorrelationID("CB-BATCH-", pCase.Reference, "-"+randomSuffix, 63)
+	senderItemID := generateSafeCorrelationID("CB-ITEM-", pCase.Reference, "-"+randomSuffix, 63)
 
 	status := "PREPARED"
 	if pCase.DualApprovalRequired {
@@ -351,6 +373,7 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 	amountStr := fmt.Sprintf("%.2f", float64(op.AmountCents)/100.0)
 	paypalReq := paypal.CreatePayoutRequest{
 		SenderBatchID: op.SenderBatchID,
+		SenderItemID:  op.SenderItemID,
 		Recipient:     pCase.RecipientEmail,
 		Amount:        amountStr,
 		Currency:      op.Currency,
@@ -403,16 +426,20 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 	}
 
 	// Update Case status to SUBMITTED
-	_ = s.repo.UpdatePayoutCaseStatus(ctx, org.ID, pCase.ID, "SUBMITTED")
+	if err := s.repo.UpdatePayoutCaseStatus(ctx, org.ID, pCase.ID, "SUBMITTED"); err != nil {
+		return nil, fmt.Errorf("failed to update payout case status: %w", err)
+	}
 
 	// Record snapshot
-	_ = s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
+	if err := s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
 		PayoutOperationID: op.ID,
 		OrganizationID:    org.ID,
 		Provider:          "PAYPAL",
 		BatchStatus:       paypalResp.BatchHeader.BatchStatus,
 		RawResponse:       op.RawProviderResponse,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("failed to record status snapshot: %w", err)
+	}
 
 	_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
 		UserID:         &user.ID,
@@ -442,7 +469,16 @@ func (s *Service) SyncPayoutCase(ctx context.Context, orgID, caseID string) (*db
 
 	// Get latest operation
 	op := ops[0]
-	if op.PayPalPayoutBatchID == nil || *op.PayPalPayoutBatchID == "" {
+
+	// Determine lookup identifier: prefer PayPalPayoutBatchID; fallback to SenderBatchID if operation is awaiting reconciliation
+	batchLookupID := ""
+	if op.PayPalPayoutBatchID != nil && *op.PayPalPayoutBatchID != "" {
+		batchLookupID = *op.PayPalPayoutBatchID
+	} else if op.SenderBatchID != "" && op.Status == "RECONCILIATION_REQUIRED" {
+		batchLookupID = op.SenderBatchID
+	}
+
+	if batchLookupID == "" {
 		return pCase, &op, nil
 	}
 
@@ -451,79 +487,194 @@ func (s *Service) SyncPayoutCase(ctx context.Context, orgID, caseID string) (*db
 		return pCase, &op, ErrFixtureExternalOperationForbidden
 	}
 
-	batchResp, err := s.paypalClient.GetPayoutBatch(ctx, *op.PayPalPayoutBatchID)
+	batchResp, err := s.paypalClient.GetPayoutBatch(ctx, batchLookupID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to query paypal payout batch: %w", err)
 	}
 
-	batchStatus := batchResp.BatchHeader.BatchStatus
-	op.PayPalBatchStatus = &batchStatus
+	batchResp.Normalize()
+	if batchResp.BatchHeader.PayoutBatchID != "" {
+		op.PayPalPayoutBatchID = &batchResp.BatchHeader.PayoutBatchID
+	}
+
+	batchStatus := strings.ToUpper(strings.TrimSpace(batchResp.BatchHeader.BatchStatus))
+	op.PayPalBatchStatus = &batchResp.BatchHeader.BatchStatus
 	now := time.Now().UTC()
 
+	// 1. Authoritative Item Correlation
+	var matchedItem *paypal.PayoutItem
+	var correlationFailed bool
+	var correlationReason string
+
+	if len(batchResp.Items) == 0 {
+		// No item details returned in batch yet
+	} else if op.SenderItemID != "" {
+		var matches []paypal.PayoutItem
+		for i := range batchResp.Items {
+			it := batchResp.Items[i]
+			it.Normalize()
+			if it.SenderItemID != "" && it.SenderItemID == op.SenderItemID {
+				matches = append(matches, it)
+			}
+		}
+
+		if len(matches) == 1 {
+			matchedItem = &matches[0]
+		} else if len(matches) > 1 {
+			correlationFailed = true
+			correlationReason = "multiple items matched sender item id"
+		} else {
+			// len(matches) == 0: no items had it.SenderItemID == op.SenderItemID
+			if len(batchResp.Items) == 1 && batchResp.Items[0].SenderItemID == "" {
+				// Historical single-item operation fallback where returned item lacks sender item id
+				matchedItem = &batchResp.Items[0]
+				matchedItem.Normalize()
+			} else {
+				correlationFailed = true
+				if len(batchResp.Items) > 1 {
+					correlationReason = "multiple items returned with no unique sender item id match"
+				} else {
+					correlationReason = "returned item sender item id does not match operation sender item id"
+				}
+			}
+		}
+	} else {
+		// Historical operation lacking op.SenderItemID
+		if len(batchResp.Items) == 1 {
+			matchedItem = &batchResp.Items[0]
+			matchedItem.Normalize()
+		} else {
+			correlationFailed = true
+			correlationReason = "multiple items returned for historical operation without sender item id"
+		}
+	}
+
 	var itemStatus string
-	if len(batchResp.Items) > 0 {
-		item := batchResp.Items[0]
-		itemStatus = item.TransactionStatus
-		op.PayPalPayoutItemID = &item.PayoutItemID
-		op.PayPalItemStatus = &itemStatus
+	if matchedItem != nil {
+		if matchedItem.PayoutItemID != "" {
+			op.PayPalPayoutItemID = &matchedItem.PayoutItemID
+		}
+		itemStatus = strings.ToUpper(strings.TrimSpace(matchedItem.TransactionStatus))
+		op.PayPalItemStatus = &matchedItem.TransactionStatus
 	}
 
-	// State machine synchronization
-	switch strings.ToUpper(batchStatus) {
-	case "SUCCESS":
-		op.Status = "SUCCEEDED"
-		op.CompletedAt = &now
-		_ = s.repo.UpdatePayoutCaseStatus(ctx, orgID, caseID, "COMPLETED")
-	case "DENIED":
+	// 2. State Machine Mapping
+	// CRITICAL RULE: Never mark a payout SUCCEEDED or its case COMPLETED from batch status SUCCESS alone.
+	// Status determination is item-authoritative.
+	if batchStatus == "DENIED" {
 		op.Status = "FAILED"
-		_ = s.repo.UpdatePayoutCaseStatus(ctx, orgID, caseID, "DENIED")
-	case "CANCELED":
-		op.Status = "CANCELLED"
-		op.CancelledAt = &now
-		_ = s.repo.UpdatePayoutCaseStatus(ctx, orgID, caseID, "CANCELLED")
-	case "PENDING", "PROCESSING":
-		op.Status = "SUBMITTED"
+		errMsg := "PayPal payout batch was denied"
+		op.ErrorMessage = &errMsg
+		if err := s.repo.UpdatePayoutCaseStatus(ctx, orgID, caseID, "DENIED"); err != nil {
+			return nil, nil, fmt.Errorf("failed to update payout case status: %w", err)
+		}
+	} else if correlationFailed {
+		// Multiple items and no unique match: never choose first item arbitrarily; fail closed into RECONCILIATION_REQUIRED
+		op.Status = "RECONCILIATION_REQUIRED"
+		errMsg := fmt.Sprintf("Payout item reconciliation required: %s", correlationReason)
+		op.ErrorMessage = &errMsg
+	} else if matchedItem == nil {
+		// No items present in batch response yet
+		switch batchStatus {
+		case "CANCELED":
+			if op.Status != "CANCELLED" {
+				op.Status = "RECONCILIATION_REQUIRED"
+				errMsg := "PayPal payout batch reported canceled without local cancellation record"
+				op.ErrorMessage = &errMsg
+			}
+		case "PENDING", "PROCESSING", "SUCCESS":
+			// Batch is pending, processing, or success, but item details are not yet available; do NOT complete
+			op.Status = "SUBMITTED"
+		default:
+			op.Status = "RECONCILIATION_REQUIRED"
+			errMsg := fmt.Sprintf("Unexpected PayPal batch status: %s", batchStatus)
+			op.ErrorMessage = &errMsg
+		}
+	} else {
+		// Authoritative item status evaluation
+		switch itemStatus {
+		case "SUCCESS":
+			op.Status = "SUCCEEDED"
+			op.CompletedAt = &now
+			op.ErrorMessage = nil
+			if err := s.repo.UpdatePayoutCaseStatus(ctx, orgID, caseID, "COMPLETED"); err != nil {
+				return nil, nil, fmt.Errorf("failed to update payout case status: %w", err)
+			}
+		case "PENDING", "UNCLAIMED":
+			// Item pending or unclaimed: keep operation submitted; do not mark case completed
+			op.Status = "SUBMITTED"
+		case "FAILED", "BLOCKED":
+			op.Status = "FAILED"
+			errMsg := fmt.Sprintf("PayPal payout item status: %s", itemStatus)
+			op.ErrorMessage = &errMsg
+			if err := s.repo.UpdatePayoutCaseStatus(ctx, orgID, caseID, "FAILED"); err != nil {
+				return nil, nil, fmt.Errorf("failed to update payout case status: %w", err)
+			}
+		case "CANCELED", "RETURNED":
+			// Preserve already-recorded successful local cancellation when PayPal subsequently reports returned/cancelled.
+			// Do not confuse a returned item with proof that ClaimBridge initiated cancellation.
+			if op.Status == "CANCELLED" {
+				// Keep existing CANCELLED status and timestamp
+			} else {
+				op.Status = "RECONCILIATION_REQUIRED"
+				errMsg := fmt.Sprintf("Payout item reconciliation required: provider item status is %s without local cancellation record", itemStatus)
+				op.ErrorMessage = &errMsg
+			}
+		case "ONHOLD", "REFUNDED", "REVERSED":
+			// Ambiguous outcome: preserve provider evidence and require human reconciliation
+			op.Status = "RECONCILIATION_REQUIRED"
+			errMsg := fmt.Sprintf("Payout item reconciliation required: provider item status is %s", itemStatus)
+			op.ErrorMessage = &errMsg
+		default:
+			// Unknown or unexpected item status
+			op.Status = "RECONCILIATION_REQUIRED"
+			errMsg := fmt.Sprintf("Payout item reconciliation required: unknown provider item status %s", itemStatus)
+			op.ErrorMessage = &errMsg
+		}
 	}
 
-	// Check item status specifically
-	if strings.EqualFold(itemStatus, "SUCCESS") {
-		op.Status = "SUCCEEDED"
-		op.CompletedAt = &now
-		_ = s.repo.UpdatePayoutCaseStatus(ctx, orgID, caseID, "COMPLETED")
-	} else if strings.EqualFold(itemStatus, "FAILED") || strings.EqualFold(itemStatus, "BLOCKED") {
-		op.Status = "FAILED"
-	}
-
-	op.RawProviderResponse = map[string]interface{}{
+	rawResp := map[string]interface{}{
 		"batch_header": batchResp.BatchHeader,
 		"items_count":  len(batchResp.Items),
 	}
+	if matchedItem != nil {
+		rawResp["matched_item"] = matchedItem
+	}
+	if correlationReason != "" {
+		rawResp["correlation_reason"] = correlationReason
+	}
+	op.RawProviderResponse = rawResp
 
 	if err := s.repo.UpdatePayoutOperation(ctx, &op); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to update payout operation: %w", err)
 	}
 
-	_ = s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
+	if err := s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
 		PayoutOperationID: op.ID,
 		OrganizationID:    orgID,
 		Provider:          "PAYPAL",
-		BatchStatus:       batchStatus,
-		ItemStatus:        &itemStatus,
+		BatchStatus:       batchResp.BatchHeader.BatchStatus,
+		ItemStatus:        op.PayPalItemStatus,
 		RawResponse:       op.RawProviderResponse,
-	})
+	}); err != nil {
+		return nil, nil, fmt.Errorf("failed to create payout status snapshot: %w", err)
+	}
 
 	_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
 		OrganizationID: &orgID,
 		EventType:      "PAYOUT_STATUS_SYNCHRONIZED",
 		Metadata: map[string]interface{}{
 			"operation_id": op.ID,
-			"batch_status": batchStatus,
-			"item_status":  itemStatus,
+			"batch_status": batchResp.BatchHeader.BatchStatus,
+			"item_status":  op.PayPalItemStatus,
 			"op_status":    op.Status,
 		},
 	})
 
-	pCase, _ = s.repo.GetPayoutCaseByID(ctx, orgID, caseID)
+	pCase, err = s.repo.GetPayoutCaseByID(ctx, orgID, caseID)
+	if err != nil {
+		return nil, &op, fmt.Errorf("failed to retrieve updated payout case: %w", err)
+	}
 	return pCase, &op, nil
 }
 
@@ -552,7 +703,9 @@ func (s *Service) CancelPayoutOperation(ctx context.Context, user *db.User, org 
 		if err := s.repo.UpdatePayoutOperation(ctx, op); err != nil {
 			return nil, err
 		}
-		_ = s.repo.UpdatePayoutCaseStatus(ctx, org.ID, op.PayoutCaseID, "CANCELLED")
+		if err := s.repo.UpdatePayoutCaseStatus(ctx, org.ID, op.PayoutCaseID, "CANCELLED"); err != nil {
+			return nil, err
+		}
 		_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
 			UserID:         &user.ID,
 			OrganizationID: &org.ID,
@@ -572,6 +725,7 @@ func (s *Service) CancelPayoutOperation(ctx context.Context, user *db.User, org 
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify item status with paypal: %w", err)
 	}
+	itemDetails.Normalize()
 
 	if !strings.EqualFold(itemDetails.TransactionStatus, "UNCLAIMED") {
 		return nil, fmt.Errorf("%w: item status is %s (must be UNCLAIMED)", ErrNotEligibleForCancellation, itemDetails.TransactionStatus)
@@ -582,6 +736,7 @@ func (s *Service) CancelPayoutOperation(ctx context.Context, user *db.User, org 
 	if err != nil {
 		return nil, fmt.Errorf("paypal cancellation failed: %w", err)
 	}
+	cancelledItem.Normalize()
 
 	op.Status = "CANCELLED"
 	now := time.Now().UTC()
@@ -592,16 +747,20 @@ func (s *Service) CancelPayoutOperation(ctx context.Context, user *db.User, org 
 	if err := s.repo.UpdatePayoutOperation(ctx, op); err != nil {
 		return nil, err
 	}
-	_ = s.repo.UpdatePayoutCaseStatus(ctx, org.ID, op.PayoutCaseID, "CANCELLED")
+	if err := s.repo.UpdatePayoutCaseStatus(ctx, org.ID, op.PayoutCaseID, "CANCELLED"); err != nil {
+		return nil, err
+	}
 
-	_ = s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
+	if err := s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
 		PayoutOperationID: op.ID,
 		OrganizationID:    org.ID,
 		Provider:          "PAYPAL",
 		BatchStatus:       "CANCELED",
 		ItemStatus:        &cancelledStatus,
 		RawResponse:       map[string]interface{}{"cancelled_item": cancelledItem},
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
 		UserID:         &user.ID,

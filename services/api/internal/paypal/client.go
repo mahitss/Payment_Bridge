@@ -62,16 +62,52 @@ type OAuthTokenResponse struct {
 	Nonce       string `json:"nonce"`
 }
 
+// SenderBatchHeader represents sender-level batch metadata.
+type SenderBatchHeader struct {
+	SenderBatchID string `json:"sender_batch_id,omitempty"`
+	EmailSubject  string `json:"email_subject,omitempty"`
+	RecipientType string `json:"recipient_type,omitempty"`
+}
+
 // PayoutBatchHeader represents metadata about a PayPal Payout Batch.
 type PayoutBatchHeader struct {
-	PayoutBatchID string          `json:"payout_batch_id"`
-	BatchStatus   string          `json:"batch_status"`
-	TimeCreated   string          `json:"time_created"`
-	TimeCompleted string          `json:"time_completed,omitempty"`
-	SenderBatchID string          `json:"sender_batch_header.sender_batch_id,omitempty"`
-	FundingSource string          `json:"funding_source,omitempty"`
-	Amount        *CurrencyAmount `json:"amount,omitempty"`
-	Fees          *CurrencyAmount `json:"fees,omitempty"`
+	PayoutBatchID     string             `json:"payout_batch_id"`
+	BatchStatus       string             `json:"batch_status"`
+	TimeCreated       string             `json:"time_created"`
+	TimeCompleted     string             `json:"time_completed,omitempty"`
+	SenderBatchHeader *SenderBatchHeader `json:"sender_batch_header,omitempty"`
+	SenderBatchID     string             `json:"sender_batch_id,omitempty"`
+	FundingSource     string             `json:"funding_source,omitempty"`
+	Amount            *CurrencyAmount    `json:"amount,omitempty"`
+	Fees              *CurrencyAmount    `json:"fees,omitempty"`
+}
+
+// Normalize ensures SenderBatchID and SenderBatchHeader are synchronized.
+func (h *PayoutBatchHeader) Normalize() {
+	if h.SenderBatchID == "" && h.SenderBatchHeader != nil {
+		h.SenderBatchID = h.SenderBatchHeader.SenderBatchID
+	} else if h.SenderBatchID != "" && h.SenderBatchHeader == nil {
+		h.SenderBatchHeader = &SenderBatchHeader{
+			SenderBatchID: h.SenderBatchID,
+		}
+	}
+}
+
+func (h *PayoutBatchHeader) UnmarshalJSON(data []byte) error {
+	type Alias PayoutBatchHeader
+	var aux struct {
+		Alias
+		LegacySenderBatchID string `json:"sender_batch_header.sender_batch_id"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*h = PayoutBatchHeader(aux.Alias)
+	if h.SenderBatchID == "" && aux.LegacySenderBatchID != "" {
+		h.SenderBatchID = aux.LegacySenderBatchID
+	}
+	h.Normalize()
+	return nil
 }
 
 // CurrencyAmount represents a PayPal currency & value pair.
@@ -80,19 +116,78 @@ type CurrencyAmount struct {
 	Value    string `json:"value"`
 }
 
+// PayoutItemDetail represents the official nested payout_item structure.
+type PayoutItemDetail struct {
+	RecipientType string          `json:"recipient_type,omitempty"`
+	Amount        *CurrencyAmount `json:"amount,omitempty"`
+	Note          string          `json:"note,omitempty"`
+	Receiver      string          `json:"receiver,omitempty"`
+	SenderItemID  string          `json:"sender_item_id,omitempty"`
+}
+
 // PayoutItem represents a single item inside a payout batch.
 type PayoutItem struct {
-	PayoutItemID      string          `json:"payout_item_id"`
-	TransactionID     string          `json:"transaction_id,omitempty"`
-	TransactionStatus string          `json:"transaction_status"`
-	PayoutItemFee     *CurrencyAmount `json:"payout_item_fee,omitempty"`
-	PayoutBatchID     string          `json:"payout_batch_id"`
-	SenderItemID      string          `json:"sender_item_id,omitempty"`
-	Amount            CurrencyAmount  `json:"amount"`
-	Receiver          string          `json:"receiver"`
-	RecipientType     string          `json:"recipient_type,omitempty"`
-	Note              string          `json:"note,omitempty"`
-	Errors            json.RawMessage `json:"errors,omitempty"`
+	PayoutItemID      string            `json:"payout_item_id"`
+	TransactionID     string            `json:"transaction_id,omitempty"`
+	TransactionStatus string            `json:"transaction_status"`
+	PayoutItemFee     *CurrencyAmount   `json:"payout_item_fee,omitempty"`
+	PayoutBatchID     string            `json:"payout_batch_id"`
+	PayoutItem        *PayoutItemDetail `json:"payout_item,omitempty"`
+	SenderItemID      string            `json:"sender_item_id,omitempty"`
+	Amount            CurrencyAmount    `json:"amount"`
+	Receiver          string            `json:"receiver"`
+	RecipientType     string            `json:"recipient_type,omitempty"`
+	Note              string            `json:"note,omitempty"`
+	TimeProcessed     string            `json:"time_processed,omitempty"`
+	Errors            json.RawMessage   `json:"errors,omitempty"`
+	Links             []LinkDescription `json:"links,omitempty"`
+}
+
+// Normalize synchronizes official nested payout_item fields with flat fields.
+func (pi *PayoutItem) Normalize() {
+	if pi.PayoutItem != nil {
+		if pi.SenderItemID == "" && pi.PayoutItem.SenderItemID != "" {
+			pi.SenderItemID = pi.PayoutItem.SenderItemID
+		}
+		if pi.Receiver == "" && pi.PayoutItem.Receiver != "" {
+			pi.Receiver = pi.PayoutItem.Receiver
+		}
+		if pi.RecipientType == "" && pi.PayoutItem.RecipientType != "" {
+			pi.RecipientType = pi.PayoutItem.RecipientType
+		}
+		if pi.Note == "" && pi.PayoutItem.Note != "" {
+			pi.Note = pi.PayoutItem.Note
+		}
+		if (pi.Amount.Value == "" || pi.Amount.Currency == "") && pi.PayoutItem.Amount != nil {
+			pi.Amount = *pi.PayoutItem.Amount
+		}
+	} else {
+		var amt *CurrencyAmount
+		if pi.Amount.Value != "" || pi.Amount.Currency != "" {
+			amt = &CurrencyAmount{
+				Currency: pi.Amount.Currency,
+				Value:    pi.Amount.Value,
+			}
+		}
+		pi.PayoutItem = &PayoutItemDetail{
+			RecipientType: pi.RecipientType,
+			Amount:        amt,
+			Note:          pi.Note,
+			Receiver:      pi.Receiver,
+			SenderItemID:  pi.SenderItemID,
+		}
+	}
+}
+
+func (pi *PayoutItem) UnmarshalJSON(data []byte) error {
+	type Alias PayoutItem
+	var aux Alias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*pi = PayoutItem(aux)
+	pi.Normalize()
+	return nil
 }
 
 // PayoutBatchResponse represents the payload returned by GET /v1/payments/payouts/{id}.
@@ -100,17 +195,84 @@ type PayoutBatchResponse struct {
 	BatchHeader PayoutBatchHeader `json:"batch_header"`
 	Items       []PayoutItem      `json:"items,omitempty"`
 	Links       []LinkDescription `json:"links,omitempty"`
+	TotalItems  int               `json:"total_items,omitempty"`
+	TotalPages  int               `json:"total_pages,omitempty"`
 }
 
-// PayoutItemResponse represents the payload returned by GET /v1/payments/payouts-item/{id}.
+// Normalize normalizes the batch header and all nested items.
+func (pbr *PayoutBatchResponse) Normalize() {
+	pbr.BatchHeader.Normalize()
+	for i := range pbr.Items {
+		pbr.Items[i].Normalize()
+	}
+}
+
+func (pbr *PayoutBatchResponse) UnmarshalJSON(data []byte) error {
+	type Alias PayoutBatchResponse
+	var aux Alias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*pbr = PayoutBatchResponse(aux)
+	pbr.Normalize()
+	return nil
+}
+
+// PayoutItemResponse represents the payload returned by GET /v1/payments/payouts-item/{id}
+// and POST /v1/payments/payouts-item/{id}/cancel.
 type PayoutItemResponse struct {
-	PayoutItemID      string          `json:"payout_item_id"`
-	TransactionID     string          `json:"transaction_id,omitempty"`
-	TransactionStatus string          `json:"transaction_status"`
-	PayoutBatchID     string          `json:"payout_batch_id"`
-	Amount            CurrencyAmount  `json:"amount"`
-	Receiver          string          `json:"receiver"`
-	Errors            json.RawMessage `json:"errors,omitempty"`
+	PayoutItemID      string            `json:"payout_item_id"`
+	TransactionID     string            `json:"transaction_id,omitempty"`
+	TransactionStatus string            `json:"transaction_status"`
+	PayoutBatchID     string            `json:"payout_batch_id"`
+	PayoutItemFee     *CurrencyAmount   `json:"payout_item_fee,omitempty"`
+	PayoutItem        *PayoutItemDetail `json:"payout_item,omitempty"`
+	SenderItemID      string            `json:"sender_item_id,omitempty"`
+	SenderBatchID     string            `json:"sender_batch_id,omitempty"`
+	Amount            CurrencyAmount    `json:"amount"`
+	Receiver          string            `json:"receiver"`
+	TimeProcessed     string            `json:"time_processed,omitempty"`
+	Errors            json.RawMessage   `json:"errors,omitempty"`
+	Links             []LinkDescription `json:"links,omitempty"`
+}
+
+// Normalize synchronizes official nested payout_item fields with flat fields.
+func (pir *PayoutItemResponse) Normalize() {
+	if pir.PayoutItem != nil {
+		if pir.SenderItemID == "" && pir.PayoutItem.SenderItemID != "" {
+			pir.SenderItemID = pir.PayoutItem.SenderItemID
+		}
+		if pir.Receiver == "" && pir.PayoutItem.Receiver != "" {
+			pir.Receiver = pir.PayoutItem.Receiver
+		}
+		if (pir.Amount.Value == "" || pir.Amount.Currency == "") && pir.PayoutItem.Amount != nil {
+			pir.Amount = *pir.PayoutItem.Amount
+		}
+	} else {
+		var amt *CurrencyAmount
+		if pir.Amount.Value != "" || pir.Amount.Currency != "" {
+			amt = &CurrencyAmount{
+				Currency: pir.Amount.Currency,
+				Value:    pir.Amount.Value,
+			}
+		}
+		pir.PayoutItem = &PayoutItemDetail{
+			Amount:       amt,
+			Receiver:     pir.Receiver,
+			SenderItemID: pir.SenderItemID,
+		}
+	}
+}
+
+func (pir *PayoutItemResponse) UnmarshalJSON(data []byte) error {
+	type Alias PayoutItemResponse
+	var aux Alias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*pir = PayoutItemResponse(aux)
+	pir.Normalize()
+	return nil
 }
 
 // LinkDescription represents PayPal HATEOAS links.
@@ -123,6 +285,7 @@ type LinkDescription struct {
 // CreatePayoutRequest specifies payout creation parameters.
 type CreatePayoutRequest struct {
 	SenderBatchID string
+	SenderItemID  string
 	Recipient     string
 	Amount        string
 	Currency      string
@@ -134,6 +297,17 @@ type CreatePayoutRequest struct {
 type CreatePayoutResponse struct {
 	BatchHeader PayoutBatchHeader `json:"batch_header"`
 	Links       []LinkDescription `json:"links,omitempty"`
+}
+
+func (cpr *CreatePayoutResponse) UnmarshalJSON(data []byte) error {
+	type Alias CreatePayoutResponse
+	var aux Alias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*cpr = CreatePayoutResponse(aux)
+	cpr.BatchHeader.Normalize()
+	return nil
 }
 
 // ValidateSandboxBaseURL verifies that the URL strictly targets the official PayPal sandbox.
@@ -445,21 +619,26 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 		return nil, err
 	}
 
+	itemMap := map[string]interface{}{
+		"recipient_type": "EMAIL",
+		"amount": map[string]string{
+			"value":    req.Amount,
+			"currency": req.Currency,
+		},
+		"receiver": req.Recipient,
+		"note":     req.Note,
+	}
+	if trimmedItem := strings.TrimSpace(req.SenderItemID); trimmedItem != "" {
+		itemMap["sender_item_id"] = trimmedItem
+	}
+
 	payload := map[string]interface{}{
 		"sender_batch_header": map[string]interface{}{
 			"sender_batch_id": req.SenderBatchID,
 			"email_subject":   req.EmailSubject,
 		},
 		"items": []map[string]interface{}{
-			{
-				"recipient_type": "EMAIL",
-				"amount": map[string]string{
-					"value":    req.Amount,
-					"currency": req.Currency,
-				},
-				"receiver": req.Recipient,
-				"note":     req.Note,
-			},
+			itemMap,
 		},
 	}
 
