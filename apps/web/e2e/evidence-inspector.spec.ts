@@ -7,7 +7,7 @@ test.describe("Mission 026: Grounded Evidence Inspector", () => {
     await page.fill("#email", "operator@claimbridge.internal");
     await page.fill("#password", "OperatorPass123!");
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/app/);
+    await expect(page).toHaveURL(/\/app/, { timeout: 15000 });
   });
 
   test("1. Evidence chip click opens drawer with safe allowlisted fields, provenance, and REFERENCE VALIDATED badge", async ({
@@ -144,11 +144,12 @@ test.describe("Mission 026: Grounded Evidence Inspector", () => {
     await expect(fieldsCard).toContainText("Recipient (Masked)");
     await expect(fieldsCard).toContainText("c***t@example.com");
 
-    // Check close via close button
+    // Check close via close button and verify focus restoration to triggering chip
     const closeBtn = page.locator('[data-testid="evidence-inspector-close"]');
     await expect(closeBtn).toBeVisible();
     await closeBtn.click();
     await expect(drawer).not.toBeVisible();
+    await expect(evidenceChip).toBeFocused();
   });
 
   test("2. Keyboard accessibility: Escape key closes the inspector drawer", async ({
@@ -223,9 +224,10 @@ test.describe("Mission 026: Grounded Evidence Inspector", () => {
     const drawer = page.locator('[data-testid="evidence-inspector-drawer"]');
     await expect(drawer).toBeVisible();
 
-    // Press Escape to dismiss
+    // Press Escape to dismiss and verify focus restoration to triggering chip
     await page.keyboard.press("Escape");
     await expect(drawer).not.toBeVisible();
+    await expect(evidenceChip).toBeFocused();
   });
 
   test("3. Unavailable or ungrounded citation displays clear error state without leaking information", async ({
@@ -303,5 +305,284 @@ test.describe("Mission 026: Grounded Evidence Inspector", () => {
     await expect(errorAlert).toBeVisible();
     await expect(errorAlert).toContainText("Citation Unavailable or Inaccessible");
     await expect(errorAlert).toContainText("evidence reference not found");
+  });
+
+  test("4. Focus management: Opening places focus inside dialog, Tab and Shift+Tab trap focus within drawer", async ({
+    page,
+  }) => {
+    await page.route("**/api/v1/payout-cases/*/investigations", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            investigations: [
+              {
+                id: "inv-inspect-004",
+                payout_case_id: "demo-w9821-case-id",
+                organization_id: "demo-org-id",
+                requested_by_user_id: "operator-user-id",
+                provider: "ollama-native",
+                model: "qwen3.5:4b",
+                prompt_version: "claimbridge-investigation-v1.0",
+                status: "COMPLETED",
+                summary: "Focus trap regression test.",
+                confidence: "HIGH",
+                requires_human_review: false,
+                observed_facts: [],
+                findings: [
+                  {
+                    explanation: "Keyboard focus trap verification finding",
+                    evidence_references: ["demo-w9821-case-id"],
+                  },
+                ],
+                recommended_next_steps: [],
+                missing_information: [],
+                risk_flags: [],
+                limitations: [],
+                created_at: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.route("**/api/v1/payout-cases/*/evidence/*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          reference_id: "demo-w9821-case-id",
+          source_type: "PAYOUT_CASE",
+          display_label: "Payout Case (DEMO-W9821)",
+          fields: [{ name: "Case Reference", value: "DEMO-W9821" }],
+          is_synthetic_fixture: true,
+          resolution_status: "RESOLVED",
+        }),
+      });
+    });
+
+    await page.goto("/app/payouts");
+    const fixtureLink = page.locator('a:has-text("DEMO-W9821")');
+    await expect(fixtureLink).toBeVisible();
+    await fixtureLink.click();
+    await expect(page).toHaveURL(/\/app\/payouts\/.+/);
+
+    const evidenceChip = page.locator('[data-testid="evidence-chip-demo-w9821-case-id"]');
+    await expect(evidenceChip).toBeVisible();
+
+    // Focus chip with keyboard and activate with Enter
+    await evidenceChip.focus();
+    await expect(evidenceChip).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    const drawer = page.locator('[data-testid="evidence-inspector-drawer"]');
+    await expect(drawer).toBeVisible();
+
+    // 1. Verify initial focus is placed on the close button inside the dialog
+    const closeBtn = page.locator('[data-testid="evidence-inspector-close"]');
+    await expect(closeBtn).toBeFocused();
+
+    // 2. Press Tab -> moves forward to footer close button
+    const footerCloseBtn = page.locator('[data-testid="evidence-inspector-footer-close"]');
+    await page.keyboard.press("Tab");
+    await expect(footerCloseBtn).toBeFocused();
+
+    // 3. Press Tab on last element -> wraps forwards back to header close button
+    await page.keyboard.press("Tab");
+    await expect(closeBtn).toBeFocused();
+
+    // 4. Press Shift+Tab on first element -> wraps backwards to footer close button
+    await page.keyboard.press("Shift+Tab");
+    await expect(footerCloseBtn).toBeFocused();
+
+    // 5. Press Shift+Tab again -> returns to header close button
+    await page.keyboard.press("Shift+Tab");
+    await expect(closeBtn).toBeFocused();
+
+    // 6. Dismiss with Escape and verify focus returns to triggering chip
+    await page.keyboard.press("Escape");
+    await expect(drawer).not.toBeVisible();
+    await expect(evidenceChip).toBeFocused();
+  });
+
+  test("5. Focus restoration: Dismissing via footer close button returns focus to triggering chip", async ({
+    page,
+  }) => {
+    await page.route("**/api/v1/payout-cases/*/investigations", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            investigations: [
+              {
+                id: "inv-inspect-005",
+                payout_case_id: "demo-w9821-case-id",
+                organization_id: "demo-org-id",
+                requested_by_user_id: "operator-user-id",
+                provider: "ollama-native",
+                model: "qwen3.5:4b",
+                prompt_version: "claimbridge-investigation-v1.0",
+                status: "COMPLETED",
+                summary: "Footer close dismissal test.",
+                confidence: "HIGH",
+                requires_human_review: false,
+                observed_facts: [],
+                findings: [
+                  {
+                    explanation: "Footer close dismissal finding",
+                    evidence_references: ["demo-w9821-case-id"],
+                  },
+                ],
+                recommended_next_steps: [],
+                missing_information: [],
+                risk_flags: [],
+                limitations: [],
+                created_at: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.route("**/api/v1/payout-cases/*/evidence/*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          reference_id: "demo-w9821-case-id",
+          source_type: "PAYOUT_CASE",
+          display_label: "Payout Case (DEMO-W9821)",
+          fields: [{ name: "Case Reference", value: "DEMO-W9821" }],
+          is_synthetic_fixture: true,
+          resolution_status: "RESOLVED",
+        }),
+      });
+    });
+
+    await page.goto("/app/payouts");
+    const fixtureLink = page.locator('a:has-text("DEMO-W9821")');
+    await expect(fixtureLink).toBeVisible();
+    await fixtureLink.click();
+    await expect(page).toHaveURL(/\/app\/payouts\/.+/);
+
+    const evidenceChip = page.locator('[data-testid="evidence-chip-demo-w9821-case-id"]');
+    await expect(evidenceChip).toBeVisible();
+    await evidenceChip.click();
+
+    const drawer = page.locator('[data-testid="evidence-inspector-drawer"]');
+    await expect(drawer).toBeVisible();
+
+    // Tab to footer close button and press Enter
+    await page.keyboard.press("Tab");
+    const footerCloseBtn = page.locator('[data-testid="evidence-inspector-footer-close"]');
+    await expect(footerCloseBtn).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(drawer).not.toBeVisible();
+    await expect(evidenceChip).toBeFocused();
+  });
+
+  test("6. Error state focus trap: Cycles through Retry Verification and restores focus on dismissal", async ({
+    page,
+  }) => {
+    await page.route("**/api/v1/payout-cases/*/investigations", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            investigations: [
+              {
+                id: "inv-inspect-006",
+                payout_case_id: "demo-w9821-case-id",
+                organization_id: "demo-org-id",
+                requested_by_user_id: "operator-user-id",
+                provider: "ollama-native",
+                model: "qwen3.5:4b",
+                prompt_version: "claimbridge-investigation-v1.0",
+                status: "COMPLETED",
+                summary: "Error state focus trap test.",
+                confidence: "LOW",
+                requires_human_review: true,
+                observed_facts: [],
+                findings: [
+                  {
+                    explanation: "Error state citation test",
+                    evidence_references: ["non-existent-ref-id"],
+                  },
+                ],
+                recommended_next_steps: [],
+                missing_information: [],
+                risk_flags: [],
+                limitations: [],
+                created_at: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.route("**/api/v1/payout-cases/*/evidence/non-existent-ref-id", async (route) => {
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({
+          reference_id: "non-existent-ref-id",
+          resolution_status: "UNAVAILABLE",
+          error: "evidence reference not found",
+          code: "EVIDENCE_NOT_FOUND",
+        }),
+      });
+    });
+
+    await page.goto("/app/payouts");
+    const fixtureLink = page.locator('a:has-text("DEMO-W9821")');
+    await expect(fixtureLink).toBeVisible();
+    await fixtureLink.click();
+    await expect(page).toHaveURL(/\/app\/payouts\/.+/);
+
+    const badChip = page.locator('[data-testid="evidence-chip-non-existent-ref-id"]');
+    await expect(badChip).toBeVisible();
+    await badChip.click();
+
+    const drawer = page.locator('[data-testid="evidence-inspector-drawer"]');
+    await expect(drawer).toBeVisible();
+
+    const closeBtn = page.locator('[data-testid="evidence-inspector-close"]');
+    await expect(closeBtn).toBeFocused();
+
+    // Tab -> Retry Verification button
+    await page.keyboard.press("Tab");
+    const retryBtn = page.locator('button:has-text("Retry Verification")');
+    await expect(retryBtn).toBeFocused();
+
+    // Tab -> Footer Close Inspector button
+    await page.keyboard.press("Tab");
+    const footerCloseBtn = page.locator('[data-testid="evidence-inspector-footer-close"]');
+    await expect(footerCloseBtn).toBeFocused();
+
+    // Tab -> wraps back to Close button
+    await page.keyboard.press("Tab");
+    await expect(closeBtn).toBeFocused();
+
+    // Shift+Tab -> wraps backwards to Footer Close Inspector button
+    await page.keyboard.press("Shift+Tab");
+    await expect(footerCloseBtn).toBeFocused();
+
+    // Escape -> closes and restores focus to badChip
+    await page.keyboard.press("Escape");
+    await expect(drawer).not.toBeVisible();
+    await expect(badChip).toBeFocused();
   });
 });

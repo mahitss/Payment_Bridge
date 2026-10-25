@@ -65,11 +65,15 @@ export default function PayoutCaseDetailPage() {
   const [investigationSuccess, setInvestigationSuccess] = useState<string | null>(null);
   const [activeEvidenceRef, setActiveEvidenceRef] = useState<string | null>(null);
 
-  // Evidence Inspector State
+  // Evidence Inspector State & Focus Management
   const [selectedEvidence, setSelectedEvidence] = useState<EvidenceResolution | null>(null);
   const [evidenceLoading, setEvidenceLoading] = useState<boolean>(false);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [isEvidenceInspectorOpen, setIsEvidenceInspectorOpen] = useState<boolean>(false);
+  const lastTriggerElementRef = useRef<HTMLElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const wasInspectorOpenRef = useRef<boolean>(false);
 
   // Modals confirmation state
   const [confirmSubmitModal, setConfirmSubmitModal] = useState<boolean>(false);
@@ -102,35 +106,125 @@ export default function PayoutCaseDetailPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const inspectEvidence = useCallback(async (refId: string) => {
-    if (!caseId || !refId) return;
-    setActiveEvidenceRef(refId);
-    setIsEvidenceInspectorOpen(true);
-    setEvidenceLoading(true);
-    setEvidenceError(null);
-    setSelectedEvidence(null);
+  // Accessible Focus Management & Trap for Evidence Inspector Drawer
+  useEffect(() => {
+    if (isEvidenceInspectorOpen) {
+      wasInspectorOpenRef.current = true;
 
-    try {
-      const res = await fetch(`/api/v1/payout-cases/${caseId}/evidence/${encodeURIComponent(refId)}`, {
-        method: "GET",
-        credentials: "include",
+      // Move focus inside dialog when opened
+      const focusTimer = requestAnimationFrame(() => {
+        closeButtonRef.current?.focus();
       });
-      if (res.ok) {
-        const data: EvidenceResolution = await res.json();
-        setSelectedEvidence(data);
-      } else {
-        const err = await res.json().catch(() => ({}));
-        setEvidenceError(
-          err.error ||
-          "Evidence reference could not be validated against authorized case records or snapshots."
+
+      const handleTrapKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setIsEvidenceInspectorOpen(false);
+          return;
+        }
+
+        if (e.key === "Tab") {
+          if (!drawerRef.current) return;
+          const focusableSelector =
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+          const focusables = Array.from(
+            drawerRef.current.querySelectorAll<HTMLElement>(focusableSelector)
+          ).filter(
+            (el) =>
+              !el.hasAttribute("disabled") &&
+              (el.offsetParent !== null || el.getClientRects().length > 0)
+          );
+
+          if (focusables.length === 0) {
+            e.preventDefault();
+            return;
+          }
+
+          const firstElement = focusables[0];
+          const lastElement = focusables[focusables.length - 1];
+
+          if (e.shiftKey) {
+            // Shift + Tab: wrapping backwards
+            if (
+              document.activeElement === firstElement ||
+              !drawerRef.current.contains(document.activeElement)
+            ) {
+              e.preventDefault();
+              lastElement.focus();
+            }
+          } else {
+            // Tab: wrapping forwards
+            if (
+              document.activeElement === lastElement ||
+              !drawerRef.current.contains(document.activeElement)
+            ) {
+              e.preventDefault();
+              firstElement.focus();
+            }
+          }
+        }
+      };
+
+      window.addEventListener("keydown", handleTrapKeyDown);
+      return () => {
+        cancelAnimationFrame(focusTimer);
+        window.removeEventListener("keydown", handleTrapKeyDown);
+      };
+    } else if (wasInspectorOpenRef.current) {
+      wasInspectorOpenRef.current = false;
+      // Restore focus to triggering evidence chip if available
+      const trigger = lastTriggerElementRef.current;
+      if (trigger && document.contains(trigger) && typeof trigger.focus === "function") {
+        trigger.focus();
+      } else if (activeEvidenceRef) {
+        const chip = document.querySelector<HTMLElement>(
+          `[data-testid="evidence-chip-${activeEvidenceRef}"]`
         );
+        chip?.focus();
       }
-    } catch {
-      setEvidenceError("Network error attempting to resolve evidence reference");
-    } finally {
-      setEvidenceLoading(false);
     }
-  }, [caseId]);
+  }, [isEvidenceInspectorOpen, activeEvidenceRef]);
+
+  const inspectEvidence = useCallback(
+    async (refId: string, event?: React.MouseEvent | React.KeyboardEvent | React.UIEvent) => {
+      if (!caseId || !refId) return;
+
+      // Capture the trigger element before state transition
+      if (event?.currentTarget && (event.currentTarget as HTMLElement).focus) {
+        lastTriggerElementRef.current = event.currentTarget as HTMLElement;
+      } else if (document.activeElement instanceof HTMLElement) {
+        lastTriggerElementRef.current = document.activeElement;
+      }
+
+      setActiveEvidenceRef(refId);
+      setIsEvidenceInspectorOpen(true);
+      setEvidenceLoading(true);
+      setEvidenceError(null);
+      setSelectedEvidence(null);
+
+      try {
+        const res = await fetch(`/api/v1/payout-cases/${caseId}/evidence/${encodeURIComponent(refId)}`, {
+          method: "GET",
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data: EvidenceResolution = await res.json();
+          setSelectedEvidence(data);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setEvidenceError(
+            err.error ||
+            "Evidence reference could not be validated against authorized case records or snapshots."
+          );
+        }
+      } catch {
+        setEvidenceError("Network error attempting to resolve evidence reference");
+      } finally {
+        setEvidenceLoading(false);
+      }
+    },
+    [caseId]
+  );
 
   useEffect(() => {
     if (!loading && !user) {
@@ -427,9 +521,14 @@ export default function PayoutCaseDetailPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <Header />
+      <div
+        aria-hidden={isEvidenceInspectorOpen ? true : undefined}
+        inert={isEvidenceInspectorOpen ? true : undefined}
+        className="flex flex-col flex-1"
+      >
+        <Header />
 
-      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-6 outline-none">
+        <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-6 outline-none">
         {/* Back Link & Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
@@ -1087,7 +1186,7 @@ export default function PayoutCaseDetailPage() {
                                   <button
                                     key={rIdx}
                                     type="button"
-                                    onClick={() => inspectEvidence(refId)}
+                                    onClick={(e) => inspectEvidence(refId, e)}
                                     className={`px-2 py-0.5 rounded text-[10px] font-mono transition border ${
                                       activeEvidenceRef === refId && isEvidenceInspectorOpen
                                         ? "bg-indigo-500/30 text-indigo-200 border-indigo-400 ring-1 ring-indigo-400"
@@ -1389,6 +1488,7 @@ export default function PayoutCaseDetailPage() {
           )}
         </section>
       </main>
+      </div>
 
       {/* Confirmation Modal: Submit Payout to PayPal Sandbox */}
       {confirmSubmitModal && (
@@ -1552,7 +1652,9 @@ export default function PayoutCaseDetailPage() {
           }}
         >
           <div
-            className="w-full max-w-lg h-full bg-slate-900 border-l border-slate-800 flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-right duration-200"
+            ref={drawerRef}
+            tabIndex={-1}
+            className="w-full max-w-lg h-full bg-slate-900 border-l border-slate-800 flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-right duration-200 outline-none"
           >
             {/* Header */}
             <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
@@ -1568,6 +1670,7 @@ export default function PayoutCaseDetailPage() {
                 </p>
               </div>
               <button
+                ref={closeButtonRef}
                 type="button"
                 onClick={() => setIsEvidenceInspectorOpen(false)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
@@ -1754,6 +1857,7 @@ export default function PayoutCaseDetailPage() {
                 type="button"
                 onClick={() => setIsEvidenceInspectorOpen(false)}
                 className="min-h-[38px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+                data-testid="evidence-inspector-footer-close"
               >
                 Close Inspector
               </button>
