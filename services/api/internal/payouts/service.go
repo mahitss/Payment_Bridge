@@ -45,6 +45,7 @@ var (
 	ErrOperationNotEligibleForRecovery   = errors.New("operation is not eligible for recovery: must be in RECONCILIATION_REQUIRED state without a known paypal batch id")
 	ErrRecoveryClaimConflict             = db.ErrRecoveryClaimConflict
 	ErrStaleRecoveryClaim                = db.ErrStaleRecoveryClaim
+	ErrRecoveryLeaseExpired              = db.ErrRecoveryLeaseExpired
 	ErrRecoveryWindowExpired             = db.ErrRecoveryWindowExpired
 	ErrSubmissionTimestampMissing        = db.ErrSubmissionTimestampMissing
 	ErrSubmissionTimestampInvalid        = db.ErrSubmissionTimestampInvalid
@@ -243,22 +244,22 @@ type CanonicalSubmissionPayload struct {
 }
 
 // ComputeSubmissionFingerprint generates a deterministic SHA-256 hex digest of a canonical representation
-// of the outbound PayPal payout request using unambiguous, fixed-schema canonical JSON (v2).
+// matching the exact outbound PayPal payout request fields transmitted to the provider.
 // Invariants:
-// - Includes all fields that affect the actual outgoing request.
-// - Normalized strings prevent delimiter, whitespace, and Unicode ambiguities.
+// - Matches the exact fields actually sent to PayPal without silent normalization.
+// - Preserves exact whitespace in note, email_subject, and all fields to detect any request-body alterations.
 // - Does not store or contain credentials, access tokens, or sensitive raw payloads.
 func ComputeSubmissionFingerprint(req paypal.CreatePayoutRequest) string {
 	payload := CanonicalSubmissionPayload{
 		Version:       "v2",
-		Amount:        strings.TrimSpace(req.Amount),
-		Currency:      strings.ToUpper(strings.TrimSpace(req.Currency)),
-		EmailSubject:  strings.TrimSpace(req.EmailSubject),
-		Note:          strings.TrimSpace(req.Note),
-		Recipient:     strings.ToLower(strings.TrimSpace(req.Recipient)),
+		Amount:        req.Amount,
+		Currency:      req.Currency,
+		EmailSubject:  req.EmailSubject,
+		Note:          req.Note,
+		Recipient:     req.Recipient,
 		RecipientType: "EMAIL",
-		SenderBatchID: strings.TrimSpace(req.SenderBatchID),
-		SenderItemID:  strings.TrimSpace(req.SenderItemID),
+		SenderBatchID: req.SenderBatchID,
+		SenderItemID:  req.SenderItemID,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -868,6 +869,15 @@ func (s *Service) RecoverPayoutOperation(ctx context.Context, user *db.User, org
 	now := time.Now().UTC()
 	if op.Status == "RECOVERING" {
 		if op.RecoveryLeaseExpiresAt != nil && now.After(*op.RecoveryLeaseExpiresAt) {
+			attemptID := ""
+			if op.RecoveryAttemptID != nil {
+				attemptID = *op.RecoveryAttemptID
+			}
+			errMsg := "Stale recovery claim: recovery lease expired; manual reconciliation required"
+			_ = s.repo.TransitionRecoveryToManualReview(ctx, org.ID, op.ID, attemptID, errMsg, nil)
+			op.Status = "MANUAL_RECONCILIATION_REQUIRED"
+			op.ErrorMessage = &errMsg
+
 			_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
 				UserID:         &user.ID,
 				OrganizationID: &org.ID,
@@ -882,6 +892,10 @@ func (s *Service) RecoverPayoutOperation(ctx context.Context, user *db.User, org
 			return nil, op, "MANUAL_RECONCILIATION_REQUIRED", ErrStaleRecoveryClaim
 		}
 		return nil, nil, "", ErrRecoveryAlreadyInProgress
+	}
+
+	if op.Status == "MANUAL_RECONCILIATION_REQUIRED" {
+		return nil, op, "MANUAL_RECONCILIATION_REQUIRED", fmt.Errorf("%w: operation requires manual review and cannot be replayed", ErrOperationNotEligibleForRecovery)
 	}
 
 	if op.Status != "RECONCILIATION_REQUIRED" {
@@ -1032,6 +1046,25 @@ func (s *Service) RecoverPayoutOperation(ctx context.Context, user *db.User, org
 		}
 
 		if finalizeErr := s.repo.FinalizeRecoveryOperation(ctx, claimedOp, attemptID); finalizeErr != nil {
+			if errors.Is(finalizeErr, db.ErrRecoveryLeaseExpired) || errors.Is(finalizeErr, db.ErrStaleRecoveryClaim) || errors.Is(finalizeErr, db.ErrRecoveryClaimConflict) {
+				_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+					UserID:         &user.ID,
+					OrganizationID: &org.ID,
+					EventType:      "PAYOUT_RECOVERY_LATE_RESPONSE_QUARANTINED",
+					Metadata: map[string]interface{}{
+						"operation_id":           claimedOp.ID,
+						"recovery_attempt_id":    attemptID,
+						"paypal_payout_batch_id": paypalResp.BatchHeader.PayoutBatchID,
+						"batch_status":           paypalResp.BatchHeader.BatchStatus,
+						"finalize_error":         finalizeErr.Error(),
+						"outcome":                "MANUAL_RECONCILIATION_REQUIRED",
+					},
+				})
+				claimedOp.Status = "MANUAL_RECONCILIATION_REQUIRED"
+				errMsg := fmt.Sprintf("Late PayPal response received after recovery lease expired; quarantined for manual reconciliation: %v", finalizeErr)
+				claimedOp.ErrorMessage = &errMsg
+				return pCase, claimedOp, "MANUAL_RECONCILIATION_REQUIRED", fmt.Errorf("late paypal response received but recovery lease expired; quarantined for manual reconciliation: %w", finalizeErr)
+			}
 			return nil, nil, "", fmt.Errorf("failed to finalize newly accepted recovered operation: %w", finalizeErr)
 		}
 		_ = s.repo.UpdatePayoutCaseStatus(ctx, org.ID, pCase.ID, "SUBMITTED")
@@ -1067,7 +1100,7 @@ func (s *Service) RecoverPayoutOperation(ctx context.Context, user *db.User, org
 	if errors.As(err, &dupErr) {
 		if dupErr.OriginalBatchID == "" {
 			// Malformed link or untrusted HATEOAS host: fail closed into manual reconciliation
-			claimedOp.Status = "RECONCILIATION_REQUIRED"
+			claimedOp.Status = "MANUAL_RECONCILIATION_REQUIRED"
 			errMsg := fmt.Sprintf("PayPal duplicate error link validation failed: %s", dupErr.Message)
 			claimedOp.ErrorMessage = &errMsg
 			_ = s.repo.FinalizeRecoveryOperation(ctx, claimedOp, attemptID)
@@ -1091,7 +1124,7 @@ func (s *Service) RecoverPayoutOperation(ctx context.Context, user *db.User, org
 		recoveredBatchID := dupErr.OriginalBatchID
 		batchResp, queryErr := s.paypalClient.GetPayoutBatch(ctx, recoveredBatchID)
 		if queryErr != nil {
-			claimedOp.Status = "RECONCILIATION_REQUIRED"
+			claimedOp.Status = "MANUAL_RECONCILIATION_REQUIRED"
 			claimedOp.PayPalPayoutBatchID = &recoveredBatchID
 			errMsg := fmt.Sprintf("Recovered original PayPal batch ID %s, but query failed: %v", recoveredBatchID, queryErr)
 			claimedOp.ErrorMessage = &errMsg
@@ -1104,13 +1137,13 @@ func (s *Service) RecoverPayoutOperation(ctx context.Context, user *db.User, org
 				Metadata: map[string]interface{}{
 					"operation_id":        claimedOp.ID,
 					"case_id":             pCase.ID,
-					"outcome":             "UNRESOLVED_OUTCOME",
+					"outcome":             "MANUAL_RECONCILIATION_REQUIRED",
 					"recovered_batch_id":  recoveredBatchID,
 					"error":               queryErr.Error(),
 					"recovery_attempt_id": attemptID,
 				},
 			})
-			return pCase, claimedOp, "UNRESOLVED_OUTCOME", queryErr
+			return pCase, claimedOp, "MANUAL_RECONCILIATION_REQUIRED", queryErr
 		}
 
 		// Feed recovered batch into authoritative item reconciliation
@@ -1130,12 +1163,40 @@ func (s *Service) RecoverPayoutOperation(ctx context.Context, user *db.User, org
 			attemptID,
 		)
 		if reconErr != nil {
+			if errors.Is(reconErr, db.ErrRecoveryLeaseExpired) || errors.Is(reconErr, db.ErrStaleRecoveryClaim) || errors.Is(reconErr, db.ErrRecoveryClaimConflict) {
+				claimedOp.Status = "MANUAL_RECONCILIATION_REQUIRED"
+				errMsg := fmt.Sprintf("Original batch recovered (%s) but lease expired before finalization: %v", recoveredBatchID, reconErr)
+				claimedOp.ErrorMessage = &errMsg
+				return pCase, claimedOp, "MANUAL_RECONCILIATION_REQUIRED", fmt.Errorf("original batch recovered but lease expired: %w", reconErr)
+			}
 			return nil, nil, "", reconErr
 		}
 		return updatedCase, updatedOp, "ORIGINAL_BATCH_RECOVERED", nil
 	}
 
-	// Outcome 3: Ambiguous timeout, server error, or network error during recovery replay
+	// Outcome 3: Ambiguous timeout during recovery replay -> manual review
+	if errors.Is(err, paypal.ErrAmbiguousNetworkTimeout) {
+		claimedOp.Status = "MANUAL_RECONCILIATION_REQUIRED"
+		errMsg := fmt.Sprintf("Recovery attempt timed out ambiguously: %v; manual reconciliation required", err)
+		claimedOp.ErrorMessage = &errMsg
+		_ = s.repo.FinalizeRecoveryOperation(ctx, claimedOp, attemptID)
+
+		_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+			UserID:         &user.ID,
+			OrganizationID: &org.ID,
+			EventType:      "PAYOUT_RECOVERY_UNRESOLVED",
+			Metadata: map[string]interface{}{
+				"operation_id":        claimedOp.ID,
+				"case_id":             pCase.ID,
+				"outcome":             "MANUAL_RECONCILIATION_REQUIRED",
+				"error":               errMsg,
+				"recovery_attempt_id": attemptID,
+			},
+		})
+		return pCase, claimedOp, "MANUAL_RECONCILIATION_REQUIRED", fmt.Errorf("paypal recovery request timed out ambiguously: %w", err)
+	}
+
+	// Definitive provider error (e.g. 500 internal server error) -> remain RECONCILIATION_REQUIRED with UNRESOLVED_OUTCOME
 	claimedOp.Status = "RECONCILIATION_REQUIRED"
 	errMsg := fmt.Sprintf("Recovery attempt failed: %v", err)
 	claimedOp.ErrorMessage = &errMsg

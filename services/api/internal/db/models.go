@@ -107,7 +107,7 @@ type PayoutOperation struct {
 	SenderItemID           string                 `json:"sender_item_id"`
 	AmountCents            int64                  `json:"amount_cents"`
 	Currency               string                 `json:"currency"`
-	Status                 string                 `json:"status"` // PREPARED, AWAITING_APPROVAL, APPROVED, SUBMITTING, SUBMITTED, SUCCEEDED, FAILED, RECONCILIATION_REQUIRED, RECOVERING, CANCELLED
+	Status                 string                 `json:"status"` // PREPARED, AWAITING_APPROVAL, APPROVED, SUBMITTING, SUBMITTED, SUCCEEDED, FAILED, RECONCILIATION_REQUIRED, RECOVERING, MANUAL_RECONCILIATION_REQUIRED, CANCELLED
 	SubmissionFingerprint  *string                `json:"submission_fingerprint,omitempty"`
 	PayPalPayoutBatchID    *string                `json:"paypal_payout_batch_id,omitempty"`
 	PayPalBatchStatus      *string                `json:"paypal_batch_status,omitempty"`

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -579,9 +580,16 @@ func (m *MockRepository) ClaimPayoutOperationForRecovery(
 
 	if op.Status == "RECOVERING" {
 		if op.RecoveryLeaseExpiresAt != nil && claimedAt.After(*op.RecoveryLeaseExpiresAt) {
+			op.Status = "MANUAL_RECONCILIATION_REQUIRED"
+			reason := "Stale recovery claim: recovery lease expired; manual reconciliation required"
+			op.ErrorMessage = &reason
+			op.UpdatedAt = claimedAt
 			return nil, ErrStaleRecoveryClaim
 		}
 		return nil, ErrRecoveryAlreadyInProgress
+	}
+	if op.Status == "MANUAL_RECONCILIATION_REQUIRED" {
+		return nil, ErrInvalidOperationTransition
 	}
 	if op.Status != "RECONCILIATION_REQUIRED" {
 		return nil, ErrInvalidOperationTransition
@@ -621,14 +629,124 @@ func (m *MockRepository) FinalizeRecoveryOperation(ctx context.Context, op *Payo
 		return ErrPayoutOperationNotFound
 	}
 
+	now := time.Now().UTC()
+	if existing.Status == "RECOVERING" && existing.RecoveryAttemptID != nil && *existing.RecoveryAttemptID == attemptID {
+		if existing.RecoveryLeaseExpiresAt != nil && now.After(*existing.RecoveryLeaseExpiresAt) {
+			// Lease expired: atomically transition to MANUAL_RECONCILIATION_REQUIRED and quarantine late provider response
+			existing.Status = "MANUAL_RECONCILIATION_REQUIRED"
+			reason := "Recovery lease expired before finalization; manual reconciliation required"
+			existing.ErrorMessage = &reason
+			if op.PayPalPayoutBatchID != nil && (existing.PayPalPayoutBatchID == nil || *existing.PayPalPayoutBatchID == "") {
+				existing.PayPalPayoutBatchID = op.PayPalPayoutBatchID
+				existing.PayPalBatchStatus = op.PayPalBatchStatus
+			}
+			if op.RawProviderResponse != nil || op.PayPalPayoutBatchID != nil {
+				existing.RawProviderResponse = op.RawProviderResponse
+				batchStatus := "QUARANTINED_LATE_RESPONSE"
+				if op.PayPalBatchStatus != nil {
+					batchStatus = *op.PayPalBatchStatus
+				}
+				rawResp := op.RawProviderResponse
+				if rawResp == nil && op.PayPalPayoutBatchID != nil {
+					rawResp = map[string]interface{}{"paypal_payout_batch_id": *op.PayPalPayoutBatchID}
+				}
+				m.Snapshots = append(m.Snapshots, &PayoutStatusSnapshot{
+					ID:                fmt.Sprintf("snap-%d", time.Now().UnixNano()),
+					PayoutOperationID: op.ID,
+					OrganizationID:    op.OrganizationID,
+					Provider:          "PAYPAL",
+					BatchStatus:       batchStatus,
+					ItemStatus:        op.PayPalItemStatus,
+					RawResponse:       rawResp,
+					RecordedAt:        now,
+				})
+			}
+			existing.UpdatedAt = now
+			return ErrRecoveryLeaseExpired
+		}
+	}
+
+	if existing.Status != "RECOVERING" || existing.RecoveryAttemptID == nil || *existing.RecoveryAttemptID != attemptID {
+		if op.RawProviderResponse != nil || op.PayPalPayoutBatchID != nil {
+			batchStatus := "QUARANTINED_LATE_RESPONSE"
+			if op.PayPalBatchStatus != nil {
+				batchStatus = *op.PayPalBatchStatus
+			}
+			rawResp := op.RawProviderResponse
+			if rawResp == nil && op.PayPalPayoutBatchID != nil {
+				rawResp = map[string]interface{}{"paypal_payout_batch_id": *op.PayPalPayoutBatchID}
+			}
+			m.Snapshots = append(m.Snapshots, &PayoutStatusSnapshot{
+				ID:                fmt.Sprintf("snap-%d", time.Now().UnixNano()),
+				PayoutOperationID: op.ID,
+				OrganizationID:    op.OrganizationID,
+				Provider:          "PAYPAL",
+				BatchStatus:       batchStatus,
+				ItemStatus:        op.PayPalItemStatus,
+				RawResponse:       rawResp,
+				RecordedAt:        now,
+			})
+		}
+		return ErrRecoveryClaimConflict
+	}
+
+	op.UpdatedAt = now
+	copied := *op
+	m.Operations[op.ID] = &copied
+	m.OperationsByBatchID[op.SenderBatchID] = &copied
+	return nil
+}
+
+func (m *MockRepository) RenewRecoveryLease(ctx context.Context, orgID, opID, attemptID string, newLeaseExpiresAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.Operations[opID]
+	if !ok || existing.OrganizationID != orgID {
+		return ErrPayoutOperationNotFound
+	}
+
 	if existing.Status != "RECOVERING" || existing.RecoveryAttemptID == nil || *existing.RecoveryAttemptID != attemptID {
 		return ErrRecoveryClaimConflict
 	}
 
-	op.UpdatedAt = time.Now().UTC()
-	copied := *op
-	m.Operations[op.ID] = &copied
-	m.OperationsByBatchID[op.SenderBatchID] = &copied
+	now := time.Now().UTC()
+	if existing.RecoveryLeaseExpiresAt != nil && now.After(*existing.RecoveryLeaseExpiresAt) {
+		return ErrStaleRecoveryClaim
+	}
+
+	existing.RecoveryLeaseExpiresAt = &newLeaseExpiresAt
+	existing.UpdatedAt = now
+	return nil
+}
+
+func (m *MockRepository) TransitionRecoveryToManualReview(ctx context.Context, orgID, opID, attemptID, reason string, rawProviderResponse map[string]interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.Operations[opID]
+	if !ok || existing.OrganizationID != orgID {
+		return ErrPayoutOperationNotFound
+	}
+
+	if existing.Status == "MANUAL_RECONCILIATION_REQUIRED" {
+		return nil
+	}
+
+	if existing.Status != "RECOVERING" && existing.Status != "RECONCILIATION_REQUIRED" {
+		return ErrRecoveryClaimConflict
+	}
+
+	if attemptID != "" && existing.RecoveryAttemptID != nil && *existing.RecoveryAttemptID != attemptID {
+		return ErrRecoveryClaimConflict
+	}
+
+	existing.Status = "MANUAL_RECONCILIATION_REQUIRED"
+	existing.ErrorMessage = &reason
+	if rawProviderResponse != nil {
+		existing.RawProviderResponse = rawProviderResponse
+	}
+	existing.UpdatedAt = time.Now().UTC()
 	return nil
 }
 
