@@ -526,3 +526,234 @@ func TestClient_GetPayoutBatch_UnauthorizedAndForbidden(t *testing.T) {
 		t.Errorf("expected ErrForbidden on batch 403, got: %v", err403)
 	}
 }
+
+func TestClient_GetPayoutBatch_OfficialNestedResponse(t *testing.T) {
+	// Tests official nested PayPal structure
+	nestedJSON := `{
+		"batch_header": {
+			"payout_batch_id": "OFFICIAL-BATCH-001",
+			"batch_status": "SUCCESS",
+			"time_created": "2026-10-25T10:00:00Z",
+			"sender_batch_header": {
+				"sender_batch_id": "CB-BATCH-REF-12345",
+				"email_subject": "Payout Notification"
+			},
+			"amount": {
+				"currency": "USD",
+				"value": "150.00"
+			}
+		},
+		"items": [
+			{
+				"payout_item_id": "ITEM-OFFICIAL-001",
+				"transaction_id": "TRANS-001",
+				"transaction_status": "SUCCESS",
+				"payout_item": {
+					"sender_item_id": "CB-ITEM-REF-12345",
+					"receiver": "payee@example.com",
+					"recipient_type": "EMAIL",
+					"note": "Claim Reimbursement",
+					"amount": {
+						"currency": "USD",
+						"value": "150.00"
+					}
+				}
+			}
+		]
+	}`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(OAuthTokenResponse{
+				AccessToken: "TEST_TOKEN",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+			})
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts/OFFICIAL-BATCH-001" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(nestedJSON))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create test client: %v", err)
+	}
+
+	resp, err := client.GetPayoutBatch(context.Background(), "OFFICIAL-BATCH-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.BatchHeader.SenderBatchID != "CB-BATCH-REF-12345" {
+		t.Errorf("expected SenderBatchID CB-BATCH-REF-12345, got %q", resp.BatchHeader.SenderBatchID)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(resp.Items))
+	}
+	item := resp.Items[0]
+	if item.SenderItemID != "CB-ITEM-REF-12345" {
+		t.Errorf("expected item.SenderItemID CB-ITEM-REF-12345, got %q", item.SenderItemID)
+	}
+	if item.Receiver != "payee@example.com" {
+		t.Errorf("expected item.Receiver payee@example.com, got %q", item.Receiver)
+	}
+	if item.Amount.Value != "150.00" || item.Amount.Currency != "USD" {
+		t.Errorf("expected item.Amount 150.00 USD, got %v", item.Amount)
+	}
+	if item.TransactionStatus != "SUCCESS" {
+		t.Errorf("expected item.TransactionStatus SUCCESS, got %q", item.TransactionStatus)
+	}
+}
+
+func TestClient_GetPayoutItem_OfficialNestedResponse(t *testing.T) {
+	nestedItemJSON := `{
+		"payout_item_id": "ITEM-OFFICIAL-DETAIL-001",
+		"transaction_id": "TRANS-DETAIL-001",
+		"transaction_status": "UNCLAIMED",
+		"payout_batch_id": "BATCH-001",
+		"payout_item": {
+			"sender_item_id": "CB-ITEM-DETAIL-999",
+			"receiver": "claimant@example.com",
+			"recipient_type": "EMAIL",
+			"note": "Detail Note",
+			"amount": {
+				"currency": "USD",
+				"value": "75.00"
+			}
+		}
+	}`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(OAuthTokenResponse{
+				AccessToken: "TEST_TOKEN",
+				TokenType:   "Bearer",
+			})
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts-item/ITEM-OFFICIAL-DETAIL-001" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(nestedItemJSON))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create test client: %v", err)
+	}
+
+	itemResp, err := client.GetPayoutItem(context.Background(), "ITEM-OFFICIAL-DETAIL-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if itemResp.SenderItemID != "CB-ITEM-DETAIL-999" {
+		t.Errorf("expected SenderItemID CB-ITEM-DETAIL-999, got %q", itemResp.SenderItemID)
+	}
+	if itemResp.Receiver != "claimant@example.com" {
+		t.Errorf("expected Receiver claimant@example.com, got %q", itemResp.Receiver)
+	}
+	if itemResp.Amount.Value != "75.00" {
+		t.Errorf("expected Amount value 75.00, got %q", itemResp.Amount.Value)
+	}
+	if itemResp.TransactionStatus != "UNCLAIMED" {
+		t.Errorf("expected TransactionStatus UNCLAIMED, got %q", itemResp.TransactionStatus)
+	}
+}
+
+func TestClient_CreatePayout_SendsSenderItemID(t *testing.T) {
+	var capturedBody map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(OAuthTokenResponse{
+				AccessToken: "TEST_TOKEN",
+				TokenType:   "Bearer",
+			})
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts" {
+			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"payout_batch_id": "BATCH-NEW-123",
+					"batch_status":    "PENDING",
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create test client: %v", err)
+	}
+
+	req := CreatePayoutRequest{
+		SenderBatchID: "CB-BATCH-TEST-001",
+		SenderItemID:  "CB-ITEM-TEST-001",
+		Recipient:     "user@example.com",
+		Amount:        "25.00",
+		Currency:      "USD",
+		Note:          "Test Note",
+		EmailSubject:  "Test Subject",
+	}
+
+	resp, err := client.CreatePayout(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.BatchHeader.PayoutBatchID != "BATCH-NEW-123" {
+		t.Errorf("expected batch ID BATCH-NEW-123, got %q", resp.BatchHeader.PayoutBatchID)
+	}
+
+	// Verify captured body has items[0].sender_item_id
+	itemsRaw, ok := capturedBody["items"].([]interface{})
+	if !ok || len(itemsRaw) == 0 {
+		t.Fatalf("expected items array in payload, got %v", capturedBody)
+	}
+	firstItem, ok := itemsRaw[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected item map, got %v", itemsRaw[0])
+	}
+	if firstItem["sender_item_id"] != "CB-ITEM-TEST-001" {
+		t.Errorf("expected sender_item_id CB-ITEM-TEST-001, got %v", firstItem["sender_item_id"])
+	}
+}
