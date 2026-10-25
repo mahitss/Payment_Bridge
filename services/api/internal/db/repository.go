@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var (
@@ -18,6 +19,12 @@ var (
 	ErrInvestigationNotFound      = errors.New("payout investigation not found")
 	ErrSelfApprovalForbidden      = errors.New("self-approval forbidden: dual-custody requires a distinct authorized approver")
 	ErrInvalidOperationTransition = errors.New("invalid payout operation state transition")
+	ErrRecoveryClaimConflict      = errors.New("recovery claim conflict: operation already claimed by another process")
+	ErrRecoveryAlreadyInProgress  = errors.New("recovery is already in progress for this operation")
+	ErrStaleRecoveryClaim         = errors.New("stale recovery claim: prior recovery lease expired; manual reconciliation required")
+	ErrRecoveryWindowExpired      = errors.New("recovery window expired: original submission is older than 27-day cutoff; manual reconciliation required")
+	ErrSubmissionTimestampMissing = errors.New("submission timestamp is missing; manual reconciliation required")
+	ErrSubmissionTimestampInvalid = errors.New("submission timestamp is in the future; manual reconciliation required")
 )
 
 // Repository encapsulates data access operations for ClaimBridge.
@@ -65,6 +72,8 @@ type Repository interface {
 	ListPayoutOperationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutOperation, error)
 	UpdatePayoutOperation(ctx context.Context, op *PayoutOperation) error
 	ApprovePayoutOperation(ctx context.Context, orgID, opID, approvedByUserID string) error
+	ClaimPayoutOperationForRecovery(ctx context.Context, orgID, opID, attemptID string, claimedAt, leaseExpiresAt time.Time, maxAge time.Duration) (*PayoutOperation, error)
+	FinalizeRecoveryOperation(ctx context.Context, op *PayoutOperation, attemptID string) error
 
 	// Status Snapshots
 	CreatePayoutStatusSnapshot(ctx context.Context, snapshot *PayoutStatusSnapshot) error

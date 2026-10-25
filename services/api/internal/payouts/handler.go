@@ -473,6 +473,33 @@ func (h *Handler) handleRecoverPayoutOperation(w http.ResponseWriter, r *http.Re
 				"code":    "RECOVERY_ALREADY_IN_PROGRESS",
 				"outcome": outcome,
 			})
+		case errors.Is(err, ErrRecoveryClaimConflict):
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error":   err.Error(),
+				"code":    "RECOVERY_CLAIM_CONFLICT",
+				"outcome": outcome,
+			})
+		case errors.Is(err, ErrStaleRecoveryClaim):
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "STALE_RECOVERY_CLAIM",
+				"outcome":   outcome,
+				"operation": op,
+			})
+		case errors.Is(err, ErrRecoveryWindowExpired):
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "RECOVERY_WINDOW_EXPIRED",
+				"outcome":   outcome,
+				"operation": op,
+			})
+		case errors.Is(err, ErrSubmissionTimestampMissing), errors.Is(err, ErrSubmissionTimestampInvalid):
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "INVALID_SUBMISSION_TIMESTAMP",
+				"outcome":   outcome,
+				"operation": op,
+			})
 		case errors.Is(err, ErrOperationNotEligibleForRecovery):
 			writeJSON(w, http.StatusConflict, map[string]interface{}{
 				"error":   err.Error(),

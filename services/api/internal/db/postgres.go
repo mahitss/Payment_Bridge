@@ -676,10 +676,13 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 			amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
 			paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
 			requires_dual_approval, approved_by_user_id, approved_at, submitted_at,
-			completed_at, cancelled_at, is_synthetic_fixture, created_at, updated_at
+			completed_at, cancelled_at, is_synthetic_fixture,
+			recovery_attempt_id, recovery_claimed_at, recovery_lease_expires_at,
+			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW()
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
+			$23, $24, $25, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
 	`
@@ -706,6 +709,9 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 		op.CompletedAt,
 		op.CancelledAt,
 		op.IsSyntheticFixture,
+		op.RecoveryAttemptID,
+		op.RecoveryClaimedAt,
+		op.RecoveryLeaseExpiresAt,
 	).Scan(&op.ID, &op.CreatedAt, &op.UpdatedAt)
 
 	if err != nil {
@@ -714,79 +720,60 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 	return nil
 }
 
-func (r *PostgresRepository) GetPayoutOperationByID(ctx context.Context, orgID, opID string) (*PayoutOperation, error) {
-	query := `
-		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
-		       amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
-		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
-		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
-		       cancelled_at, is_synthetic_fixture, created_at, updated_at
-		FROM payout_operations
-		WHERE id = $1 AND organization_id = $2
-	`
-	var op PayoutOperation
+const payoutOperationColumns = `id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
+       amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
+       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
+       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
+       cancelled_at, is_synthetic_fixture, recovery_attempt_id, recovery_claimed_at, recovery_lease_expires_at,
+       created_at, updated_at`
+
+func scanPayoutOperation(row pgx.Row, op *PayoutOperation) error {
 	var rawJSON []byte
-	err := r.pool.QueryRow(ctx, query, opID, orgID).Scan(
+	err := row.Scan(
 		&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
 		&op.AmountCents, &op.Currency, &op.Status, &op.SubmissionFingerprint, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
 		&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
 		&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
-		&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
+		&op.CancelledAt, &op.IsSyntheticFixture, &op.RecoveryAttemptID, &op.RecoveryClaimedAt, &op.RecoveryLeaseExpiresAt,
+		&op.CreatedAt, &op.UpdatedAt,
 	)
+	if err != nil {
+		return err
+	}
+	if len(rawJSON) > 0 {
+		_ = json.Unmarshal(rawJSON, &op.RawProviderResponse)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) GetPayoutOperationByID(ctx context.Context, orgID, opID string) (*PayoutOperation, error) {
+	query := fmt.Sprintf(`SELECT %s FROM payout_operations WHERE id = $1 AND organization_id = $2`, payoutOperationColumns)
+	var op PayoutOperation
+	err := scanPayoutOperation(r.pool.QueryRow(ctx, query, opID, orgID), &op)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPayoutOperationNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get payout operation: %w", err)
 	}
-	if len(rawJSON) > 0 {
-		_ = json.Unmarshal(rawJSON, &op.RawProviderResponse)
-	}
 	return &op, nil
 }
 
 func (r *PostgresRepository) GetPayoutOperationBySenderBatchID(ctx context.Context, senderBatchID string) (*PayoutOperation, error) {
-	query := `
-		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
-		       amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
-		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
-		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
-		       cancelled_at, is_synthetic_fixture, created_at, updated_at
-		FROM payout_operations
-		WHERE sender_batch_id = $1
-	`
+	query := fmt.Sprintf(`SELECT %s FROM payout_operations WHERE sender_batch_id = $1`, payoutOperationColumns)
 	var op PayoutOperation
-	var rawJSON []byte
-	err := r.pool.QueryRow(ctx, query, senderBatchID).Scan(
-		&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
-		&op.AmountCents, &op.Currency, &op.Status, &op.SubmissionFingerprint, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
-		&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
-		&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
-		&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
-	)
+	err := scanPayoutOperation(r.pool.QueryRow(ctx, query, senderBatchID), &op)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPayoutOperationNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get payout operation by batch id: %w", err)
 	}
-	if len(rawJSON) > 0 {
-		_ = json.Unmarshal(rawJSON, &op.RawProviderResponse)
-	}
 	return &op, nil
 }
 
 func (r *PostgresRepository) ListPayoutOperationsByCaseID(ctx context.Context, orgID, caseID string) ([]PayoutOperation, error) {
-	query := `
-		SELECT id, payout_case_id, organization_id, initiated_by_user_id, sender_batch_id, sender_item_id,
-		       amount_cents, currency, status, submission_fingerprint, paypal_payout_batch_id, paypal_batch_status,
-		       paypal_payout_item_id, paypal_item_status, error_message, raw_provider_response,
-		       requires_dual_approval, approved_by_user_id, approved_at, submitted_at, completed_at,
-		       cancelled_at, is_synthetic_fixture, created_at, updated_at
-		FROM payout_operations
-		WHERE payout_case_id = $1 AND organization_id = $2
-		ORDER BY created_at DESC
-	`
+	query := fmt.Sprintf(`SELECT %s FROM payout_operations WHERE payout_case_id = $1 AND organization_id = $2 ORDER BY created_at DESC`, payoutOperationColumns)
 	rows, err := r.pool.Query(ctx, query, caseID, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list payout operations: %w", err)
@@ -796,19 +783,8 @@ func (r *PostgresRepository) ListPayoutOperationsByCaseID(ctx context.Context, o
 	var ops []PayoutOperation
 	for rows.Next() {
 		var op PayoutOperation
-		var rawJSON []byte
-		err := rows.Scan(
-			&op.ID, &op.PayoutCaseID, &op.OrganizationID, &op.InitiatedByUserID, &op.SenderBatchID, &op.SenderItemID,
-			&op.AmountCents, &op.Currency, &op.Status, &op.SubmissionFingerprint, &op.PayPalPayoutBatchID, &op.PayPalBatchStatus,
-			&op.PayPalPayoutItemID, &op.PayPalItemStatus, &op.ErrorMessage, &rawJSON,
-			&op.RequiresDualApproval, &op.ApprovedByUserID, &op.ApprovedAt, &op.SubmittedAt, &op.CompletedAt,
-			&op.CancelledAt, &op.IsSyntheticFixture, &op.CreatedAt, &op.UpdatedAt,
-		)
-		if err != nil {
+		if err := scanPayoutOperation(rows, &op); err != nil {
 			return nil, fmt.Errorf("failed to scan payout operation: %w", err)
-		}
-		if len(rawJSON) > 0 {
-			_ = json.Unmarshal(rawJSON, &op.RawProviderResponse)
 		}
 		ops = append(ops, op)
 	}
@@ -827,8 +803,9 @@ func (r *PostgresRepository) UpdatePayoutOperation(ctx context.Context, op *Payo
 		    paypal_payout_batch_id = $3, paypal_batch_status = $4,
 		    paypal_payout_item_id = $5, paypal_item_status = $6, error_message = $7,
 		    raw_provider_response = $8, submitted_at = $9, completed_at = $10,
-		    cancelled_at = $11, updated_at = NOW()
-		WHERE id = $12 AND organization_id = $13
+		    cancelled_at = $11, recovery_attempt_id = $12, recovery_claimed_at = $13,
+		    recovery_lease_expires_at = $14, updated_at = NOW()
+		WHERE id = $15 AND organization_id = $16
 	`
 	res, err := r.pool.Exec(ctx, query,
 		op.Status,
@@ -842,6 +819,9 @@ func (r *PostgresRepository) UpdatePayoutOperation(ctx context.Context, op *Payo
 		op.SubmittedAt,
 		op.CompletedAt,
 		op.CancelledAt,
+		op.RecoveryAttemptID,
+		op.RecoveryClaimedAt,
+		op.RecoveryLeaseExpiresAt,
 		op.ID,
 		op.OrganizationID,
 	)
@@ -849,6 +829,130 @@ func (r *PostgresRepository) UpdatePayoutOperation(ctx context.Context, op *Payo
 		return fmt.Errorf("failed to update payout operation: %w", err)
 	}
 	if res.RowsAffected() == 0 {
+		return ErrPayoutOperationNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) ClaimPayoutOperationForRecovery(
+	ctx context.Context,
+	orgID, opID, attemptID string,
+	claimedAt, leaseExpiresAt time.Time,
+	maxAge time.Duration,
+) (*PayoutOperation, error) {
+	maxFutureSkew := claimedAt.Add(5 * time.Minute)
+	minSubmittedAt := claimedAt.Add(-maxAge)
+
+	query := fmt.Sprintf(`
+		UPDATE payout_operations
+		SET status = 'RECOVERING',
+		    recovery_attempt_id = $1,
+		    recovery_claimed_at = $2,
+		    recovery_lease_expires_at = $3,
+		    updated_at = $2
+		WHERE id = $4
+		  AND organization_id = $5
+		  AND status = 'RECONCILIATION_REQUIRED'
+		  AND paypal_payout_batch_id IS NULL
+		  AND submitted_at IS NOT NULL
+		  AND submitted_at <= $6
+		  AND submitted_at >= $7
+		RETURNING %s
+	`, payoutOperationColumns)
+
+	var op PayoutOperation
+	row := r.pool.QueryRow(ctx, query,
+		attemptID, claimedAt, leaseExpiresAt, opID, orgID, maxFutureSkew, minSubmittedAt,
+	)
+	err := scanPayoutOperation(row, &op)
+	if err == nil {
+		return &op, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("failed to claim payout operation for recovery: %w", err)
+	}
+
+	// 0 rows updated: determine the exact reason for honest auditability
+	existing, err := r.GetPayoutOperationByID(ctx, orgID, opID)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing.Status == "RECOVERING" {
+		if existing.RecoveryLeaseExpiresAt != nil && claimedAt.After(*existing.RecoveryLeaseExpiresAt) {
+			return nil, ErrStaleRecoveryClaim
+		}
+		return nil, ErrRecoveryAlreadyInProgress
+	}
+	if existing.Status != "RECONCILIATION_REQUIRED" {
+		return nil, ErrInvalidOperationTransition
+	}
+	if existing.PayPalPayoutBatchID != nil && strings.TrimSpace(*existing.PayPalPayoutBatchID) != "" {
+		return nil, errors.New("operation already has a known paypal payout batch id")
+	}
+	if existing.SubmittedAt == nil {
+		return nil, ErrSubmissionTimestampMissing
+	}
+	if existing.SubmittedAt.After(maxFutureSkew) {
+		return nil, ErrSubmissionTimestampInvalid
+	}
+	if claimedAt.Sub(*existing.SubmittedAt) > maxAge {
+		return nil, ErrRecoveryWindowExpired
+	}
+
+	return nil, ErrRecoveryClaimConflict
+}
+
+func (r *PostgresRepository) FinalizeRecoveryOperation(ctx context.Context, op *PayoutOperation, attemptID string) error {
+	var rawJSON []byte
+	if op.RawProviderResponse != nil {
+		rawJSON, _ = json.Marshal(op.RawProviderResponse)
+	}
+
+	query := `
+		UPDATE payout_operations
+		SET status = $1,
+		    submission_fingerprint = COALESCE($2, submission_fingerprint),
+		    paypal_payout_batch_id = $3,
+		    paypal_batch_status = $4,
+		    paypal_payout_item_id = $5,
+		    paypal_item_status = $6,
+		    error_message = $7,
+		    raw_provider_response = $8,
+		    completed_at = $9,
+		    cancelled_at = $10,
+		    updated_at = NOW()
+		WHERE id = $11
+		  AND organization_id = $12
+		  AND status = 'RECOVERING'
+		  AND recovery_attempt_id = $13
+	`
+	res, err := r.pool.Exec(ctx, query,
+		op.Status,
+		op.SubmissionFingerprint,
+		op.PayPalPayoutBatchID,
+		op.PayPalBatchStatus,
+		op.PayPalPayoutItemID,
+		op.PayPalItemStatus,
+		op.ErrorMessage,
+		rawJSON,
+		op.CompletedAt,
+		op.CancelledAt,
+		op.ID,
+		op.OrganizationID,
+		attemptID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to finalize recovery operation: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		existing, checkErr := r.GetPayoutOperationByID(ctx, op.OrganizationID, op.ID)
+		if checkErr != nil {
+			return checkErr
+		}
+		if existing.Status != "RECOVERING" || existing.RecoveryAttemptID == nil || *existing.RecoveryAttemptID != attemptID {
+			return ErrRecoveryClaimConflict
+		}
 		return ErrPayoutOperationNotFound
 	}
 	return nil

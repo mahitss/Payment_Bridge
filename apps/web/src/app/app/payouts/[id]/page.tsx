@@ -556,6 +556,21 @@ export default function PayoutCaseDetailPage() {
       latestOp.status === "APPROVED" ||
       (latestOp.status === "SUBMITTED" &&
         latestOp.paypal_item_status?.toUpperCase() === "UNCLAIMED"));
+  const isSubmissionExpired = Boolean(
+    latestOp?.submitted_at &&
+      Date.now() - new Date(latestOp.submitted_at).getTime() > 27 * 24 * 60 * 60 * 1000
+  );
+  const isSubmissionTimestampMissing = Boolean(
+    latestOp &&
+      latestOp.status === "RECONCILIATION_REQUIRED" &&
+      !latestOp.submitted_at
+  );
+  const isStaleRecoveryClaim = Boolean(
+    latestOp &&
+      latestOp.status === "RECOVERING" &&
+      latestOp.recovery_lease_expires_at &&
+      Date.now() > new Date(latestOp.recovery_lease_expires_at).getTime()
+  );
   const canRecover = Boolean(
     latestOp &&
       latestOp.status === "RECONCILIATION_REQUIRED" &&
@@ -563,7 +578,9 @@ export default function PayoutCaseDetailPage() {
       !pCase.is_synthetic_fixture &&
       !latestOp.is_synthetic_fixture &&
       pCase.status !== "COMPLETED" &&
-      pCase.status !== "CANCELLED"
+      pCase.status !== "CANCELLED" &&
+      !isSubmissionExpired &&
+      !isSubmissionTimestampMissing
   );
 
   return (
@@ -765,6 +782,33 @@ export default function PayoutCaseDetailPage() {
             {latestOp.error_message && (
               <div className="p-3 rounded-lg bg-slate-950/80 border border-amber-500/20 text-[11px] font-mono text-amber-400/90 break-words">
                 Provider Diagnostic: {latestOp.error_message}
+              </div>
+            )}
+
+            {isSubmissionExpired && (
+              <div data-testid="recovery-expired-banner" className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 space-y-1">
+                <div className="font-semibold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                  <span>Replay Safety Cutoff Expired (&gt;27 Days)</span>
+                </div>
+                <p className="text-slate-300 text-[11px] leading-relaxed">
+                  The original submission attempt was recorded on <span className="font-mono text-white">{latestOp.submitted_at ? formatDate(latestOp.submitted_at) : "unknown"}</span>, which exceeds ClaimBridge&apos;s conservative 27-day recovery cutoff. PayPal documents duplicate batch protection for up to 30 days. To eliminate duplicate payment risks, automated replay is strictly disabled.
+                </p>
+                <div className="pt-1 text-[11px] text-amber-300/90 font-medium">
+                  <strong>What Manual Reconciliation Means:</strong> A human payments officer must verify whether the recipient was paid directly in the PayPal Business Portal or Resolution Center before taking further action. Never issue a replacement payout until provider settlement status is confirmed.
+                </div>
+              </div>
+            )}
+
+            {isSubmissionTimestampMissing && (
+              <div data-testid="recovery-missing-timestamp-banner" className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 space-y-1">
+                <div className="font-semibold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                  <span>Original Submission Timestamp Missing</span>
+                </div>
+                <p className="text-slate-300 text-[11px] leading-relaxed">
+                  The original submission timestamp is missing or unverifiable. To ensure financial safety, automated replay is disabled. Please perform manual reconciliation via PayPal portal inspection.
+                </p>
               </div>
             )}
 
@@ -1554,8 +1598,23 @@ export default function PayoutCaseDetailPage() {
 
                 {latestOp.submission_fingerprint && (
                   <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1 col-span-full">
-                    <span className="text-[10px] text-slate-500 uppercase">Cryptographic Submission Fingerprint (SHA-256)</span>
+                    <span className="text-[10px] text-slate-500 uppercase">Cryptographic Submission Fingerprint</span>
                     <div className="text-indigo-400 font-mono text-[11px] break-all">{latestOp.submission_fingerprint}</div>
+                  </div>
+                )}
+
+                {latestOp.recovery_attempt_id && (
+                  <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1 col-span-full">
+                    <span className="text-[10px] text-slate-500 uppercase">Atomic Recovery Claim Ownership</span>
+                    <div className="text-amber-400 font-mono text-[11px] flex flex-wrap gap-4">
+                      <span>Attempt ID: {latestOp.recovery_attempt_id}</span>
+                      {latestOp.recovery_claimed_at && (
+                        <span>Claimed: {formatDate(latestOp.recovery_claimed_at)}</span>
+                      )}
+                      {latestOp.recovery_lease_expires_at && (
+                        <span>Lease Expiry: {formatDate(latestOp.recovery_lease_expires_at)}</span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1839,6 +1898,7 @@ export default function PayoutCaseDetailPage() {
                 <li><strong>Exact Request Replay:</strong> ClaimBridge will resend the exact previously approved request using the same sender batch ID (<span className="font-mono text-white">{latestOp?.sender_batch_id}</span>).</li>
                 <li><strong>Potential Acceptance:</strong> If PayPal did not accept the original request, the recovery action may cause that original payout to be accepted.</li>
                 <li><strong>No Replacement IDs:</strong> The operation will not receive a new identifier.</li>
+                <li><strong>Time-Bounded Safety Policy:</strong> ClaimBridge enforces a conservative 27-day cutoff (inside PayPal&apos;s 30-day duplicate window) derived from the original submission attempt timestamp.</li>
                 <li><strong>Safety Policy Intact:</strong> The action does not bypass dual approval or payout safety policy.</li>
               </ul>
             </div>

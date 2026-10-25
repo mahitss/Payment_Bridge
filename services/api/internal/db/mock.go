@@ -563,6 +563,75 @@ func (m *MockRepository) UpdatePayoutOperation(ctx context.Context, op *PayoutOp
 	return nil
 }
 
+func (m *MockRepository) ClaimPayoutOperationForRecovery(
+	ctx context.Context,
+	orgID, opID, attemptID string,
+	claimedAt, leaseExpiresAt time.Time,
+	maxAge time.Duration,
+) (*PayoutOperation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	op, ok := m.Operations[opID]
+	if !ok || op.OrganizationID != orgID {
+		return nil, ErrPayoutOperationNotFound
+	}
+
+	if op.Status == "RECOVERING" {
+		if op.RecoveryLeaseExpiresAt != nil && claimedAt.After(*op.RecoveryLeaseExpiresAt) {
+			return nil, ErrStaleRecoveryClaim
+		}
+		return nil, ErrRecoveryAlreadyInProgress
+	}
+	if op.Status != "RECONCILIATION_REQUIRED" {
+		return nil, ErrInvalidOperationTransition
+	}
+	if op.PayPalPayoutBatchID != nil && strings.TrimSpace(*op.PayPalPayoutBatchID) != "" {
+		return nil, errors.New("operation already has a known paypal payout batch id")
+	}
+	if op.SubmittedAt == nil {
+		return nil, ErrSubmissionTimestampMissing
+	}
+	if op.SubmittedAt.After(claimedAt.Add(5 * time.Minute)) {
+		return nil, ErrSubmissionTimestampInvalid
+	}
+	if claimedAt.Sub(*op.SubmittedAt) > maxAge {
+		return nil, ErrRecoveryWindowExpired
+	}
+
+	op.Status = "RECOVERING"
+	op.RecoveryAttemptID = &attemptID
+	op.RecoveryClaimedAt = &claimedAt
+	op.RecoveryLeaseExpiresAt = &leaseExpiresAt
+	op.UpdatedAt = claimedAt
+
+	copied := *op
+	m.Operations[opID] = &copied
+	m.OperationsByBatchID[op.SenderBatchID] = &copied
+	res := copied
+	return &res, nil
+}
+
+func (m *MockRepository) FinalizeRecoveryOperation(ctx context.Context, op *PayoutOperation, attemptID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.Operations[op.ID]
+	if !ok || existing.OrganizationID != op.OrganizationID {
+		return ErrPayoutOperationNotFound
+	}
+
+	if existing.Status != "RECOVERING" || existing.RecoveryAttemptID == nil || *existing.RecoveryAttemptID != attemptID {
+		return ErrRecoveryClaimConflict
+	}
+
+	op.UpdatedAt = time.Now().UTC()
+	copied := *op
+	m.Operations[op.ID] = &copied
+	m.OperationsByBatchID[op.SenderBatchID] = &copied
+	return nil
+}
+
 func (m *MockRepository) ApprovePayoutOperation(ctx context.Context, orgID, opID, approvedByUserID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

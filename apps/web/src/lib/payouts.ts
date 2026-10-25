@@ -50,6 +50,9 @@ export interface PayoutOperation {
   completed_at?: string;
   cancelled_at?: string;
   is_synthetic_fixture?: boolean;
+  recovery_attempt_id?: string;
+  recovery_claimed_at?: string;
+  recovery_lease_expires_at?: string;
   created_at: string;
   updated_at: string;
 }
