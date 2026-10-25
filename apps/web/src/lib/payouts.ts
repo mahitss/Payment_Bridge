@@ -38,7 +38,9 @@ export interface PayoutOperation {
     | "SUCCEEDED"
     | "FAILED"
     | "CANCELLED"
-    | "RECONCILIATION_REQUIRED";
+    | "RECONCILIATION_REQUIRED"
+    | "RECOVERING";
+  submission_fingerprint?: string;
   requires_dual_approval: boolean;
   paypal_batch_status?: string;
   paypal_item_status?: string;
@@ -237,3 +239,48 @@ export function formatElapsedTimer(seconds: number): string {
   }
   return `${mins}m ${secs < 10 ? "0" : ""}${secs}s`;
 }
+
+export type RecoveryOutcome =
+  | "ORIGINAL_BATCH_RECOVERED"
+  | "REQUEST_NEWLY_ACCEPTED"
+  | "UNRESOLVED_OUTCOME"
+  | "MANUAL_RECONCILIATION_REQUIRED";
+
+export interface RecoverPayoutOperationResponse {
+  case: PayoutCase;
+  operation: PayoutOperation;
+  outcome: RecoveryOutcome;
+  message: string;
+}
+
+export async function recoverPayoutOperation(
+  operationId: string,
+  caseId?: string
+): Promise<RecoverPayoutOperationResponse> {
+  const url = caseId
+    ? `/api/v1/payout-cases/${encodeURIComponent(caseId)}/operations/${encodeURIComponent(operationId)}/recover`
+    : `/api/v1/payout-operations/${encodeURIComponent(operationId)}/recover`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    const errorMsg = data.error || `HTTP error ${res.status}`;
+    const err: any = new Error(errorMsg);
+    err.status = res.status;
+    err.code = data.code;
+    err.outcome = data.outcome;
+    err.operation = data.operation;
+    err.case = data.case;
+    throw err;
+  }
+
+  return data;
+}
+

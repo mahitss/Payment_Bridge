@@ -40,6 +40,8 @@ import {
   getInvestigationTransportInfo,
   formatInferenceDuration,
   formatElapsedTimer,
+  recoverPayoutOperation,
+  RecoveryOutcome,
 } from "@/lib/payouts";
 
 export default function PayoutCaseDetailPage() {
@@ -79,6 +81,8 @@ export default function PayoutCaseDetailPage() {
   const [confirmSubmitModal, setConfirmSubmitModal] = useState<boolean>(false);
   const [confirmCancelModal, setConfirmCancelModal] = useState<boolean>(false);
   const [confirmApproveModal, setConfirmApproveModal] = useState<boolean>(false);
+  const [confirmRecoverModal, setConfirmRecoverModal] = useState<boolean>(false);
+  const [recoveryOutcome, setRecoveryOutcome] = useState<RecoveryOutcome | null>(null);
 
   // Show raw provider response accordion
   const [expandedRawResponse, setExpandedRawResponse] = useState<boolean>(false);
@@ -99,6 +103,7 @@ export default function PayoutCaseDetailPage() {
         setConfirmSubmitModal(false);
         setConfirmApproveModal(false);
         setConfirmCancelModal(false);
+        setConfirmRecoverModal(false);
         setIsEvidenceInspectorOpen(false);
       }
     };
@@ -470,6 +475,39 @@ export default function PayoutCaseDetailPage() {
     }
   };
 
+  const handleRecoverOperation = async () => {
+    if (!latestOp) return;
+    setActionLoading("recover");
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const data = await recoverPayoutOperation(latestOp.id, caseId);
+      setRecoveryOutcome(data.outcome);
+      if (data.outcome === "ORIGINAL_BATCH_RECOVERED") {
+        setSuccessMessage(
+          `Original PayPal batch successfully recovered (${data.operation.paypal_payout_batch_id || "batch recovered"}). Provider status reconciled.`
+        );
+      } else if (data.outcome === "REQUEST_NEWLY_ACCEPTED") {
+        setSuccessMessage(
+          `Request newly accepted by PayPal Sandbox (Batch ID: ${data.operation.paypal_payout_batch_id || "accepted"}).`
+        );
+      } else {
+        setSuccessMessage(`Recovery finished: ${data.message}`);
+      }
+      setConfirmRecoverModal(false);
+      fetchCaseDetails();
+    } catch (err: any) {
+      if (err.outcome) {
+        setRecoveryOutcome(err.outcome);
+      }
+      setErrorMessage(err.message || "Failed to recover ambiguous payout submission");
+      fetchCaseDetails();
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+
   if (loading || loadingData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
@@ -518,6 +556,15 @@ export default function PayoutCaseDetailPage() {
       latestOp.status === "APPROVED" ||
       (latestOp.status === "SUBMITTED" &&
         latestOp.paypal_item_status?.toUpperCase() === "UNCLAIMED"));
+  const canRecover = Boolean(
+    latestOp &&
+      latestOp.status === "RECONCILIATION_REQUIRED" &&
+      !latestOp.paypal_payout_batch_id &&
+      !pCase.is_synthetic_fixture &&
+      !latestOp.is_synthetic_fixture &&
+      pCase.status !== "COMPLETED" &&
+      pCase.status !== "CANCELLED"
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -628,6 +675,115 @@ export default function PayoutCaseDetailPage() {
           >
             <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" aria-hidden="true" />
             <span>{successMessage}</span>
+          </div>
+        )}
+
+        {/* Distinct Recovery in Progress Banner */}
+        {latestOp?.status === "RECOVERING" && (
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="recovery-in-progress-panel"
+            className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-3 animate-pulse"
+          >
+            <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin flex-shrink-0" aria-hidden="true" />
+            <div className="space-y-0.5">
+              <span className="font-bold uppercase tracking-wider text-indigo-300">
+                Safe Recovery Protocol in Progress
+              </span>
+              <p className="text-slate-300">
+                Replaying verified request to PayPal Sandbox to recover original batch evidence without creating duplicate transactions...
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Distinct Recovery Outcome Banner */}
+        {recoveryOutcome && (
+          <div
+            role="status"
+            data-testid={`recovery-outcome-${recoveryOutcome.toLowerCase().replace(/_/g, "-")}`}
+            className={`p-4 rounded-xl text-xs space-y-1.5 border ${
+              recoveryOutcome === "ORIGINAL_BATCH_RECOVERED"
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+                : recoveryOutcome === "REQUEST_NEWLY_ACCEPTED"
+                ? "bg-blue-500/10 border-blue-500/30 text-blue-200"
+                : recoveryOutcome === "MANUAL_RECONCILIATION_REQUIRED"
+                ? "bg-rose-500/10 border-rose-500/30 text-rose-200"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-200"
+            }`}
+          >
+            <div className="flex items-center gap-2 font-bold uppercase tracking-wider">
+              {recoveryOutcome === "ORIGINAL_BATCH_RECOVERED" && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+              {recoveryOutcome === "REQUEST_NEWLY_ACCEPTED" && <Send className="w-4 h-4 text-blue-400" />}
+              {recoveryOutcome === "MANUAL_RECONCILIATION_REQUIRED" && <XCircle className="w-4 h-4 text-rose-400" />}
+              {recoveryOutcome === "UNRESOLVED_OUTCOME" && <AlertTriangle className="w-4 h-4 text-amber-400" />}
+              <span>
+                Recovery State: {recoveryOutcome.replace(/_/g, " ")}
+              </span>
+            </div>
+            <p className="text-slate-300 leading-relaxed text-[11px]">
+              {recoveryOutcome === "ORIGINAL_BATCH_RECOVERED" &&
+                "Original PayPal batch was identified via duplicate correlation link and its authoritative provider status was successfully reconciled."}
+              {recoveryOutcome === "REQUEST_NEWLY_ACCEPTED" &&
+                "PayPal confirmed the original submission was never received and newly accepted this payout request."}
+              {recoveryOutcome === "UNRESOLVED_OUTCOME" &&
+                "The recovery attempt encountered an unconfirmed outcome or network failure. Operation retained in RECONCILIATION_REQUIRED."}
+              {recoveryOutcome === "MANUAL_RECONCILIATION_REQUIRED" &&
+                "Automated recovery failed closed due to an untrusted or malformed provider response, missing fingerprint, or intent mismatch. Manual reconciliation is required."}
+            </p>
+          </div>
+        )}
+
+        {/* Ambiguous Submission / Reconciliation Required Panel */}
+        {latestOp?.status === "RECONCILIATION_REQUIRED" && (
+          <div
+            role="alert"
+            data-testid="reconciliation-required-panel"
+            className="p-5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-3 shadow-lg shadow-amber-500/5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" aria-hidden="true" />
+                <h3 className="text-sm font-bold uppercase tracking-wider text-amber-300">
+                  Ambiguous Payout Submission — Reconciliation Required
+                </h3>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                STATE: RECONCILIATION_REQUIRED
+              </span>
+            </div>
+
+            <p className="text-slate-300 leading-relaxed">
+              {latestOp.paypal_payout_batch_id ? (
+                <>PayPal batch ID is known (<span className="font-mono text-white">{latestOp.paypal_payout_batch_id}</span>). Use <strong>Sync Latest Status</strong> to refresh item-authoritative status from PayPal.</>
+              ) : (
+                <>The previous payout mutation encountered an ambiguous network timeout. The request outcome with PayPal is unconfirmed. Do not retry with a new sender batch ID or create duplicate payouts.</>
+              )}
+            </p>
+
+            {latestOp.error_message && (
+              <div className="p-3 rounded-lg bg-slate-950/80 border border-amber-500/20 text-[11px] font-mono text-amber-400/90 break-words">
+                Provider Diagnostic: {latestOp.error_message}
+              </div>
+            )}
+
+            {canRecover && (
+              <div className="pt-1 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => setConfirmRecoverModal(true)}
+                  disabled={actionLoading !== null}
+                  data-testid="recover-payout-banner-button"
+                  className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-amber-600/20"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${actionLoading === "recover" ? "animate-spin" : ""}`} />
+                  <span>Initiate Safe Recovery Protocol</span>
+                </button>
+                <span className="text-[11px] text-slate-400">
+                  Resubmits identical request with durable sender batch ID ({latestOp.sender_batch_id}) to locate original batch.
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -814,6 +970,21 @@ export default function PayoutCaseDetailPage() {
               >
                 <XCircle className="w-4 h-4" />
                 <span>Cancel Payout</span>
+              </button>
+            )}
+
+            {/* 5. Recover Ambiguous Submission */}
+            {canRecover && (
+              <button
+                onClick={() => setConfirmRecoverModal(true)}
+                disabled={actionLoading !== null || latestOp?.status === "RECOVERING"}
+                data-testid="recover-payout-toolbar-button"
+                className="px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-amber-600/20"
+              >
+                <RefreshCw
+                  className={`w-4 h-4 ${actionLoading === "recover" || latestOp?.status === "RECOVERING" ? "animate-spin" : ""}`}
+                />
+                <span>Recover Ambiguous Submission</span>
               </button>
             )}
           </div>
@@ -1380,6 +1551,13 @@ export default function PayoutCaseDetailPage() {
                     {latestOp.paypal_payout_item_id || "Awaiting provider processing"}
                   </div>
                 </div>
+
+                {latestOp.submission_fingerprint && (
+                  <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1 col-span-full">
+                    <span className="text-[10px] text-slate-500 uppercase">Cryptographic Submission Fingerprint (SHA-256)</span>
+                    <div className="text-indigo-400 font-mono text-[11px] break-all">{latestOp.submission_fingerprint}</div>
+                  </div>
+                )}
               </div>
 
               {/* Status Mapping Explainer */}
@@ -1630,6 +1808,88 @@ export default function PayoutCaseDetailPage() {
                   <span>Cancelling...</span>
                 ) : (
                   <span>Confirm Cancellation</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Safe Recovery of Ambiguous PayPal Submission */}
+      {confirmRecoverModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="recover-modal-title"
+          data-testid="confirm-recover-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        >
+          <div className="max-w-lg w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 text-amber-400">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
+              <h3 id="recover-modal-title" className="text-base font-bold text-white">
+                Safe Recovery of Ambiguous Submission
+              </h3>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200/90 space-y-2 leading-relaxed">
+              <div className="font-semibold text-amber-300">Important Safety Warning:</div>
+              <ul className="list-disc pl-4 space-y-1 text-slate-300 text-[11px]">
+                <li><strong>Unknown Outcome:</strong> The previous submission&apos;s outcome is unknown due to a network timeout.</li>
+                <li><strong>Exact Request Replay:</strong> ClaimBridge will resend the exact previously approved request using the same sender batch ID (<span className="font-mono text-white">{latestOp?.sender_batch_id}</span>).</li>
+                <li><strong>Potential Acceptance:</strong> If PayPal did not accept the original request, the recovery action may cause that original payout to be accepted.</li>
+                <li><strong>No Replacement IDs:</strong> The operation will not receive a new identifier.</li>
+                <li><strong>Safety Policy Intact:</strong> The action does not bypass dual approval or payout safety policy.</li>
+              </ul>
+            </div>
+
+            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1 text-xs font-mono">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Sender Batch ID:</span>
+                <span className="text-white truncate max-w-[220px]">{latestOp?.sender_batch_id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Sender Item ID:</span>
+                <span className="text-white truncate max-w-[220px]">{latestOp?.sender_item_id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Amount:</span>
+                <span className="text-white font-bold">{formatCentsToUSD(pCase.amount_cents)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Recipient:</span>
+                <span className="text-blue-400 truncate max-w-[220px]">{pCase.recipient_email}</span>
+              </div>
+              {latestOp?.submission_fingerprint && (
+                <div className="flex justify-between text-[10px] pt-1 border-t border-slate-900">
+                  <span className="text-slate-500">Fingerprint:</span>
+                  <span className="text-indigo-400 truncate max-w-[220px]">{latestOp.submission_fingerprint.slice(0, 16)}...</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmRecoverModal(false)}
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRecoverOperation}
+                disabled={actionLoading === "recover"}
+                data-testid="confirm-recover-submit-button"
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition flex items-center gap-2"
+              >
+                {actionLoading === "recover" ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Executing Safe Recovery...</span>
+                  </>
+                ) : (
+                  <span>Confirm Safe Recovery</span>
                 )}
               </button>
             </div>

@@ -99,30 +99,31 @@ type PayoutCase struct {
 }
 
 type PayoutOperation struct {
-	ID                   string                 `json:"id"`
-	PayoutCaseID         string                 `json:"payout_case_id"`
-	OrganizationID       string                 `json:"organization_id"`
-	InitiatedByUserID    string                 `json:"initiated_by_user_id"`
-	SenderBatchID        string                 `json:"sender_batch_id"`
-	SenderItemID         string                 `json:"sender_item_id"`
-	AmountCents          int64                  `json:"amount_cents"`
-	Currency             string                 `json:"currency"`
-	Status               string                 `json:"status"` // PREPARED, AWAITING_APPROVAL, APPROVED, SUBMITTING, SUBMITTED, SUCCEEDED, FAILED, RECONCILIATION_REQUIRED, CANCELLED
-	PayPalPayoutBatchID  *string                `json:"paypal_payout_batch_id,omitempty"`
-	PayPalBatchStatus    *string                `json:"paypal_batch_status,omitempty"`
-	PayPalPayoutItemID   *string                `json:"paypal_payout_item_id,omitempty"`
-	PayPalItemStatus     *string                `json:"paypal_item_status,omitempty"`
-	ErrorMessage         *string                `json:"error_message,omitempty"`
-	RawProviderResponse  map[string]interface{} `json:"raw_provider_response,omitempty"`
-	RequiresDualApproval bool                   `json:"requires_dual_approval"`
-	ApprovedByUserID     *string                `json:"approved_by_user_id,omitempty"`
-	ApprovedAt           *time.Time             `json:"approved_at,omitempty"`
-	SubmittedAt          *time.Time             `json:"submitted_at,omitempty"`
-	CompletedAt          *time.Time             `json:"completed_at,omitempty"`
-	CancelledAt          *time.Time             `json:"cancelled_at,omitempty"`
-	IsSyntheticFixture   bool                   `json:"is_synthetic_fixture"`
-	CreatedAt            time.Time              `json:"created_at"`
-	UpdatedAt            time.Time              `json:"updated_at"`
+	ID                    string                 `json:"id"`
+	PayoutCaseID          string                 `json:"payout_case_id"`
+	OrganizationID        string                 `json:"organization_id"`
+	InitiatedByUserID     string                 `json:"initiated_by_user_id"`
+	SenderBatchID         string                 `json:"sender_batch_id"`
+	SenderItemID          string                 `json:"sender_item_id"`
+	AmountCents           int64                  `json:"amount_cents"`
+	Currency              string                 `json:"currency"`
+	Status                string                 `json:"status"` // PREPARED, AWAITING_APPROVAL, APPROVED, SUBMITTING, SUBMITTED, SUCCEEDED, FAILED, RECONCILIATION_REQUIRED, RECOVERING, CANCELLED
+	SubmissionFingerprint *string                `json:"submission_fingerprint,omitempty"`
+	PayPalPayoutBatchID   *string                `json:"paypal_payout_batch_id,omitempty"`
+	PayPalBatchStatus     *string                `json:"paypal_batch_status,omitempty"`
+	PayPalPayoutItemID    *string                `json:"paypal_payout_item_id,omitempty"`
+	PayPalItemStatus      *string                `json:"paypal_item_status,omitempty"`
+	ErrorMessage          *string                `json:"error_message,omitempty"`
+	RawProviderResponse   map[string]interface{} `json:"raw_provider_response,omitempty"`
+	RequiresDualApproval  bool                   `json:"requires_dual_approval"`
+	ApprovedByUserID      *string                `json:"approved_by_user_id,omitempty"`
+	ApprovedAt            *time.Time             `json:"approved_at,omitempty"`
+	SubmittedAt           *time.Time             `json:"submitted_at,omitempty"`
+	CompletedAt           *time.Time             `json:"completed_at,omitempty"`
+	CancelledAt           *time.Time             `json:"cancelled_at,omitempty"`
+	IsSyntheticFixture    bool                   `json:"is_synthetic_fixture"`
+	CreatedAt             time.Time              `json:"created_at"`
+	UpdatedAt             time.Time              `json:"updated_at"`
 }
 
 type PayoutStatusSnapshot struct {
