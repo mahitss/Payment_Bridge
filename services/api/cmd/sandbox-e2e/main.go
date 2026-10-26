@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,37 +50,41 @@ type CorrelationVerification struct {
 
 // SandboxE2EReport defines the structured report schema
 type SandboxE2EReport struct {
-	ExecutionTimestamp     time.Time                `json:"execution_timestamp"`
-	CommitSHA              string                   `json:"commit_sha"`
-	AppEnv                 string                   `json:"app_env"`
-	PayPalEnv              string                   `json:"paypal_env"`
-	PayPalBaseURL          string                   `json:"paypal_base_url"`
-	PreflightConfigValid   bool                     `json:"preflight_config_valid"`
-	DatabaseReachable      bool                     `json:"database_reachable"`
-	DatabaseMigrations     bool                     `json:"database_migrations_current"`
-	OAuthTokenAcquired     bool                     `json:"oauth_token_acquired"`
-	PayoutAttempted        bool                     `json:"payout_attempted"`
-	SanitizedRecipient     string                   `json:"sanitized_recipient,omitempty"`
-	Amount                 string                   `json:"amount,omitempty"`
-	Currency               string                   `json:"currency,omitempty"`
-	CaseID                 string                   `json:"case_id,omitempty"`
-	CaseReference          string                   `json:"case_reference,omitempty"`
-	OperationID            string                   `json:"operation_id,omitempty"`
-	SenderBatchID          string                   `json:"sender_batch_id,omitempty"`
-	SenderItemID           string                   `json:"sender_item_id,omitempty"`
-	SubmissionFingerprint  string                   `json:"submission_fingerprint,omitempty"`
-	PayPalPayoutBatchID    string                   `json:"paypal_payout_batch_id,omitempty"`
-	PayPalBatchStatus      string                   `json:"paypal_batch_status,omitempty"`
-	PayPalItemStatus       string                   `json:"paypal_item_status,omitempty"`
-	PersistedCaseStatus    string                   `json:"persisted_case_status,omitempty"`
-	PersistedOpStatus      string                   `json:"persisted_operation_status,omitempty"`
-	Correlation            *CorrelationVerification `json:"correlation,omitempty"`
-	StatusSnapshotsCount   int                      `json:"status_snapshots_count"`
-	AuditEventsCount       int                      `json:"audit_events_count"`
-	Outcome                string                   `json:"outcome"` // PASS, FAIL, BLOCKED, UNRESOLVED
-	Details                string                   `json:"details"`
-	ReportArtifactPathJSON string                   `json:"report_artifact_path_json,omitempty"`
-	ReportArtifactPathMD   string                   `json:"report_artifact_path_md,omitempty"`
+	ExecutionTimestamp       time.Time                `json:"execution_timestamp"`
+	CommitSHA                string                   `json:"commit_sha"`
+	AppEnv                   string                   `json:"app_env"`
+	PayPalEnv                string                   `json:"paypal_env"`
+	PayPalBaseURL            string                   `json:"paypal_base_url"`
+	PreflightConfigValid     bool                     `json:"preflight_config_valid"`
+	DatabaseReachable        bool                     `json:"database_reachable"`
+	DatabaseMigrations       bool                     `json:"database_migrations_current"`
+	OAuthTokenAcquired       bool                     `json:"oauth_token_acquired"`
+	SubmissionRequested      bool                     `json:"submission_requested"`
+	MutationDispatched       bool                     `json:"mutation_dispatched"`
+	PayoutAttempted          bool                     `json:"payout_attempted"` // set true ONLY when provider mutation is actually dispatched
+	ProviderResponseReceived bool                     `json:"provider_response_received"`
+	SanitizedRecipient       string                   `json:"sanitized_recipient,omitempty"`
+	Amount                   string                   `json:"amount,omitempty"`
+	Currency                 string                   `json:"currency,omitempty"`
+	CaseID                   string                   `json:"case_id,omitempty"`
+	CaseReference            string                   `json:"case_reference,omitempty"`
+	OperationID              string                   `json:"operation_id,omitempty"`
+	SenderBatchID            string                   `json:"sender_batch_id,omitempty"`
+	SenderItemID             string                   `json:"sender_item_id,omitempty"`
+	SubmissionFingerprint    string                   `json:"submission_fingerprint,omitempty"`
+	PayPalPayoutBatchID      string                   `json:"paypal_payout_batch_id,omitempty"`
+	PayPalBatchStatus        string                   `json:"paypal_batch_status,omitempty"`
+	PayPalItemStatus         string                   `json:"paypal_item_status,omitempty"`
+	PersistedCaseStatus      string                   `json:"persisted_case_status,omitempty"`
+	PersistedOpStatus        string                   `json:"persisted_operation_status,omitempty"`
+	Correlation              *CorrelationVerification `json:"correlation,omitempty"`
+	StatusSnapshotsCount     int                      `json:"status_snapshots_count"`
+	AuditEventsCount         int                      `json:"audit_events_count"`
+	AuditVerificationPassed  bool                     `json:"audit_verification_passed"`
+	Outcome                  string                   `json:"outcome"` // PASS, FAIL, BLOCKED, UNRESOLVED
+	Details                  string                   `json:"details"`
+	ReportArtifactPathJSON   string                   `json:"report_artifact_path_json,omitempty"`
+	ReportArtifactPathMD     string                   `json:"report_artifact_path_md,omitempty"`
 }
 
 func main() {
@@ -193,7 +198,7 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 		fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
 
 		report.Outcome = "BLOCKED"
-		report.Details = fmt.Sprintf("PayPal Sandbox credentials not configured in local environment: %v", credErr)
+		report.Details = "PayPal Sandbox credentials not configured in local environment"
 		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
 		return ExitCodeBlocked
 	}
@@ -241,7 +246,7 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	fmt.Fprintln(stdout, "  • Token State: Cached & Valid")
 	fmt.Fprintln(stdout, "  • Token Hash : [REDACTED_ACCESS_TOKEN] (never exposed to logs or disk)")
 
-	// 6. Database Preflight
+	// 6. Database Preflight (with credential sanitization)
 	fmt.Fprintln(stdout, "\n[3/4] Database & Storage Layer Preflight:")
 	var repo db.Repository
 	if injectedRepo != nil {
@@ -256,13 +261,15 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 
 		pgRepo, pgErr := db.NewPostgresRepository(dbCtx, cfg.DatabaseURL)
 		if pgErr != nil {
-			fmt.Fprintf(stdout, "  • PostgreSQL Status       : UNREACHABLE (%v)\n", pgErr)
+			safeEndpoint := sanitizeDatabaseEndpoint(cfg.DatabaseURL)
+			dbCategory := categorizeDatabaseError(pgErr)
+			fmt.Fprintf(stdout, "  • PostgreSQL Status       : UNREACHABLE (%s at %s)\n", dbCategory, safeEndpoint)
 			report.DatabaseReachable = false
 			if shouldSubmit {
 				fmt.Fprintln(stderr, "\n[ERROR] Database is required to execute the full application payout workflow.")
 				fmt.Fprintln(stderr, "Ensure PostgreSQL is running: docker compose -f infra/docker-compose.yml up -d")
 				report.Outcome = "FAIL"
-				report.Details = fmt.Sprintf("PostgreSQL database unreachable at %s: %v", cfg.DatabaseURL, pgErr)
+				report.Details = fmt.Sprintf("PostgreSQL database unreachable at %s: %s", safeEndpoint, dbCategory)
 				writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
 				return ExitCodeFailure
 			}
@@ -277,7 +284,7 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 				report.DatabaseMigrations = false
 				if shouldSubmit {
 					report.Outcome = "FAIL"
-					report.Details = fmt.Sprintf("Database schema migrations failed: %v", mErr)
+					report.Details = "Database schema migrations failed"
 					writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
 					return ExitCodeFailure
 				}
@@ -306,8 +313,9 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 		return ExitCodeSuccess
 	}
 
-	// Mutation Mode Safeguards
-	report.PayoutAttempted = true
+	// Mutation Mode Safeguards: submission requested by operator
+	report.SubmissionRequested = true
+	// MutationDispatched and PayoutAttempted remain false until provider mutation is actually dispatched
 
 	// Safeguard 1: Explicit confirmation flag
 	if !*confirmSandboxFlag {
@@ -341,39 +349,23 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	}
 	report.Currency = currency
 
-	// Safeguard 4: Hard maximum amount of USD 1.00
-	amountFloat, pErr := strconv.ParseFloat(strings.TrimSpace(*amountFlag), 64)
-	if pErr != nil || amountFloat <= 0 {
-		fmt.Fprintf(stderr, "\n[INPUT ERROR] Invalid payout amount %q. Amount must be a positive decimal (e.g. 1.00).\n", *amountFlag)
-		report.Outcome = "FAIL"
-		report.Details = fmt.Sprintf("Invalid amount %q", *amountFlag)
+	// Safeguard 4: Strict amount parsing using integer cents (hard maximum $1.00 USD)
+	amountCents, formattedAmount, aErr := parseAmountCents(*amountFlag)
+	if aErr != nil {
+		if strings.Contains(aErr.Error(), "exceeds the hard sandbox test ceiling") {
+			fmt.Fprintf(stderr, "\n[SAFETY VIOLATION] Requested amount %q exceeds the hard sandbox test ceiling of $1.00 USD (100 cents).\n", *amountFlag)
+			fmt.Fprintln(stderr, "ClaimBridge safety rules strictly restrict operator test payouts to a maximum of $1.00 USD.")
+			report.Outcome = "FAIL"
+			report.Details = fmt.Sprintf("Amount %q exceeds hard test ceiling of $1.00 USD", *amountFlag)
+		} else {
+			fmt.Fprintf(stderr, "\n[INPUT ERROR] Invalid payout amount %q: %v\n", *amountFlag, aErr)
+			report.Outcome = "FAIL"
+			report.Details = fmt.Sprintf("Invalid amount %q: %v", *amountFlag, aErr)
+		}
 		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
 		return ExitCodeFailure
 	}
-
-	amountCents := int64(amountFloat*100.0 + 0.5)
-	if amountCents > MaxSandboxTestAmountCents {
-		fmt.Fprintf(stderr, "\n[SAFETY VIOLATION] Requested amount $%.2f exceeds the hard sandbox test ceiling of $1.00 USD (100 cents).\n", amountFloat)
-		fmt.Fprintln(stderr, "ClaimBridge safety rules strictly restrict operator test payouts to a maximum of $1.00 USD.")
-		report.Outcome = "FAIL"
-		report.Details = fmt.Sprintf("Amount $%.2f exceeds hard test ceiling of $1.00 USD", amountFloat)
-		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
-		return ExitCodeFailure
-	}
-
-	formattedAmount := fmt.Sprintf("%.2f", float64(amountCents)/100.0)
 	report.Amount = formattedAmount
-
-	// Display final confirmation summary
-	fmt.Fprintln(stdout, "\n================================================================================")
-	fmt.Fprintln(stdout, "            PAYPAL SANDBOX MUTATION AUTHORIZATION CONFIRMED                     ")
-	fmt.Fprintln(stdout, "================================================================================")
-	fmt.Fprintf(stdout, "  • Target Host             : %s [SANDBOX ONLY]\n", effectiveBaseURL)
-	fmt.Fprintf(stdout, "  • Masked Recipient        : %s\n", report.SanitizedRecipient)
-	fmt.Fprintf(stdout, "  • Payout Amount           : $%s %s\n", report.Amount, report.Currency)
-	fmt.Fprintln(stdout, "  • Authorization Gate      : Single-payout limit verified (<= $1.00 USD)")
-	fmt.Fprintln(stdout, "  • Application Path        : Executing ClaimBridge Core Payout Service")
-	fmt.Fprintln(stdout, "================================================================================")
 
 	// Ensure we have a database repository
 	if repo == nil {
@@ -387,15 +379,26 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	workflowCtx, workflowCancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer workflowCancel()
 
-	// Ensure operator user & org exist in DB
+	// Ensure operator user & org exist in DB (fails closed without hard-coded password)
 	operatorUser, demoOrg, uErr := ensureOperatorAndOrg(workflowCtx, repo)
 	if uErr != nil {
-		fmt.Fprintf(stderr, "\n[ERROR] Failed setting up operator context in database: %v\n", uErr)
+		fmt.Fprintf(stderr, "\n[ERROR] Operator context uninitialized: %v\n", uErr)
 		report.Outcome = "FAIL"
-		report.Details = fmt.Sprintf("Failed ensuring operator user and organization: %v", uErr)
+		report.Details = fmt.Sprintf("Operator initialization check failed: %v", uErr)
 		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
 		return ExitCodeFailure
 	}
+
+	// Display final confirmation summary
+	fmt.Fprintln(stdout, "\n================================================================================")
+	fmt.Fprintln(stdout, "            PAYPAL SANDBOX MUTATION AUTHORIZATION CONFIRMED                     ")
+	fmt.Fprintln(stdout, "================================================================================")
+	fmt.Fprintf(stdout, "  • Target Host             : %s [SANDBOX ONLY]\n", effectiveBaseURL)
+	fmt.Fprintf(stdout, "  • Masked Recipient        : %s\n", report.SanitizedRecipient)
+	fmt.Fprintf(stdout, "  • Payout Amount           : $%s %s\n", report.Amount, report.Currency)
+	fmt.Fprintln(stdout, "  • Authorization Gate      : Single-payout limit verified (<= $1.00 USD)")
+	fmt.Fprintln(stdout, "  • Application Path        : Executing ClaimBridge Core Payout Service")
+	fmt.Fprintln(stdout, "================================================================================")
 
 	// Construct core Payouts Service
 	policyEngine := policy.NewEngine(cfg.PolicyEngineBinaryPath)
@@ -448,9 +451,14 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 
 	// Step 3: Submit exactly ONE payout to PayPal Sandbox
 	fmt.Fprintln(stdout, "  [Step 3/5] Computing canonical fingerprint and submitting payout to PayPal Sandbox...")
+	// We are now dispatching the mutation to PayPal
+	report.MutationDispatched = true
+	report.PayoutAttempted = true
+
 	submittedOp, submitErr := payoutsService.SubmitPayoutOperation(workflowCtx, operatorUser, demoOrg, pCase.ID, op.ID)
 	if submitErr != nil {
 		if errors.Is(submitErr, paypal.ErrAmbiguousNetworkTimeout) {
+			report.ProviderResponseReceived = false
 			fmt.Fprintln(stdout, "\n--------------------------------------------------------------------------------")
 			fmt.Fprintln(stdout, "[STATUS: UNRESOLVED] Network Timeout During PayPal Mutation")
 			fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
@@ -463,7 +471,7 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 			fmt.Fprintln(stdout, "--------------------------------------------------------------------------------")
 
 			report.Outcome = "UNRESOLVED"
-			report.Details = fmt.Sprintf("Ambiguous network timeout during payout submission: %v", submitErr)
+			report.Details = "Ambiguous network timeout during payout submission; provider response not received; state preserved in RECONCILIATION_REQUIRED"
 			if submittedOp != nil {
 				report.PersistedOpStatus = submittedOp.Status
 				if submittedOp.SubmissionFingerprint != nil {
@@ -474,6 +482,7 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 			return ExitCodeUnresolved
 		}
 
+		report.ProviderResponseReceived = true
 		fmt.Fprintf(stderr, "  [ERROR] Payout submission failed: %v\n", submitErr)
 		report.Outcome = "FAIL"
 		report.Details = fmt.Sprintf("SubmitPayoutOperation failed: %v", submitErr)
@@ -484,6 +493,7 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 		return ExitCodeFailure
 	}
 
+	report.ProviderResponseReceived = true
 	report.PersistedOpStatus = submittedOp.Status
 	if submittedOp.SubmissionFingerprint != nil {
 		report.SubmissionFingerprint = *submittedOp.SubmissionFingerprint
@@ -548,17 +558,36 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 		return ExitCodeFailure
 	}
 
-	// Check status snapshots & audit events count
+	// Check status snapshots
 	snapshots, _ := repo.ListPayoutStatusSnapshots(workflowCtx, demoOrg.ID, op.ID)
 	report.StatusSnapshotsCount = len(snapshots)
 
-	auditEvents, _, _ := repo.ListPayoutCasesByOrg(workflowCtx, demoOrg.ID, 10, 0)
-	_ = auditEvents
-	report.AuditEventsCount = report.StatusSnapshotsCount // baseline recorded
+	// Query actual persisted audit records scoped to org, case, and operation
+	actualAuditCount, auditErr := repo.CountAuditEvents(workflowCtx, demoOrg.ID, pCase.ID, op.ID)
+	if auditErr != nil {
+		fmt.Fprintf(stdout, "  [WARN] Failed verifying audit records from database: %v\n", auditErr)
+		report.AuditEventsCount = 0
+		report.AuditVerificationPassed = false
+	} else {
+		report.AuditEventsCount = actualAuditCount
+		report.AuditVerificationPassed = actualAuditCount > 0
+		fmt.Fprintf(stdout, "    • Persisted Audit Records    : %d verified\n", actualAuditCount)
+	}
 
-	// Check final status
+	// Classify final outcome truthfully
 	itemStatus := strings.ToUpper(strings.TrimSpace(report.PayPalItemStatus))
 	batchStatus := strings.ToUpper(strings.TrimSpace(report.PayPalBatchStatus))
+
+	persistenceValid := report.StatusSnapshotsCount > 0 && report.PersistedOpStatus != ""
+	outcome, details, exitCode := classifyProviderOutcome(
+		itemStatus,
+		batchStatus,
+		correlation,
+		persistenceValid,
+		report.AuditVerificationPassed,
+	)
+	report.Outcome = outcome
+	report.Details = details
 
 	fmt.Fprintln(stdout, "\n================================================================================")
 	fmt.Fprintln(stdout, "                   SANDBOX VERIFICATION OUTCOME SUMMARY                         ")
@@ -569,56 +598,44 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	fmt.Fprintf(stdout, "  • PayPal Item Status      : %s\n", itemStatus)
 	fmt.Fprintf(stdout, "  • Correlation Verified    : %t\n", correlation.OverallCorrelated)
 	fmt.Fprintf(stdout, "  • Immutable Snapshots     : %d recorded\n", report.StatusSnapshotsCount)
-
-	if itemStatus == "SUCCESS" {
-		report.Outcome = "PASS"
-		report.Details = "PayPal Sandbox payout completed and settled successfully (Item Status: SUCCESS)."
-		fmt.Fprintln(stdout, "\n  [STATUS: PASS] Payout completed and settled successfully in PayPal Sandbox!")
-	} else if itemStatus == "UNCLAIMED" {
-		report.Outcome = "PASS"
-		report.Details = "PayPal Sandbox payout accepted; item status is UNCLAIMED (receiver must claim or register in sandbox)."
-		fmt.Fprintln(stdout, "\n  [STATUS: PASS] Payout accepted by PayPal Sandbox (Item Status: UNCLAIMED).")
-		fmt.Fprintln(stdout, "  Notice: UNCLAIMED is normal in Sandbox when the personal recipient account requires manual claiming.")
-	} else if itemStatus == "PENDING" || itemStatus == "PROCESSING" || batchStatus == "PENDING" || batchStatus == "PROCESSING" {
-		report.Outcome = "PASS"
-		report.Details = fmt.Sprintf("PayPal Sandbox payout accepted; item status is %s (asynchronous processing in progress).", itemStatus)
-		fmt.Fprintf(stdout, "\n  [STATUS: PASS] Payout accepted by PayPal Sandbox (Item Status: %s).\n", itemStatus)
-	} else {
-		report.Outcome = "PASS"
-		report.Details = fmt.Sprintf("PayPal Sandbox payout accepted; Batch Status: %s, Item Status: %s", batchStatus, itemStatus)
-		fmt.Fprintf(stdout, "\n  [STATUS: PASS] Payout recorded in PayPal Sandbox (Batch Status: %s).\n", batchStatus)
-	}
+	fmt.Fprintf(stdout, "  • Scoped Audit Records    : %d recorded (Verified: %t)\n", report.AuditEventsCount, report.AuditVerificationPassed)
+	fmt.Fprintf(stdout, "\n  [STATUS: %s] %s\n", report.Outcome, report.Details)
 	fmt.Fprintln(stdout, "================================================================================")
 
 	writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
-	return ExitCodeSuccess
+	return exitCode
 }
 
+// verifyCorrelation validates that provider batch and item match the intended payout operation.
+// Requires exact match on SenderItemID without fallback. Single-item fallback is strictly rejected.
 func verifyCorrelation(op *db.PayoutOperation, expectedRecipient, expectedAmount, expectedCurrency string, batch *paypal.PayoutBatchResponse) *CorrelationVerification {
 	batch.Normalize()
 	c := &CorrelationVerification{
 		SenderBatchIDMatched: batch.BatchHeader.SenderBatchHeader != nil &&
+			op.SenderBatchID != "" &&
 			batch.BatchHeader.SenderBatchHeader.SenderBatchID == op.SenderBatchID,
 	}
 
-	// Match item
+	// Strictly require non-empty SenderItemID and exactly one matching item
+	if op.SenderItemID == "" || len(batch.Items) == 0 {
+		c.OverallCorrelated = false
+		return c
+	}
+
 	var matchedItem *paypal.PayoutItem
+	matchCount := 0
 	for i := range batch.Items {
 		item := &batch.Items[i]
 		item.Normalize()
-		if item.SenderItemID == op.SenderItemID {
+		if item.SenderItemID != "" && item.SenderItemID == op.SenderItemID {
 			matchedItem = item
-			break
+			matchCount++
 		}
 	}
-	// Fallback for single item batch
-	if matchedItem == nil && len(batch.Items) == 1 {
-		matchedItem = &batch.Items[0]
-		matchedItem.Normalize()
-	}
 
-	if matchedItem != nil {
-		c.SenderItemIDMatched = matchedItem.SenderItemID == "" || matchedItem.SenderItemID == op.SenderItemID
+	// Ambiguous matches (>1) or zero matches fail correlation
+	if matchCount == 1 && matchedItem != nil {
+		c.SenderItemIDMatched = true
 		c.RecipientMatched = strings.EqualFold(strings.TrimSpace(matchedItem.Receiver), strings.TrimSpace(expectedRecipient))
 		c.AmountMatched = matchedItem.Amount.Value == expectedAmount
 		c.CurrencyMatched = strings.EqualFold(matchedItem.Amount.Currency, expectedCurrency)
@@ -628,43 +645,193 @@ func verifyCorrelation(op *db.PayoutOperation, expectedRecipient, expectedAmount
 	return c
 }
 
+// classifyProviderOutcome provides explicit, truthful classification of PayPal Sandbox payout outcomes.
+func classifyProviderOutcome(itemStatus, batchStatus string, correlation *CorrelationVerification, persistenceValid bool, auditValid bool) (outcome string, details string, exitCode int) {
+	if correlation == nil || !correlation.OverallCorrelated {
+		return "FAIL", "Provider response attributes failed correlation with intended payout operation", ExitCodeFailure
+	}
+	if !persistenceValid {
+		return "FAIL", "Persisted operation status or status snapshots verification failed", ExitCodeFailure
+	}
+	if !auditValid {
+		return "FAIL", "Audit evidence verification failed or records could not be verified in database", ExitCodeFailure
+	}
+
+	effectiveStatus := strings.ToUpper(strings.TrimSpace(itemStatus))
+	if effectiveStatus == "" {
+		effectiveStatus = strings.ToUpper(strings.TrimSpace(batchStatus))
+	}
+
+	switch effectiveStatus {
+	case "SUCCESS":
+		return "PASS", "PayPal Sandbox payout completed and settled successfully (Item Status: SUCCESS). Provider batch and item correlation verified.", ExitCodeSuccess
+	case "UNCLAIMED":
+		return "PASS", "PayPal Sandbox payout integration verified; provider item accepted with status UNCLAIMED (receiver must claim or register in sandbox; not settled).", ExitCodeSuccess
+	case "PENDING", "PROCESSING":
+		return "PASS", fmt.Sprintf("PayPal Sandbox payout integration verified; provider item accepted with status %s (asynchronous processing in progress; not settled).", effectiveStatus), ExitCodeSuccess
+	case "FAILED", "BLOCKED", "DENIED", "CANCELED", "CANCELLED":
+		return "FAIL", fmt.Sprintf("PayPal Sandbox payout rejected with terminal provider status: %s.", effectiveStatus), ExitCodeFailure
+	case "RETURNED", "REFUNDED", "REVERSED", "ONHOLD", "HELD":
+		return "UNRESOLVED", fmt.Sprintf("PayPal Sandbox payout entered non-settled terminal/hold state: %s. Preserved for manual investigation.", effectiveStatus), ExitCodeUnresolved
+	default:
+		return "UNRESOLVED", fmt.Sprintf("PayPal Sandbox returned unrecognized or empty status (Batch: %q, Item: %q). Preserved for manual reconciliation.", batchStatus, itemStatus), ExitCodeUnresolved
+	}
+}
+
+// parseAmountCents strictly parses a USD decimal string into integer cents using integer arithmetic.
+// Rejects signs, exponents, NaN, Inf, non-digits, fractions > 2 digits, and values > MaxSandboxTestAmountCents.
+func parseAmountCents(raw string) (int64, string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, "", errors.New("payout amount cannot be empty")
+	}
+
+	for _, ch := range trimmed {
+		if (ch < '0' || ch > '9') && ch != '.' {
+			return 0, "", fmt.Errorf("invalid character %q in payout amount (only digits and a single decimal point are permitted)", ch)
+		}
+	}
+
+	parts := strings.Split(trimmed, ".")
+	if len(parts) > 2 {
+		return 0, "", errors.New("payout amount contains multiple decimal points")
+	}
+	if parts[0] == "" {
+		return 0, "", errors.New("payout amount must contain digits before the decimal point")
+	}
+
+	dollars, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid dollars portion in amount: %w", err)
+	}
+	if dollars < 0 {
+		return 0, "", errors.New("payout amount cannot be negative")
+	}
+
+	var fracCents int64
+	if len(parts) == 2 {
+		frac := parts[1]
+		if len(frac) == 0 {
+			return 0, "", errors.New("trailing decimal point without fractional digits")
+		}
+		if len(frac) > 2 {
+			return 0, "", fmt.Errorf("payout amount has %d decimal places; at most 2 decimal places permitted", len(frac))
+		}
+		if len(frac) == 1 {
+			frac += "0"
+		}
+		fracVal, fErr := strconv.ParseInt(frac, 10, 64)
+		if fErr != nil {
+			return 0, "", fmt.Errorf("invalid cents portion in amount: %w", fErr)
+		}
+		fracCents = fracVal
+	}
+
+	totalCents := dollars*100 + fracCents
+	if totalCents <= 0 {
+		return 0, "", errors.New("payout amount must be greater than zero")
+	}
+	if totalCents > MaxSandboxTestAmountCents {
+		return 0, "", fmt.Errorf("amount $%.2f exceeds the hard sandbox test ceiling of $1.00 USD (100 cents)", float64(totalCents)/100.0)
+	}
+
+	formatted := fmt.Sprintf("%d.%02d", totalCents/100, totalCents%100)
+	return totalCents, formatted, nil
+}
+
+// sanitizeDatabaseEndpoint extracts only scheme, host, and database name from a raw DSN,
+// strictly redacting passwords, usernames, and query credentials.
+func sanitizeDatabaseEndpoint(dsn string) string {
+	raw := strings.TrimSpace(dsn)
+	if raw == "" {
+		return "[not configured]"
+	}
+
+	// Try parsing as standard URL
+	if strings.Contains(raw, "://") {
+		u, err := url.Parse(raw)
+		if err == nil {
+			host := u.Host
+			if host == "" {
+				host = "localhost"
+			}
+			dbName := strings.TrimPrefix(u.Path, "/")
+			if dbName != "" {
+				return fmt.Sprintf("postgresql://%s/%s", host, dbName)
+			}
+			return fmt.Sprintf("postgresql://%s", host)
+		}
+	}
+
+	// Fallback for libpq key-value string: host=... port=... dbname=...
+	parts := strings.Fields(raw)
+	host := ""
+	port := ""
+	dbname := ""
+	for _, p := range parts {
+		kv := strings.SplitN(p, "=", 2)
+		if len(kv) == 2 {
+			switch strings.ToLower(kv[0]) {
+			case "host":
+				host = kv[1]
+			case "port":
+				port = kv[1]
+			case "dbname":
+				dbname = kv[1]
+			}
+		}
+	}
+	if host != "" {
+		if port != "" {
+			host = host + ":" + port
+		}
+		if dbname != "" {
+			return fmt.Sprintf("postgresql://%s/%s", host, dbname)
+		}
+		return fmt.Sprintf("postgresql://%s", host)
+	}
+
+	return "postgresql://[redacted-endpoint]"
+}
+
+// categorizeDatabaseError provides a sanitized category for database errors without
+// disclosing raw error strings that may interpolate DSN credentials or tokens.
+func categorizeDatabaseError(err error) string {
+	if err == nil {
+		return "none"
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "connection refused") || strings.Contains(msg, "connectex") {
+		return "connection refused (PostgreSQL server may not be running)"
+	}
+	if strings.Contains(msg, "authentication failed") || strings.Contains(msg, "password authentication") {
+		return "authentication failed"
+	}
+	if strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") {
+		return "connection timed out"
+	}
+	if strings.Contains(msg, "does not exist") {
+		return "target database does not exist"
+	}
+	if strings.Contains(msg, "no such host") || strings.Contains(msg, "lookup") {
+		return "host lookup failed"
+	}
+	return "database connectivity failed"
+}
+
+// ensureOperatorAndOrg looks up the documented operator user and active organization in the database.
+// Fails closed if the operator user is not initialized. Never creates accounts with hard-coded passwords.
 func ensureOperatorAndOrg(ctx context.Context, repo db.Repository) (*db.User, *db.Organization, error) {
 	user, err := repo.GetUserByEmail(ctx, seeder.OperatorEmail)
-	if err == nil {
-		memberships, mErr := repo.GetOrganizationMemberships(ctx, user.ID)
-		if mErr == nil && len(memberships) > 0 {
-			return user, &memberships[0].Organization, nil
-		}
-	}
-
-	// Try seeding if missing
-	s := seeder.New(repo)
-	_ = s.Seed(ctx, seeder.Options{Reset: false})
-
-	user, err = repo.GetUserByEmail(ctx, seeder.OperatorEmail)
 	if err != nil {
-		// Create direct user and org
-		hash, _ := crypto.HashPassword("OperatorPass123!")
-		now := time.Now().UTC()
-		newUser := &db.User{
-			Email:           seeder.OperatorEmail,
-			PasswordHash:    hash,
-			Name:            seeder.OperatorName,
-			EmailVerified:   true,
-			EmailVerifiedAt: &now,
-			IsActive:        true,
-		}
-		u, org, cErr := repo.CreateUserWithPersonalOrg(ctx, newUser, seeder.DemoOrgName)
-		if cErr != nil {
-			return nil, nil, fmt.Errorf("failed creating fallback operator user: %w", cErr)
-		}
-		return u, org, nil
+		return nil, nil, fmt.Errorf("operator account %q not found in database; please initialize demo fixtures with 'go run ./cmd/seed' before running integration payout", seeder.OperatorEmail)
 	}
 
-	memberships, err := repo.GetOrganizationMemberships(ctx, user.ID)
-	if err != nil || len(memberships) == 0 {
-		return nil, nil, errors.New("operator user has no organization memberships")
+	memberships, mErr := repo.GetOrganizationMemberships(ctx, user.ID)
+	if mErr != nil || len(memberships) == 0 {
+		return nil, nil, fmt.Errorf("operator account %q has no active organization memberships; initialize with 'go run ./cmd/seed'", seeder.OperatorEmail)
 	}
+
 	return user, &memberships[0].Organization, nil
 }
 
@@ -729,6 +896,9 @@ func generateMarkdownReport(r *SandboxE2EReport) string {
 	sb.WriteString(fmt.Sprintf("- **Execution Timestamp**: `%s`\n", r.ExecutionTimestamp.Format(time.RFC3339)))
 	sb.WriteString(fmt.Sprintf("- **Application Commit**: `%s`\n", r.CommitSHA))
 	sb.WriteString(fmt.Sprintf("- **Environment Target**: `%s` (Base URL: `%s`)\n", r.PayPalEnv, r.PayPalBaseURL))
+	sb.WriteString(fmt.Sprintf("- **Submission Requested**: `%s`\n", boolStatus(r.SubmissionRequested)))
+	sb.WriteString(fmt.Sprintf("- **Mutation Dispatched**: `%s`\n", boolStatus(r.MutationDispatched)))
+	sb.WriteString(fmt.Sprintf("- **Provider Response Received**: `%s`\n", boolStatus(r.ProviderResponseReceived)))
 	sb.WriteString(fmt.Sprintf("- **Overall Outcome**: **`%s`**\n", r.Outcome))
 	sb.WriteString(fmt.Sprintf("- **Summary Details**: %s\n\n", r.Details))
 
@@ -738,7 +908,7 @@ func generateMarkdownReport(r *SandboxE2EReport) string {
 	sb.WriteString(fmt.Sprintf("- Schema Migrations Current: `%s`\n", boolStatus(r.DatabaseMigrations)))
 	sb.WriteString(fmt.Sprintf("- Genuine PayPal Sandbox OAuth Token: `%s`\n\n", boolStatus(r.OAuthTokenAcquired)))
 
-	if r.PayoutAttempted {
+	if r.MutationDispatched {
 		sb.WriteString("## Payout Submission & Correlation Evidence\n\n")
 		sb.WriteString(fmt.Sprintf("- **Masked Recipient**: `%s`\n", r.SanitizedRecipient))
 		sb.WriteString(fmt.Sprintf("- **Disbursed Amount**: `$%s %s`\n", r.Amount, r.Currency))
@@ -765,15 +935,19 @@ func generateMarkdownReport(r *SandboxE2EReport) string {
 
 		sb.WriteString("### Audit & Status Persistence\n\n")
 		sb.WriteString(fmt.Sprintf("- Status Snapshots Saved: `%d`\n", r.StatusSnapshotsCount))
-		sb.WriteString("- Audit Events Emitted: `PAYOUT_CASE_CREATED`, `PAYOUT_OPERATION_INITIATED`, `PAYOUT_SUBMITTED_TO_PAYPAL`, `PAYOUT_STATUS_SYNCHRONIZED`\n\n")
+		sb.WriteString(fmt.Sprintf("- Scoped Audit Records Verified: `%d` (Verification: `%s`)\n\n", r.AuditEventsCount, boolStatus(r.AuditVerificationPassed)))
 	} else {
-		sb.WriteString("## Read-Only Preflight Status\n\n")
-		sb.WriteString("No financial mutations or payouts were attempted. Automated payouts are disabled by default for safety.\n\n")
+		sb.WriteString("## Mutation Status\n\n")
+		if r.SubmissionRequested {
+			sb.WriteString("A payout mutation was requested by the operator, but failed pre-submission validation. No mutation was dispatched to PayPal Sandbox.\n\n")
+		} else {
+			sb.WriteString("No financial mutations or payouts were attempted. Read-only preflight mode was active.\n\n")
+		}
 	}
 
 	sb.WriteString("---\n\n")
 	sb.WriteString("> [!NOTE]\n")
-	sb.WriteString("> **Sanitization Notice**: This report contains no access tokens, client secrets, passwords, or unsanitized personal identifying data.\n")
+	sb.WriteString("> **Sanitization Notice**: This report contains no access tokens, client secrets, database passwords, or unsanitized personal identifying data.\n")
 	return sb.String()
 }
 

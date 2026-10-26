@@ -174,6 +174,14 @@ PAYPAL_SANDBOX_BASE_URL=https://api-m.sandbox.paypal.com
 DATABASE_URL=postgres://claimbridge:claimbridge_local_dev_only@localhost:5432/claimbridge_dev?sslmode=disable
 ```
 
+Before running authorized mutation workflows, ensure PostgreSQL is running and seeded with initial operator fixtures:
+```powershell
+Set-Location services/api
+go run ./cmd/seed
+```
+> [!IMPORTANT]
+> `cmd/sandbox-e2e` strictly validates operator presence and organization membership; it fails closed if the operator context is not initialized in the database (it never uses insecure hard-coded fallback passwords).
+
 ### 5.3 Stage A: Run the Read-Only Preflight (Default Mode)
 The default mode is strictly read-only and will **never** create a payout. It verifies local environment variables, security constraints, PostgreSQL connectivity/migrations, and performs a live OAuth2 token exchange with PayPal Sandbox.
 

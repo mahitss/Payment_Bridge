@@ -384,6 +384,29 @@ func (m *MockRepository) RecordAuditEvent(ctx context.Context, event *AuditEvent
 	return nil
 }
 
+func (m *MockRepository) CountAuditEvents(ctx context.Context, orgID, caseID, opID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	count := 0
+	for _, e := range m.AuditEvents {
+		if e.OrganizationID == nil || *e.OrganizationID != orgID {
+			continue
+		}
+		if e.Metadata == nil {
+			continue
+		}
+		cID, _ := e.Metadata["case_id"].(string)
+		oID, _ := e.Metadata["operation_id"].(string)
+		matchedCase := caseID != "" && cID == caseID
+		matchedOp := opID != "" && oID == opID
+		if matchedCase || matchedOp {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // Payout Cases
 
 func (m *MockRepository) CreatePayoutCase(ctx context.Context, c *PayoutCase) error {

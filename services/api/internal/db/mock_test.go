@@ -366,3 +366,88 @@ func TestMockRepository_Investigations(t *testing.T) {
 		t.Errorf("expected 1 investigation in list, got %d, err: %v", len(list), err)
 	}
 }
+
+func TestMock_CountAuditEvents(t *testing.T) {
+	ctx := context.Background()
+	repo := NewMockRepository()
+
+	orgID1 := "org-1"
+	orgID2 := "org-2"
+	caseID1 := "case-100"
+	caseID2 := "case-200"
+	opID1 := "op-10"
+	opID2 := "op-20"
+
+	// Record event for case 1 in org 1
+	_ = repo.RecordAuditEvent(ctx, &AuditEvent{
+		OrganizationID: &orgID1,
+		EventType:      "PAYOUT_CASE_CREATED",
+		Metadata: map[string]interface{}{
+			"case_id": caseID1,
+		},
+	})
+
+	// Record event for op 1 in org 1
+	_ = repo.RecordAuditEvent(ctx, &AuditEvent{
+		OrganizationID: &orgID1,
+		EventType:      "PAYOUT_OPERATION_INITIATED",
+		Metadata: map[string]interface{}{
+			"case_id":      caseID1,
+			"operation_id": opID1,
+		},
+	})
+
+	// Record event for case 2 in org 1 (unrelated case)
+	_ = repo.RecordAuditEvent(ctx, &AuditEvent{
+		OrganizationID: &orgID1,
+		EventType:      "PAYOUT_CASE_CREATED",
+		Metadata: map[string]interface{}{
+			"case_id": caseID2,
+		},
+	})
+
+	// Record event for case 1 in org 2 (unrelated org)
+	_ = repo.RecordAuditEvent(ctx, &AuditEvent{
+		OrganizationID: &orgID2,
+		EventType:      "PAYOUT_CASE_CREATED",
+		Metadata: map[string]interface{}{
+			"case_id": caseID1,
+		},
+	})
+
+	// Test scoped counting for case 1 and op 1 in org 1
+	count, err := repo.CountAuditEvents(ctx, orgID1, caseID1, opID1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected count 2 for caseID1/opID1 in orgID1, got %d", count)
+	}
+
+	// Test scoped counting for case 2 in org 1
+	count2, err := repo.CountAuditEvents(ctx, orgID1, caseID2, opID2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count2 != 1 {
+		t.Errorf("expected count 1 for caseID2 in orgID1, got %d", count2)
+	}
+
+	// Test scoped counting for org 2
+	countOrg2, err := repo.CountAuditEvents(ctx, orgID2, caseID1, opID1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if countOrg2 != 1 {
+		t.Errorf("expected count 1 for caseID1 in orgID2, got %d", countOrg2)
+	}
+
+	// Non-existent case/op
+	countNone, err := repo.CountAuditEvents(ctx, orgID1, "non-existent", "non-existent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if countNone != 0 {
+		t.Errorf("expected count 0, got %d", countNone)
+	}
+}

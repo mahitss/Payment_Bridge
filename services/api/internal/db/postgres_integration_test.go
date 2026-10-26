@@ -477,3 +477,131 @@ func TestPostgres_MigrationRollbackSafeWithV2Fingerprints_Integration(t *testing
 		t.Fatalf("failed re-applying 000007 up migration: %v", err)
 	}
 }
+
+func TestPostgres_CountAuditEvents(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		t.Skip("skipping postgresql integration test: TEST_DATABASE_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	repo, err := db.NewPostgresRepository(ctx, dbURL)
+	if err != nil {
+		t.Skipf("skipping postgresql integration test: unable to connect to %s: %v", dbURL, err)
+	}
+	defer repo.Close()
+
+	if err := repo.RunMigrations(ctx); err != nil {
+		t.Fatalf("failed applying database migrations: %v", err)
+	}
+
+	passHash, _ := crypto.HashPassword("Password123!Safe")
+	userA := &db.User{
+		Email:         fmt.Sprintf("auditor.test.%d@test.com", time.Now().UnixNano()),
+		PasswordHash:  passHash,
+		Name:          "Auditor Test",
+		EmailVerified: true,
+		IsActive:      true,
+	}
+	_, orgA, err := repo.CreateUserWithPersonalOrg(ctx, userA, "Audit Test Org A")
+	if err != nil {
+		t.Fatalf("failed creating user and org A: %v", err)
+	}
+
+	userB := &db.User{
+		Email:         fmt.Sprintf("auditor.b.%d@test.com", time.Now().UnixNano()),
+		PasswordHash:  passHash,
+		Name:          "Auditor B",
+		EmailVerified: true,
+		IsActive:      true,
+	}
+	_, orgB, err := repo.CreateUserWithPersonalOrg(ctx, userB, "Audit Test Org B")
+	if err != nil {
+		t.Fatalf("failed creating user and org B: %v", err)
+	}
+
+	caseID1 := crypto.GenerateUUID()
+	caseID2 := crypto.GenerateUUID()
+	opID1 := crypto.GenerateUUID()
+
+	// 1. Audit event for case 1 in org A
+	err = repo.RecordAuditEvent(ctx, &db.AuditEvent{
+		OrganizationID: &orgA.ID,
+		EventType:      "PAYOUT_CASE_CREATED",
+		Metadata: map[string]interface{}{
+			"case_id": caseID1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed recording audit event 1: %v", err)
+	}
+
+	// 2. Audit event for op 1 in org A
+	err = repo.RecordAuditEvent(ctx, &db.AuditEvent{
+		OrganizationID: &orgA.ID,
+		EventType:      "PAYOUT_OPERATION_INITIATED",
+		Metadata: map[string]interface{}{
+			"case_id":      caseID1,
+			"operation_id": opID1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed recording audit event 2: %v", err)
+	}
+
+	// 3. Audit event for case 2 in org A (unrelated case)
+	err = repo.RecordAuditEvent(ctx, &db.AuditEvent{
+		OrganizationID: &orgA.ID,
+		EventType:      "PAYOUT_CASE_CREATED",
+		Metadata: map[string]interface{}{
+			"case_id": caseID2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed recording audit event 3: %v", err)
+	}
+
+	// 4. Audit event in org B (unrelated org)
+	err = repo.RecordAuditEvent(ctx, &db.AuditEvent{
+		OrganizationID: &orgB.ID,
+		EventType:      "PAYOUT_CASE_CREATED",
+		Metadata: map[string]interface{}{
+			"case_id": caseID1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed recording audit event 4: %v", err)
+	}
+
+	// Query count for case 1 and op 1 in org A: should be exactly 2
+	count, err := repo.CountAuditEvents(ctx, orgA.ID, caseID1, opID1)
+	if err != nil {
+		t.Fatalf("CountAuditEvents failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected count 2 for case 1 and op 1 in org A, got %d", count)
+	}
+
+	// Query count for case 2 in org A: should be exactly 1
+	count2, err := repo.CountAuditEvents(ctx, orgA.ID, caseID2, "")
+	if err != nil {
+		t.Fatalf("CountAuditEvents failed: %v", err)
+	}
+	if count2 != 1 {
+		t.Errorf("expected count 1 for case 2 in org A, got %d", count2)
+	}
+
+	// Query count for org B: should be 1
+	countB, err := repo.CountAuditEvents(ctx, orgB.ID, caseID1, opID1)
+	if err != nil {
+		t.Fatalf("CountAuditEvents failed: %v", err)
+	}
+	if countB != 1 {
+		t.Errorf("expected count 1 for case 1 in org B, got %d", countB)
+	}
+}
