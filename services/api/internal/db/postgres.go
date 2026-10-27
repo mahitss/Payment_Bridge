@@ -512,6 +512,24 @@ func (r *PostgresRepository) RecordAuditEvent(ctx context.Context, event *AuditE
 	).Scan(&event.ID, &event.CreatedAt)
 }
 
+func (r *PostgresRepository) CountAuditEvents(ctx context.Context, orgID, caseID, opID string) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM audit_events
+		WHERE organization_id = $1
+		  AND (
+		    (metadata->>'case_id' = $2 AND $2 <> '')
+		    OR (metadata->>'operation_id' = $3 AND $3 <> '')
+		  )
+	`
+	var count int
+	err := r.pool.QueryRow(ctx, query, orgID, caseID, opID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed counting audit events: %w", err)
+	}
+	return count, nil
+}
+
 func generateSlug(name, suffixID string) string {
 	clean := strings.ToLower(strings.TrimSpace(name))
 	clean = strings.ReplaceAll(clean, " ", "-")

@@ -51,6 +51,7 @@ jobs:
         run: |
           go build -v -o bin/server ./cmd/server
           go build -v -o bin/paypal-smoke ./cmd/paypal-smoke
+          go build -v -o bin/sandbox-e2e ./cmd/sandbox-e2e
           go build -v -o bin/readiness ./cmd/readiness
           go build -v -o bin/acceptance ./cmd/acceptance
           go build -v -o bin/seed ./cmd/seed

@@ -92,6 +92,7 @@ type Repository interface {
 
 	// Audit Logging
 	RecordAuditEvent(ctx context.Context, event *AuditEvent) error
+	CountAuditEvents(ctx context.Context, orgID, caseID, opID string) (int, error)
 
 	// Health
 	Ping(ctx context.Context) error
