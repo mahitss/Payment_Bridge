@@ -134,6 +134,9 @@ func runWithClient(args []string, stdout, stderr io.Writer, injectedClient *payp
 			fmt.Fprintln(stdout, "Check that the Client ID and Secret match your sandbox app in PayPal Developer Dashboard.")
 		} else if errors.Is(err, paypal.ErrForbidden) {
 			fmt.Fprintln(stdout, "Error: PayPal account or client lacks Payouts permissions (HTTP 403 Forbidden).")
+			if fe, ok := paypal.AsAPIForbiddenError(err); ok && (fe.Name != "" || fe.Issue != "" || fe.DebugID != "") {
+				fmt.Fprintf(stdout, "Details: %s\n", fe.Error())
+			}
 			fmt.Fprintln(stdout, "Action: Enable 'Payouts' permission under App Features in the PayPal Developer Dashboard.")
 		} else {
 			fmt.Fprintf(stdout, "Error: %v\n", err)
@@ -144,6 +147,7 @@ func runWithClient(args []string, stdout, stderr io.Writer, injectedClient *payp
 	fmt.Fprintln(stdout, "\n  [SUCCESS] OAuth2 Authentication Verified!")
 	fmt.Fprintln(stdout, "  • Token Type : Bearer")
 	fmt.Fprintln(stdout, "  • Token State: Cached & Valid")
+	fmt.Fprintf(stdout,  "  • Payouts Scope Granted : %t\n", client.HasPayoutsScope())
 	fmt.Fprintln(stdout, "  • Token Hash : [REDACTED_ACCESS_TOKEN] (never exposed to logs or disk)")
 
 	// 7. Optional: Query Payout Batch Status / Item Status / Cancel / Create

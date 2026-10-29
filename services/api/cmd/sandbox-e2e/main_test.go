@@ -1568,3 +1568,105 @@ func TestRun_AuditEvidenceVerification(t *testing.T) {
 		t.Errorf("reported audit events count (%d) does not match actual count from repository (%d)", rep.AuditEventsCount, actualAuditCount)
 	}
 }
+
+
+func TestRun_HTTP403StructuredDiagnosticsCaptured(t *testing.T) {
+	cleanEnv(t)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(paypal.OAuthTokenResponse{
+				AccessToken: "TEST-TOKEN",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+				AppID:       "APP-DIAG-TEST",
+				Scope:       "openid",
+			})
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Paypal-Debug-Id", "dbg-header-403")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{
+				"name": "USER_NOT_ELIGIBLE_FOR_PAYOUT",
+				"message": "The account is not eligible for payouts",
+				"debug_id": "dbg-body-403",
+				"details": [
+					{"issue": "PAYOUTS_RESTRICTED"}
+				]
+			}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	os.Setenv("PAYPAL_ENV", "sandbox")
+	os.Setenv("PAYPAL_CLIENT_ID", "diag_client_id")
+	os.Setenv("PAYPAL_CLIENT_SECRET", "diag_client_secret")
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "diag_client_id",
+		PayPalClientSecret:   "diag_client_secret",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed creating test client: %v", err)
+	}
+	repo := setupTestRepo(t)
+
+	reportDir := filepath.Join(t.TempDir(), "reports")
+	var stdout, stderr bytes.Buffer
+	code := runWithDeps([]string{
+		"-submit-payout",
+		"-confirm-sandbox-only",
+		"-recipient", "receiver@example.com",
+		"-amount", "1.00",
+		"-report-dir", reportDir,
+	}, &stdout, &stderr, testClient, repo)
+
+	if code != ExitCodeFailure {
+		t.Fatalf("expected ExitCodeFailure (1) for 403 Forbidden, got: %d", code)
+	}
+
+	files, err := os.ReadDir(reportDir)
+	if err != nil {
+		t.Fatalf("failed reading report directory: %v", err)
+	}
+	var jsonPath string
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".json") {
+			jsonPath = filepath.Join(reportDir, f.Name())
+			break
+		}
+	}
+	if jsonPath == "" {
+		t.Fatalf("expected JSON report file, none found in %s", reportDir)
+	}
+
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("failed reading report: %v", err)
+	}
+
+	var rep SandboxE2EReport
+	if err := json.Unmarshal(data, &rep); err != nil {
+		t.Fatalf("failed unmarshaling report: %v", err)
+	}
+
+	if rep.ProviderErrorName != "USER_NOT_ELIGIBLE_FOR_PAYOUT" {
+		t.Errorf("expected ProviderErrorName 'USER_NOT_ELIGIBLE_FOR_PAYOUT', got %q", rep.ProviderErrorName)
+	}
+	if rep.ProviderErrorIssue != "PAYOUTS_RESTRICTED" {
+		t.Errorf("expected ProviderErrorIssue 'PAYOUTS_RESTRICTED', got %q", rep.ProviderErrorIssue)
+	}
+	if rep.ProviderDebugID != "dbg-body-403" {
+		t.Errorf("expected ProviderDebugID 'dbg-body-403', got %q", rep.ProviderDebugID)
+	}
+}

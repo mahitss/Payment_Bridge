@@ -59,6 +59,10 @@ type SandboxE2EReport struct {
 	DatabaseReachable        bool                     `json:"database_reachable"`
 	DatabaseMigrations       bool                     `json:"database_migrations_current"`
 	OAuthTokenAcquired       bool                     `json:"oauth_token_acquired"`
+	HasPayoutsScope          bool                     `json:"has_payouts_scope"`
+	ProviderErrorName        string                   `json:"provider_error_name,omitempty"`
+	ProviderErrorIssue       string                   `json:"provider_error_issue,omitempty"`
+	ProviderDebugID          string                   `json:"provider_debug_id,omitempty"`
 	SubmissionRequested      bool                     `json:"submission_requested"`
 	MutationDispatched       bool                     `json:"mutation_dispatched"`
 	PayoutAttempted          bool                     `json:"payout_attempted"` // set true ONLY when provider mutation is actually dispatched
@@ -230,6 +234,14 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 			fmt.Fprintln(stdout, "Check that Client ID and Secret match your sandbox app in PayPal Developer Dashboard.")
 		} else if errors.Is(err, paypal.ErrForbidden) {
 			fmt.Fprintln(stdout, "Error: PayPal account lacks Payouts permissions (HTTP 403 Forbidden).")
+			if fe, ok := paypal.AsAPIForbiddenError(err); ok {
+				report.ProviderErrorName = fe.Name
+				report.ProviderErrorIssue = fe.Issue
+				report.ProviderDebugID = fe.DebugID
+				if fe.Name != "" || fe.Issue != "" || fe.DebugID != "" {
+					fmt.Fprintf(stdout, "Details: %s\n", fe.Error())
+				}
+			}
 			fmt.Fprintln(stdout, "Action: Enable 'Payouts' permission under App Features in the PayPal Developer Dashboard.")
 		} else {
 			fmt.Fprintf(stdout, "Error: %v\n", err)
@@ -241,9 +253,11 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	}
 
 	report.OAuthTokenAcquired = true
+	report.HasPayoutsScope = client.HasPayoutsScope()
 	fmt.Fprintln(stdout, "  [SUCCESS] Genuine OAuth2 Authentication Verified!")
 	fmt.Fprintln(stdout, "  • Token Type : Bearer")
 	fmt.Fprintln(stdout, "  • Token State: Cached & Valid")
+	fmt.Fprintf(stdout,  "  • Payouts Scope Granted : %t\n", client.HasPayoutsScope())
 	fmt.Fprintln(stdout, "  • Token Hash : [REDACTED_ACCESS_TOKEN] (never exposed to logs or disk)")
 
 	// 6. Database Preflight (with credential sanitization)
@@ -483,6 +497,11 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 		}
 
 		report.ProviderResponseReceived = true
+		if fe, ok := paypal.AsAPIForbiddenError(submitErr); ok {
+			report.ProviderErrorName = fe.Name
+			report.ProviderErrorIssue = fe.Issue
+			report.ProviderDebugID = fe.DebugID
+		}
 		fmt.Fprintf(stderr, "  [ERROR] Payout submission failed: %v\n", submitErr)
 		report.Outcome = "FAIL"
 		report.Details = fmt.Sprintf("SubmitPayoutOperation failed: %v", submitErr)
@@ -906,9 +925,22 @@ func generateMarkdownReport(r *SandboxE2EReport) string {
 	sb.WriteString(fmt.Sprintf("- Configuration Security Audit: `%s`\n", boolStatus(r.PreflightConfigValid)))
 	sb.WriteString(fmt.Sprintf("- PostgreSQL Database Reachable: `%s`\n", boolStatus(r.DatabaseReachable)))
 	sb.WriteString(fmt.Sprintf("- Schema Migrations Current: `%s`\n", boolStatus(r.DatabaseMigrations)))
-	sb.WriteString(fmt.Sprintf("- Genuine PayPal Sandbox OAuth Token: `%s`\n\n", boolStatus(r.OAuthTokenAcquired)))
+	sb.WriteString(fmt.Sprintf("- Genuine PayPal Sandbox OAuth Token: `%s` (Payouts Scope: `%t`)\n\n", boolStatus(r.OAuthTokenAcquired), r.HasPayoutsScope))
 
 	if r.MutationDispatched {
+		if r.ProviderErrorName != "" || r.ProviderDebugID != "" || r.ProviderErrorIssue != "" {
+			sb.WriteString("### Provider Error Diagnostics (HTTP 403)\n\n")
+			if r.ProviderErrorName != "" {
+				sb.WriteString(fmt.Sprintf("- **Error Name**: `%s`\n", r.ProviderErrorName))
+			}
+			if r.ProviderErrorIssue != "" {
+				sb.WriteString(fmt.Sprintf("- **Error Issue**: `%s`\n", r.ProviderErrorIssue))
+			}
+			if r.ProviderDebugID != "" {
+				sb.WriteString(fmt.Sprintf("- **Debug ID**: `%s`\n", r.ProviderDebugID))
+			}
+			sb.WriteString("\n")
+		}
 		sb.WriteString("## Payout Submission & Correlation Evidence\n\n")
 		sb.WriteString(fmt.Sprintf("- **Masked Recipient**: `%s`\n", r.SanitizedRecipient))
 		sb.WriteString(fmt.Sprintf("- **Disbursed Amount**: `$%s %s`\n", r.Amount, r.Currency))
