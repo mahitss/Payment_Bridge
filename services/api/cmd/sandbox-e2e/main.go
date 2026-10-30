@@ -31,9 +31,12 @@ const (
 	ExitCodeSuccess    = 0 // PASS: Read-only preflight or authorized payout succeeded
 	ExitCodeFailure    = 1 // FAIL: Validation failure, configuration violation, or assertion failure
 	ExitCodeOAuthError = 2 // OAuth grant failed (HTTP 401 / 403 / network failure)
-	ExitCodeBlocked    = 3 // BLOCKED: Missing sandbox credentials in environment / .env
+	ExitCodeBlocked    = 3 // BLOCKED: Missing sandbox credentials or missing required Payouts scope for mutation
 	ExitCodeUnresolved = 4 // UNRESOLVED: Ambiguous network timeout / requires manual reconciliation
 )
+
+// PostgresRepoFactory allows dependency injection for database repository creation and migrations.
+type PostgresRepoFactory func(ctx context.Context, databaseURL string) (db.Repository, error)
 
 // Maximum allowable test payout amount in minor units ($1.00 USD = 100 cents)
 const MaxSandboxTestAmountCents = 100
@@ -99,7 +102,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return runWithDeps(args, stdout, stderr, nil, nil)
 }
 
-func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal.Client, injectedRepo db.Repository) int {
+func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal.Client, injectedRepo db.Repository, injectedDBFactory ...PostgresRepoFactory) int {
 	fs := flag.NewFlagSet("sandbox-e2e", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -260,6 +263,80 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	fmt.Fprintf(stdout,  "  • Payouts Scope Granted : %t\n", client.HasPayoutsScope())
 	fmt.Fprintln(stdout, "  • Token Hash : [REDACTED_ACCESS_TOKEN] (never exposed to logs or disk)")
 
+	// Mutation Mode Pre-Database Safeguards & Scope Gate:
+	// If mutation mode is requested (-submit-payout), strictly enforce all CLI input validation
+	// and the required Payouts OAuth scope BEFORE any database connection, initialization, or migrations.
+	var recipient, currency, formattedAmount string
+	var amountCents int64
+	if shouldSubmit {
+		report.SubmissionRequested = true
+
+		// Safeguard 1: Explicit confirmation flag
+		if !*confirmSandboxFlag {
+			fmt.Fprintln(stderr, "\n[SAFETY ABORT] Payout creation requires the explicit '-confirm-sandbox-only' flag.")
+			fmt.Fprintln(stderr, "Example: go run ./cmd/sandbox-e2e -submit-payout -recipient test@personal.example.com -confirm-sandbox-only")
+			report.Outcome = "FAIL"
+			report.Details = "Missing required '-confirm-sandbox-only' confirmation flag"
+			writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+			return ExitCodeFailure
+		}
+
+		// Safeguard 2: Valid recipient email
+		recipient = strings.TrimSpace(*recipientFlag)
+		if recipient == "" || !strings.Contains(recipient, "@") {
+			fmt.Fprintln(stderr, "\n[INPUT ERROR] -recipient email is required and must be a valid sandbox recipient email address.")
+			report.Outcome = "FAIL"
+			report.Details = "Invalid or missing -recipient email address"
+			writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+			return ExitCodeFailure
+		}
+		report.SanitizedRecipient = ai.MaskEmail(recipient)
+
+		// Safeguard 3: Currency must be USD
+		currency = strings.ToUpper(strings.TrimSpace(*currencyFlag))
+		if currency != "USD" {
+			fmt.Fprintf(stderr, "\n[INPUT ERROR] Currency '%s' is unsupported. Only 'USD' is permitted in this milestone.\n", currency)
+			report.Outcome = "FAIL"
+			report.Details = fmt.Sprintf("Unsupported currency %q", currency)
+			writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+			return ExitCodeFailure
+		}
+		report.Currency = currency
+
+		// Safeguard 4: Strict amount parsing using integer cents (hard maximum $1.00 USD)
+		var aErr error
+		amountCents, formattedAmount, aErr = parseAmountCents(*amountFlag)
+		if aErr != nil {
+			if strings.Contains(aErr.Error(), "exceeds the hard sandbox test ceiling") {
+				fmt.Fprintf(stderr, "\n[SAFETY VIOLATION] Requested amount %q exceeds the hard sandbox test ceiling of $1.00 USD (100 cents).\n", *amountFlag)
+				fmt.Fprintln(stderr, "ClaimBridge safety rules strictly restrict operator test payouts to a maximum of $1.00 USD.")
+				report.Outcome = "FAIL"
+				report.Details = fmt.Sprintf("Amount %q exceeds hard test ceiling of $1.00 USD", *amountFlag)
+			} else {
+				fmt.Fprintf(stderr, "\n[INPUT ERROR] Invalid payout amount %q: %v\n", *amountFlag, aErr)
+				report.Outcome = "FAIL"
+				report.Details = fmt.Sprintf("Invalid amount %q: %v", *amountFlag, aErr)
+			}
+			writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+			return ExitCodeFailure
+		}
+		report.Amount = formattedAmount
+
+		// Safeguard 5: Required Payouts OAuth scope (fail-closed before any database connection or migrations)
+		if !client.HasPayoutsScope() {
+			fmt.Fprintln(stderr, "\n--------------------------------------------------------------------------------")
+			fmt.Fprintln(stderr, "[STATUS: BLOCKED] PayPal Sandbox OAuth Token Missing Payouts Scope")
+			fmt.Fprintln(stderr, "--------------------------------------------------------------------------------")
+			fmt.Fprintf(stderr, "The acquired OAuth2 access token does not have the required Payouts scope:\n")
+			fmt.Fprintf(stderr, "  • Required Scope: %s\n", paypal.PayPalPayoutsScope)
+			fmt.Fprintln(stderr, "Action: Enable 'Payouts' permission under App Features in the PayPal Developer Dashboard.")
+			report.Outcome = "BLOCKED"
+			report.Details = fmt.Sprintf("PayPal Sandbox OAuth token missing required Payouts permission scope (%s)", paypal.PayPalPayoutsScope)
+			writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+			return ExitCodeBlocked
+		}
+	}
+
 	// 6. Database Preflight (with credential sanitization)
 	fmt.Fprintln(stdout, "\n[3/4] Database & Storage Layer Preflight:")
 	var repo db.Repository
@@ -273,7 +350,14 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 		dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer dbCancel()
 
-		pgRepo, pgErr := db.NewPostgresRepository(dbCtx, cfg.DatabaseURL)
+		var pgRepo db.Repository
+		var pgErr error
+		if len(injectedDBFactory) > 0 && injectedDBFactory[0] != nil {
+			pgRepo, pgErr = injectedDBFactory[0](dbCtx, cfg.DatabaseURL)
+		} else {
+			pgRepo, pgErr = db.NewPostgresRepository(dbCtx, cfg.DatabaseURL)
+		}
+
 		if pgErr != nil {
 			safeEndpoint := sanitizeDatabaseEndpoint(cfg.DatabaseURL)
 			dbCategory := categorizeDatabaseError(pgErr)
@@ -289,18 +373,25 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 			}
 			fmt.Fprintln(stdout, "  • Preflight Notice        : Read-only preflight will continue without database.")
 		} else {
-			defer pgRepo.Close()
+			if closer, ok := pgRepo.(interface{ Close() }); ok {
+				defer closer.Close()
+			}
 			report.DatabaseReachable = true
 			fmt.Fprintln(stdout, "  • PostgreSQL Status       : CONNECTED")
 
-			if mErr := pgRepo.RunMigrations(dbCtx); mErr != nil {
-				fmt.Fprintf(stderr, "  • Schema Migrations       : FAILED (%v)\n", mErr)
-				report.DatabaseMigrations = false
-				if shouldSubmit {
-					report.Outcome = "FAIL"
-					report.Details = "Database schema migrations failed"
-					writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
-					return ExitCodeFailure
+			if migrator, ok := pgRepo.(interface{ RunMigrations(context.Context) error }); ok {
+				if mErr := migrator.RunMigrations(dbCtx); mErr != nil {
+					fmt.Fprintf(stderr, "  • Schema Migrations       : FAILED (%v)\n", mErr)
+					report.DatabaseMigrations = false
+					if shouldSubmit {
+						report.Outcome = "FAIL"
+						report.Details = "Database schema migrations failed"
+						writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+						return ExitCodeFailure
+					}
+				} else {
+					report.DatabaseMigrations = true
+					fmt.Fprintln(stdout, "  • Schema Migrations       : CURRENT (Verified)")
 				}
 			} else {
 				report.DatabaseMigrations = true
@@ -326,60 +417,6 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
 		return ExitCodeSuccess
 	}
-
-	// Mutation Mode Safeguards: submission requested by operator
-	report.SubmissionRequested = true
-	// MutationDispatched and PayoutAttempted remain false until provider mutation is actually dispatched
-
-	// Safeguard 1: Explicit confirmation flag
-	if !*confirmSandboxFlag {
-		fmt.Fprintln(stderr, "\n[SAFETY ABORT] Payout creation requires the explicit '-confirm-sandbox-only' flag.")
-		fmt.Fprintln(stderr, "Example: go run ./cmd/sandbox-e2e -submit-payout -recipient test@personal.example.com -confirm-sandbox-only")
-		report.Outcome = "FAIL"
-		report.Details = "Missing required '-confirm-sandbox-only' confirmation flag"
-		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
-		return ExitCodeFailure
-	}
-
-	// Safeguard 2: Valid recipient email
-	recipient := strings.TrimSpace(*recipientFlag)
-	if recipient == "" || !strings.Contains(recipient, "@") {
-		fmt.Fprintln(stderr, "\n[INPUT ERROR] -recipient email is required and must be a valid sandbox recipient email address.")
-		report.Outcome = "FAIL"
-		report.Details = "Invalid or missing -recipient email address"
-		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
-		return ExitCodeFailure
-	}
-	report.SanitizedRecipient = ai.MaskEmail(recipient)
-
-	// Safeguard 3: Currency must be USD
-	currency := strings.ToUpper(strings.TrimSpace(*currencyFlag))
-	if currency != "USD" {
-		fmt.Fprintf(stderr, "\n[INPUT ERROR] Currency '%s' is unsupported. Only 'USD' is permitted in this milestone.\n", currency)
-		report.Outcome = "FAIL"
-		report.Details = fmt.Sprintf("Unsupported currency %q", currency)
-		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
-		return ExitCodeFailure
-	}
-	report.Currency = currency
-
-	// Safeguard 4: Strict amount parsing using integer cents (hard maximum $1.00 USD)
-	amountCents, formattedAmount, aErr := parseAmountCents(*amountFlag)
-	if aErr != nil {
-		if strings.Contains(aErr.Error(), "exceeds the hard sandbox test ceiling") {
-			fmt.Fprintf(stderr, "\n[SAFETY VIOLATION] Requested amount %q exceeds the hard sandbox test ceiling of $1.00 USD (100 cents).\n", *amountFlag)
-			fmt.Fprintln(stderr, "ClaimBridge safety rules strictly restrict operator test payouts to a maximum of $1.00 USD.")
-			report.Outcome = "FAIL"
-			report.Details = fmt.Sprintf("Amount %q exceeds hard test ceiling of $1.00 USD", *amountFlag)
-		} else {
-			fmt.Fprintf(stderr, "\n[INPUT ERROR] Invalid payout amount %q: %v\n", *amountFlag, aErr)
-			report.Outcome = "FAIL"
-			report.Details = fmt.Sprintf("Invalid amount %q: %v", *amountFlag, aErr)
-		}
-		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
-		return ExitCodeFailure
-	}
-	report.Amount = formattedAmount
 
 	// Ensure we have a database repository
 	if repo == nil {

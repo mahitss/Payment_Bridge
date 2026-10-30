@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -142,6 +143,7 @@ func TestRun_DefaultReadOnlyBehavior(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -202,6 +204,7 @@ func TestRun_MissingWriteConfirmationFlag(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -249,6 +252,7 @@ func TestRun_AmountAboveOneDollarRejected(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -305,6 +309,7 @@ func TestRun_InvalidRecipientRejected(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -364,6 +369,7 @@ func TestRun_ExactlyOnePayoutMutationAndCorrelation(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -485,6 +491,7 @@ func TestRun_ProviderTimeoutWithoutAutomaticReplay(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -563,6 +570,7 @@ func TestRun_UnclaimedProviderStatusHonestReporting(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -815,6 +823,7 @@ func TestRun_CorrelationMismatchFails(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -919,6 +928,7 @@ func TestRun_DatabaseCredentialRedactionSentinel(t *testing.T) {
 				"access_token": "mock-token-xyz",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1014,6 +1024,7 @@ func TestRun_MissingOperatorInitializationBlocksPayout(t *testing.T) {
 				"access_token": "mock-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1337,6 +1348,7 @@ func TestRun_ReportHonestSemantics(t *testing.T) {
 				"access_token": "mock-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1433,6 +1445,7 @@ func TestRun_AuditEvidenceVerification(t *testing.T) {
 				"access_token": "mock-oauth-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1580,7 +1593,7 @@ func TestRun_HTTP403StructuredDiagnosticsCaptured(t *testing.T) {
 				TokenType:   "Bearer",
 				ExpiresIn:   3600,
 				AppID:       "APP-DIAG-TEST",
-				Scope:       "openid",
+				Scope:       "openid " + paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1669,4 +1682,271 @@ func TestRun_HTTP403StructuredDiagnosticsCaptured(t *testing.T) {
 	if rep.ProviderDebugID != "dbg-body-403" {
 		t.Errorf("expected ProviderDebugID 'dbg-body-403', got %q", rep.ProviderDebugID)
 	}
+}
+
+
+// 23. Missing Payouts Scope Fail-Closed Pre-Database Invariant
+func TestRun_MissingPayoutsScopeBlocked(t *testing.T) {
+	cleanEnv(t)
+	var mutationCount atomic.Int32
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			json.NewEncoder(w).Encode(paypal.OAuthTokenResponse{
+				AccessToken: "mock-valid-token-no-payouts",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+				AppID:       "APP-NO-PAYOUTS-SCOPE",
+				Scope:       "openid profile email", // Valid OAuth scopes, but lacks Payouts scope
+			})
+			return
+		}
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/v1/payments/payouts") {
+			mutationCount.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	os.Setenv("PAYPAL_ENV", "sandbox")
+	os.Setenv("PAYPAL_CLIENT_ID", "test_id")
+	os.Setenv("PAYPAL_CLIENT_SECRET", "test_secret")
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "test_id",
+		PayPalClientSecret:   "test_secret",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed constructing test client: %v", err)
+	}
+
+	t.Run("MutationMode_NoDatabaseInitOrMigrations_ExitCodeBlocked", func(t *testing.T) {
+		var dbFactoryCalls atomic.Int32
+		var migrationCalls atomic.Int32
+
+		mockFactory := func(ctx context.Context, databaseURL string) (db.Repository, error) {
+			dbFactoryCalls.Add(1)
+			return nil, errors.New("factory should never be called when payouts scope is missing")
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-no-db")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, testClient, nil, mockFactory)
+
+		if code != ExitCodeBlocked {
+			t.Fatalf("expected ExitCodeBlocked (%d), got: %d\nStderr: %s", ExitCodeBlocked, code, stderr.String())
+		}
+
+		// Verify database factory was NEVER called
+		if dbFactoryCalls.Load() != 0 {
+			t.Fatalf("expected 0 database factory calls on missing-scope path, got: %d", dbFactoryCalls.Load())
+		}
+		if migrationCalls.Load() != 0 {
+			t.Fatalf("expected 0 migration calls on missing-scope path, got: %d", migrationCalls.Load())
+		}
+
+		// Verify zero calls to PayPal payout POST
+		if mutationCount.Load() != 0 {
+			t.Fatalf("expected zero calls to POST /v1/payments/payouts, got: %d", mutationCount.Load())
+		}
+
+		// Read and verify report artifact
+		files, err := os.ReadDir(reportDir)
+		if err != nil {
+			t.Fatalf("failed reading report directory: %v", err)
+		}
+		var jsonPath string
+		for _, f := range files {
+			if strings.HasSuffix(f.Name(), ".json") {
+				jsonPath = filepath.Join(reportDir, f.Name())
+				break
+			}
+		}
+		if jsonPath == "" {
+			t.Fatalf("expected JSON report file, none found in %s", reportDir)
+		}
+
+		data, err := os.ReadFile(jsonPath)
+		if err != nil {
+			t.Fatalf("failed reading report: %v", err)
+		}
+
+		var rep SandboxE2EReport
+		if err := json.Unmarshal(data, &rep); err != nil {
+			t.Fatalf("failed unmarshaling report: %v", err)
+		}
+
+		if rep.Outcome != "BLOCKED" {
+			t.Errorf("expected report Outcome 'BLOCKED', got %q", rep.Outcome)
+		}
+		if !rep.SubmissionRequested {
+			t.Errorf("expected SubmissionRequested=true")
+		}
+		if rep.MutationDispatched {
+			t.Errorf("expected MutationDispatched=false")
+		}
+		if rep.PayoutAttempted {
+			t.Errorf("expected PayoutAttempted=false")
+		}
+		if rep.ProviderResponseReceived {
+			t.Errorf("expected ProviderResponseReceived=false")
+		}
+		if rep.HasPayoutsScope {
+			t.Errorf("expected HasPayoutsScope=false")
+		}
+		if rep.DatabaseReachable {
+			t.Errorf("expected DatabaseReachable=false when blocked before database initialization")
+		}
+		if rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=false when blocked before database initialization")
+		}
+		if rep.CaseID != "" {
+			t.Errorf("expected empty CaseID in report, got %q", rep.CaseID)
+		}
+		if rep.OperationID != "" {
+			t.Errorf("expected empty OperationID in report, got %q", rep.OperationID)
+		}
+		if !strings.Contains(rep.Details, "missing required Payouts permission scope") {
+			t.Errorf("expected report Details to explain missing Payouts scope, got: %q", rep.Details)
+		}
+	})
+
+	t.Run("MutationMode_WithInjectedRepo_ZeroRepoCalls", func(t *testing.T) {
+		repo := setupTestRepo(t)
+
+		user, err := repo.GetUserByEmail(context.Background(), seeder.OperatorEmail)
+		if err != nil {
+			t.Fatalf("GetUserByEmail failed: %v", err)
+		}
+		memberships, err := repo.GetOrganizationMemberships(context.Background(), user.ID)
+		if err != nil || len(memberships) == 0 {
+			t.Fatalf("GetOrganizationMemberships failed: %v", err)
+		}
+		orgID := memberships[0].Organization.ID
+
+		initialCases, totalCasesBefore, err := repo.ListPayoutCasesByOrg(context.Background(), orgID, 100, 0)
+		if err != nil {
+			t.Fatalf("ListPayoutCasesByOrg failed: %v", err)
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-injected")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, testClient, repo)
+
+		if code != ExitCodeBlocked {
+			t.Fatalf("expected ExitCodeBlocked (%d), got: %d\nStderr: %s", ExitCodeBlocked, code, stderr.String())
+		}
+
+		// Verify no case was created
+		afterCases, totalCasesAfter, err := repo.ListPayoutCasesByOrg(context.Background(), orgID, 100, 0)
+		if err != nil {
+			t.Fatalf("ListPayoutCasesByOrg after run failed: %v", err)
+		}
+		if totalCasesAfter != totalCasesBefore || len(afterCases) != len(initialCases) {
+			t.Errorf("expected no payout case created (before=%d, after=%d)", totalCasesBefore, totalCasesAfter)
+		}
+		for _, c := range afterCases {
+			if strings.HasPrefix(c.Reference, "SANDBOX-E2E") {
+				t.Errorf("expected no SANDBOX-E2E case created in repository, found: %s", c.Reference)
+			}
+		}
+
+		// Verify no operation was created
+		for _, c := range afterCases {
+			ops, err := repo.ListPayoutOperationsByCaseID(context.Background(), orgID, c.ID)
+			if err != nil {
+				t.Fatalf("ListPayoutOperationsByCaseID failed: %v", err)
+			}
+			for _, op := range ops {
+				if strings.HasPrefix(op.SenderBatchID, "SANDBOX-E2E") {
+					t.Errorf("expected no SANDBOX-E2E operation created, found: %s", op.SenderBatchID)
+				}
+			}
+		}
+	})
+
+	t.Run("ReadOnlyPreflight_PassesWithoutScope", func(t *testing.T) {
+		repo := setupTestRepo(t)
+		var roStdout, roStderr bytes.Buffer
+		roCode := runWithDeps([]string{"-no-report-file"}, &roStdout, &roStderr, testClient, repo)
+		if roCode != ExitCodeSuccess {
+			t.Fatalf("expected ExitCodeSuccess (0) for read-only preflight without payouts scope, got: %d", roCode)
+		}
+	})
+
+	t.Run("ValidScope_MutationProceedsToDatabasePreflight", func(t *testing.T) {
+		// Mock server that returns Payouts scope
+		scopeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/v1/oauth2/token" {
+				json.NewEncoder(w).Encode(paypal.OAuthTokenResponse{
+					AccessToken: "mock-valid-token-with-payouts",
+					TokenType:   "Bearer",
+					ExpiresIn:   3600,
+					AppID:       "APP-WITH-PAYOUTS-SCOPE",
+					Scope:       "openid " + paypal.PayPalPayoutsScope,
+				})
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer scopeServer.Close()
+
+		scopeCfg := &config.Config{
+			AppEnv:               "development",
+			PayPalEnv:            "sandbox",
+			PayPalClientID:       "test_id",
+			PayPalClientSecret:   "test_secret",
+			PayPalBaseURL:        scopeServer.URL,
+			PayPalRequestTimeout: 5 * time.Second,
+		}
+		scopeClient, sErr := paypal.NewTestClient(scopeCfg, scopeServer.Client(), scopeServer.URL)
+		if sErr != nil {
+			t.Fatalf("failed constructing test client: %v", sErr)
+		}
+
+		var factoryCalls atomic.Int32
+		mockFactory := func(ctx context.Context, databaseURL string) (db.Repository, error) {
+			factoryCalls.Add(1)
+			return nil, errors.New("simulated db connection failure after scope gate")
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-no-report-file",
+		}, &stdout, &stderr, scopeClient, nil, mockFactory)
+
+		// When scope is present, it MUST pass the scope gate and invoke the database factory!
+		if factoryCalls.Load() != 1 {
+			t.Fatalf("expected exactly 1 database factory call when Payouts scope is present, got: %d", factoryCalls.Load())
+		}
+		if code != ExitCodeFailure {
+			t.Fatalf("expected ExitCodeFailure (1) due to database failure after passing scope gate, got: %d", code)
+		}
+	})
 }
