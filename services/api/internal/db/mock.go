@@ -508,6 +508,15 @@ func (m *MockRepository) CreatePayoutOperation(ctx context.Context, op *PayoutOp
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Enforce at most one active payout operation per case
+	if op.Status != "CANCELLED" && op.Status != "FAILED" {
+		for _, existing := range m.Operations {
+			if existing.PayoutCaseID == op.PayoutCaseID && existing.Status != "CANCELLED" && existing.Status != "FAILED" {
+				return ErrActivePayoutOperationConflict
+			}
+		}
+	}
+
 	if _, exists := m.OperationsByBatchID[op.SenderBatchID]; exists {
 		return errors.New("duplicate sender_batch_id")
 	}
@@ -580,11 +589,59 @@ func (m *MockRepository) UpdatePayoutOperation(ctx context.Context, op *PayoutOp
 		return ErrPayoutOperationNotFound
 	}
 
+	if op.Status != "CANCELLED" && op.Status != "FAILED" {
+		for _, other := range m.Operations {
+			if other.ID != op.ID && other.PayoutCaseID == op.PayoutCaseID && other.Status != "CANCELLED" && other.Status != "FAILED" {
+				return ErrActivePayoutOperationConflict
+			}
+		}
+	}
+
 	op.UpdatedAt = time.Now().UTC()
 	copied := *op
 	m.Operations[op.ID] = &copied
 	m.OperationsByBatchID[op.SenderBatchID] = &copied
 	return nil
+}
+
+func (m *MockRepository) ClaimPayoutOperationForSubmission(
+	ctx context.Context,
+	orgID, opID, fingerprint string,
+	submittedAt time.Time,
+) (*PayoutOperation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	op, exists := m.Operations[opID]
+	if !exists || op.OrganizationID != orgID {
+		return nil, ErrPayoutOperationNotFound
+	}
+
+	if op.RequiresDualApproval {
+		if op.Status != "APPROVED" {
+			if op.Status == "AWAITING_APPROVAL" {
+				return nil, ErrOperationNotApproved
+			}
+			if op.Status == "SUBMITTING" || op.Status == "SUBMITTED" || op.Status == "SUCCEEDED" || op.Status == "RECONCILIATION_REQUIRED" {
+				return nil, ErrSubmissionClaimConflict
+			}
+			return nil, fmt.Errorf("%w: operation status is %s (must be APPROVED)", ErrOperationCannotBeSubmitted, op.Status)
+		}
+	} else {
+		if op.Status != "PREPARED" {
+			if op.Status == "SUBMITTING" || op.Status == "SUBMITTED" || op.Status == "SUCCEEDED" || op.Status == "RECONCILIATION_REQUIRED" {
+				return nil, ErrSubmissionClaimConflict
+			}
+			return nil, fmt.Errorf("%w: operation status is %s (must be PREPARED)", ErrOperationCannotBeSubmitted, op.Status)
+		}
+	}
+
+	op.Status = "SUBMITTING"
+	op.SubmissionFingerprint = &fingerprint
+	op.SubmittedAt = &submittedAt
+	op.UpdatedAt = time.Now().UTC()
+	copied := *op
+	return &copied, nil
 }
 
 func (m *MockRepository) ClaimPayoutOperationForRecovery(
@@ -784,6 +841,10 @@ func (m *MockRepository) ApprovePayoutOperation(ctx context.Context, orgID, opID
 
 	if op.RequiresDualApproval && op.InitiatedByUserID == approvedByUserID {
 		return ErrSelfApprovalForbidden
+	}
+
+	if op.Status != "AWAITING_APPROVAL" {
+		return fmt.Errorf("%w: operation status is %s (must be AWAITING_APPROVAL)", ErrInvalidOperationTransition, op.Status)
 	}
 
 	now := time.Now().UTC()

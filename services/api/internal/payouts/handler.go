@@ -331,7 +331,7 @@ func (h *Handler) handleApprovePayoutOperation(w http.ResponseWriter, r *http.Re
 			})
 		case errors.Is(err, db.ErrPayoutOperationNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "payout operation not found"})
-		case errors.Is(err, ErrCaseInTerminalState):
+		case errors.Is(err, ErrCaseInTerminalState), errors.Is(err, db.ErrInvalidOperationTransition):
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		default:
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -376,11 +376,11 @@ func (h *Handler) handleSubmitPayoutOperation(w http.ResponseWriter, r *http.Req
 			})
 		case errors.Is(err, ErrOperationNotApproved):
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
-		case errors.Is(err, ErrOperationAlreadySubmitted), errors.Is(err, ErrOperationCannotBeSubmitted), errors.Is(err, ErrCaseInTerminalState):
+		case errors.Is(err, ErrOperationAlreadySubmitted), errors.Is(err, ErrOperationCannotBeSubmitted), errors.Is(err, ErrCaseInTerminalState), errors.Is(err, db.ErrSubmissionClaimConflict):
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-		case errors.Is(err, paypal.ErrAmbiguousNetworkTimeout):
+		case paypal.IsAmbiguousOutcome(err) || errors.Is(err, paypal.ErrAmbiguousNetworkTimeout):
 			writeJSON(w, http.StatusGatewayTimeout, map[string]interface{}{
-				"error":     "Payout submission timed out. Status transitioned to RECONCILIATION_REQUIRED for safety.",
+				"error":     "Payout submission ambiguous. Status transitioned to RECONCILIATION_REQUIRED for safety.",
 				"operation": op,
 			})
 		default:

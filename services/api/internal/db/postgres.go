@@ -737,6 +737,12 @@ func (r *PostgresRepository) CreatePayoutOperation(ctx context.Context, op *Payo
 	).Scan(&op.ID, &op.CreatedAt, &op.UpdatedAt)
 
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if strings.Contains(pgErr.ConstraintName, "active") || strings.Contains(pgErr.ConstraintName, "payout_case") || strings.Contains(pgErr.Detail, "payout_case_id") {
+				return ErrActivePayoutOperationConflict
+			}
+		}
 		return fmt.Errorf("failed to create payout operation: %w", err)
 	}
 	return nil
@@ -848,12 +854,73 @@ func (r *PostgresRepository) UpdatePayoutOperation(ctx context.Context, op *Payo
 		op.OrganizationID,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if strings.Contains(pgErr.ConstraintName, "active") || strings.Contains(pgErr.ConstraintName, "payout_case") || strings.Contains(pgErr.Detail, "payout_case_id") {
+				return ErrActivePayoutOperationConflict
+			}
+		}
 		return fmt.Errorf("failed to update payout operation: %w", err)
 	}
 	if res.RowsAffected() == 0 {
 		return ErrPayoutOperationNotFound
 	}
 	return nil
+}
+
+func (r *PostgresRepository) ClaimPayoutOperationForSubmission(
+	ctx context.Context,
+	orgID, opID, fingerprint string,
+	submittedAt time.Time,
+) (*PayoutOperation, error) {
+	query := fmt.Sprintf(`
+		UPDATE payout_operations
+		SET status = 'SUBMITTING',
+		    submission_fingerprint = $3,
+		    submitted_at = $4,
+		    updated_at = NOW()
+		WHERE id = $1
+		  AND organization_id = $2
+		  AND (
+		      (requires_dual_approval = false AND status = 'PREPARED')
+		      OR
+		      (requires_dual_approval = true AND status = 'APPROVED')
+		  )
+		RETURNING %s
+	`, payoutOperationColumns)
+
+	var op PayoutOperation
+	err := scanPayoutOperation(r.pool.QueryRow(ctx, query, opID, orgID, fingerprint, submittedAt), &op)
+	if err == nil {
+		return &op, nil
+	}
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		existing, checkErr := r.GetPayoutOperationByID(ctx, orgID, opID)
+		if checkErr != nil {
+			if errors.Is(checkErr, ErrPayoutOperationNotFound) {
+				return nil, ErrPayoutOperationNotFound
+			}
+			return nil, fmt.Errorf("failed to check operation status after claim conflict: %w", checkErr)
+		}
+
+		if existing.RequiresDualApproval {
+			if existing.Status == "AWAITING_APPROVAL" {
+				return nil, ErrOperationNotApproved
+			}
+			if existing.Status == "SUBMITTING" || existing.Status == "SUBMITTED" || existing.Status == "SUCCEEDED" || existing.Status == "RECONCILIATION_REQUIRED" {
+				return nil, ErrSubmissionClaimConflict
+			}
+			return nil, fmt.Errorf("%w: operation status is %s (must be APPROVED)", ErrOperationCannotBeSubmitted, existing.Status)
+		} else {
+			if existing.Status == "SUBMITTING" || existing.Status == "SUBMITTED" || existing.Status == "SUCCEEDED" || existing.Status == "RECONCILIATION_REQUIRED" {
+				return nil, ErrSubmissionClaimConflict
+			}
+			return nil, fmt.Errorf("%w: operation status is %s (must be PREPARED)", ErrOperationCannotBeSubmitted, existing.Status)
+		}
+	}
+
+	return nil, fmt.Errorf("failed to claim payout operation for submission: %w", err)
 }
 
 func (r *PostgresRepository) ClaimPayoutOperationForRecovery(
@@ -1113,33 +1180,38 @@ func (r *PostgresRepository) TransitionRecoveryToManualReview(ctx context.Contex
 }
 
 func (r *PostgresRepository) ApprovePayoutOperation(ctx context.Context, orgID, opID, approvedByUserID string) error {
-	// First fetch operation to verify initiator is different (no self-approval)
-	checkQuery := `SELECT initiated_by_user_id, requires_dual_approval FROM payout_operations WHERE id = $1 AND organization_id = $2`
-	var initiatorID string
-	var requiresDual bool
-	err := r.pool.QueryRow(ctx, checkQuery, opID, orgID).Scan(&initiatorID, &requiresDual)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrPayoutOperationNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("failed to verify operation for approval: %w", err)
-	}
-
-	if requiresDual && initiatorID == approvedByUserID {
-		return ErrSelfApprovalForbidden
-	}
-
 	updateQuery := `
 		UPDATE payout_operations
 		SET status = 'APPROVED', approved_by_user_id = $1, approved_at = NOW(), updated_at = NOW()
-		WHERE id = $2 AND organization_id = $3
+		WHERE id = $2 
+		  AND organization_id = $3 
+		  AND status = 'AWAITING_APPROVAL'
+		  AND (NOT requires_dual_approval OR initiated_by_user_id != $1)
 	`
 	res, err := r.pool.Exec(ctx, updateQuery, approvedByUserID, opID, orgID)
 	if err != nil {
 		return fmt.Errorf("failed to approve payout operation: %w", err)
 	}
 	if res.RowsAffected() == 0 {
-		return ErrPayoutOperationNotFound
+		checkQuery := `SELECT initiated_by_user_id, requires_dual_approval, status FROM payout_operations WHERE id = $1 AND organization_id = $2`
+		var initiatorID string
+		var requiresDual bool
+		var currentStatus string
+		checkErr := r.pool.QueryRow(ctx, checkQuery, opID, orgID).Scan(&initiatorID, &requiresDual, &currentStatus)
+		if errors.Is(checkErr, pgx.ErrNoRows) {
+			return ErrPayoutOperationNotFound
+		}
+		if checkErr != nil {
+			return fmt.Errorf("failed to check operation status after approval conflict: %w", checkErr)
+		}
+
+		if requiresDual && initiatorID == approvedByUserID {
+			return ErrSelfApprovalForbidden
+		}
+		if currentStatus != "AWAITING_APPROVAL" {
+			return fmt.Errorf("%w: operation status is %s (must be AWAITING_APPROVAL)", ErrInvalidOperationTransition, currentStatus)
+		}
+		return ErrInvalidOperationTransition
 	}
 	return nil
 }
