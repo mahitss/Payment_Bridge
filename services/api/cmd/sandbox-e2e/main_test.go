@@ -58,6 +58,65 @@ func setupTestRepo(t *testing.T) db.Repository {
 	return repo
 }
 
+type mockMigratorRepo struct {
+	db.Repository
+	migrationCalls *atomic.Int32
+	migrationErr   error
+	closeCalls     *atomic.Int32
+}
+
+func (m *mockMigratorRepo) RunMigrations(ctx context.Context) error {
+	if m.migrationCalls != nil {
+		m.migrationCalls.Add(1)
+	}
+	return m.migrationErr
+}
+
+func (m *mockMigratorRepo) Close() {
+	if m.closeCalls != nil {
+		m.closeCalls.Add(1)
+	}
+}
+
+type mockNonMigratorRepo struct {
+	db.Repository
+	closeCalls *atomic.Int32
+}
+
+func (m *mockNonMigratorRepo) Close() {
+	if m.closeCalls != nil {
+		m.closeCalls.Add(1)
+	}
+}
+
+func readJSONReport(t *testing.T, reportDir string) SandboxE2EReport {
+	t.Helper()
+	files, err := os.ReadDir(reportDir)
+	if err != nil {
+		t.Fatalf("failed reading report directory %s: %v", reportDir, err)
+	}
+	var jsonPath string
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".json") {
+			jsonPath = filepath.Join(reportDir, f.Name())
+			break
+		}
+	}
+	if jsonPath == "" {
+		t.Fatalf("expected JSON report file, none found in %s", reportDir)
+	}
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("failed reading report %s: %v", jsonPath, err)
+	}
+	var rep SandboxE2EReport
+	if err := json.Unmarshal(data, &rep); err != nil {
+		t.Fatalf("failed unmarshaling report %s: %v", jsonPath, err)
+	}
+	return rep
+}
+
+
 // 1. Missing credentials -> BLOCKED (Exit code 3)
 func TestRun_MissingCredentialsBlocked(t *testing.T) {
 	cleanEnv(t)
@@ -1735,7 +1794,10 @@ func TestRun_MissingPayoutsScopeBlocked(t *testing.T) {
 
 		mockFactory := func(ctx context.Context, databaseURL string) (db.Repository, error) {
 			dbFactoryCalls.Add(1)
-			return nil, errors.New("factory should never be called when payouts scope is missing")
+			return &mockMigratorRepo{
+				Repository:     db.NewMockRepository(),
+				migrationCalls: &migrationCalls,
+			}, nil
 		}
 
 		reportDir := filepath.Join(t.TempDir(), "reports-no-db")
@@ -1950,3 +2012,608 @@ func TestRun_MissingPayoutsScopeBlocked(t *testing.T) {
 		}
 	})
 }
+
+// 24. Truthful Reporting: SubmissionRequested and Mutation Lifecycle Tracking
+func TestRun_SubmissionRequestedReportAccuracy(t *testing.T) {
+	cleanEnv(t)
+
+	t.Run("MutationMode_SubmitPayoutFlag_MissingCredentials_ReportsSubmissionRequested", func(t *testing.T) {
+		cleanEnv(t)
+		os.Setenv("PAYPAL_ENV", "sandbox")
+		os.Unsetenv("PAYPAL_CLIENT_ID")
+		os.Unsetenv("PAYPAL_CLIENT_SECRET")
+
+		reportDir := filepath.Join(t.TempDir(), "reports-missing-creds-submit")
+		var stdout, stderr bytes.Buffer
+		code := run([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-env-file", "nonexistent.env",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr)
+
+		if code != ExitCodeBlocked {
+			t.Fatalf("expected ExitCodeBlocked (%d), got: %d", ExitCodeBlocked, code)
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if !rep.SubmissionRequested {
+			t.Errorf("expected SubmissionRequested=true when -submit-payout was passed")
+		}
+		if rep.MutationDispatched {
+			t.Errorf("expected MutationDispatched=false")
+		}
+		if rep.PayoutAttempted {
+			t.Errorf("expected PayoutAttempted=false")
+		}
+		if rep.ProviderResponseReceived {
+			t.Errorf("expected ProviderResponseReceived=false")
+		}
+		if rep.Outcome != "BLOCKED" {
+			t.Errorf("expected Outcome='BLOCKED', got %q", rep.Outcome)
+		}
+	})
+
+	t.Run("MutationMode_CreateTestPayoutFlag_MissingCredentials_ReportsSubmissionRequested", func(t *testing.T) {
+		cleanEnv(t)
+		os.Setenv("PAYPAL_ENV", "sandbox")
+		os.Unsetenv("PAYPAL_CLIENT_ID")
+		os.Unsetenv("PAYPAL_CLIENT_SECRET")
+
+		reportDir := filepath.Join(t.TempDir(), "reports-missing-creds-create")
+		var stdout, stderr bytes.Buffer
+		code := run([]string{
+			"-create-test-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-env-file", "nonexistent.env",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr)
+
+		if code != ExitCodeBlocked {
+			t.Fatalf("expected ExitCodeBlocked (%d), got: %d", ExitCodeBlocked, code)
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if !rep.SubmissionRequested {
+			t.Errorf("expected SubmissionRequested=true when -create-test-payout was passed")
+		}
+		if rep.MutationDispatched {
+			t.Errorf("expected MutationDispatched=false")
+		}
+		if rep.PayoutAttempted {
+			t.Errorf("expected PayoutAttempted=false")
+		}
+		if rep.ProviderResponseReceived {
+			t.Errorf("expected ProviderResponseReceived=false")
+		}
+		if rep.Outcome != "BLOCKED" {
+			t.Errorf("expected Outcome='BLOCKED', got %q", rep.Outcome)
+		}
+	})
+
+	t.Run("MutationMode_OAuthFailure_ReportsSubmissionRequested", func(t *testing.T) {
+		cleanEnv(t)
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":             "invalid_client",
+				"error_description": "Client Authentication failed",
+			})
+		}))
+		defer ts.Close()
+
+		os.Setenv("PAYPAL_ENV", "sandbox")
+		os.Setenv("PAYPAL_CLIENT_ID", "test_id")
+		os.Setenv("PAYPAL_CLIENT_SECRET", "test_secret")
+
+		cfg := &config.Config{
+			AppEnv:               "development",
+			PayPalEnv:            "sandbox",
+			PayPalClientID:       "test_id",
+			PayPalClientSecret:   "test_secret",
+			PayPalBaseURL:        ts.URL,
+			PayPalRequestTimeout: 5 * time.Second,
+		}
+
+		testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+		if err != nil {
+			t.Fatalf("failed constructing test client: %v", err)
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-oauth-fail")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, testClient, nil)
+
+		if code != ExitCodeOAuthError {
+			t.Fatalf("expected ExitCodeOAuthError (%d), got: %d", ExitCodeOAuthError, code)
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if !rep.SubmissionRequested {
+			t.Errorf("expected SubmissionRequested=true when mutation requested even if OAuth failed")
+		}
+		if rep.MutationDispatched {
+			t.Errorf("expected MutationDispatched=false")
+		}
+		if rep.PayoutAttempted {
+			t.Errorf("expected PayoutAttempted=false")
+		}
+		if rep.ProviderResponseReceived {
+			t.Errorf("expected ProviderResponseReceived=false")
+		}
+		if rep.OAuthTokenAcquired {
+			t.Errorf("expected OAuthTokenAcquired=false")
+		}
+		if rep.Outcome != "FAIL" {
+			t.Errorf("expected Outcome='FAIL', got %q", rep.Outcome)
+		}
+	})
+
+	t.Run("ReadOnly_ReportsSubmissionRequestedFalse", func(t *testing.T) {
+		cleanEnv(t)
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/v1/oauth2/token" {
+				json.NewEncoder(w).Encode(paypal.OAuthTokenResponse{
+					AccessToken: "mock-valid-token-ro",
+					TokenType:   "Bearer",
+					ExpiresIn:   3600,
+					AppID:       "APP-READ-ONLY",
+					Scope:       "openid profile",
+				})
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer ts.Close()
+
+		os.Setenv("PAYPAL_ENV", "sandbox")
+		os.Setenv("PAYPAL_CLIENT_ID", "test_id")
+		os.Setenv("PAYPAL_CLIENT_SECRET", "test_secret")
+
+		cfg := &config.Config{
+			AppEnv:               "development",
+			PayPalEnv:            "sandbox",
+			PayPalClientID:       "test_id",
+			PayPalClientSecret:   "test_secret",
+			PayPalBaseURL:        ts.URL,
+			PayPalRequestTimeout: 5 * time.Second,
+		}
+
+		testClient, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+		if err != nil {
+			t.Fatalf("failed constructing test client: %v", err)
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-ro")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, testClient, nil)
+
+		if code != ExitCodeSuccess {
+			t.Fatalf("expected ExitCodeSuccess (%d), got: %d", ExitCodeSuccess, code)
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if rep.SubmissionRequested {
+			t.Errorf("expected SubmissionRequested=false in read-only mode")
+		}
+		if rep.MutationDispatched {
+			t.Errorf("expected MutationDispatched=false")
+		}
+		if rep.PayoutAttempted {
+			t.Errorf("expected PayoutAttempted=false")
+		}
+		if rep.ProviderResponseReceived {
+			t.Errorf("expected ProviderResponseReceived=false")
+		}
+		if rep.Outcome != "PASS" {
+			t.Errorf("expected Outcome='PASS', got %q", rep.Outcome)
+		}
+	})
+}
+
+// 25. Migration Verification Fail-Closed Behavior
+func TestRun_MigrationVerification(t *testing.T) {
+	cleanEnv(t)
+
+	setupPayoutServer := func(t *testing.T) (*httptest.Server, *paypal.Client, *atomic.Int32) {
+		t.Helper()
+		var mutationCount atomic.Int32
+		var capturedSenderBatchID string
+		var capturedSenderItemID string
+		batchID := "PAYPAL-MIGRATION-TEST-123"
+
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/v1/oauth2/token" {
+				json.NewEncoder(w).Encode(paypal.OAuthTokenResponse{
+					AccessToken: "mock-valid-token-with-payouts",
+					TokenType:   "Bearer",
+					ExpiresIn:   3600,
+					AppID:       "APP-MIGRATION-TEST",
+					Scope:       "openid " + paypal.PayPalPayoutsScope,
+				})
+				return
+			}
+			if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/v1/payments/payouts") {
+				mutationCount.Add(1)
+				var req map[string]interface{}
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				if senderHeader, ok := req["sender_batch_header"].(map[string]interface{}); ok {
+					capturedSenderBatchID = fmt.Sprintf("%v", senderHeader["sender_batch_id"])
+				}
+				if items, ok := req["items"].([]interface{}); ok && len(items) > 0 {
+					if item0, ok := items[0].(map[string]interface{}); ok {
+						capturedSenderItemID = fmt.Sprintf("%v", item0["sender_item_id"])
+					}
+				}
+
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(paypal.PayoutBatchResponse{
+					BatchHeader: paypal.PayoutBatchHeader{
+						PayoutBatchID: batchID,
+						BatchStatus:   "SUCCESS",
+						TimeCreated:   time.Now().UTC().Format(time.RFC3339),
+					},
+				})
+				return
+			}
+			if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/payments/payouts/") {
+				json.NewEncoder(w).Encode(paypal.PayoutBatchResponse{
+					BatchHeader: paypal.PayoutBatchHeader{
+						PayoutBatchID: batchID,
+						BatchStatus:   "SUCCESS",
+						SenderBatchHeader: &paypal.SenderBatchHeader{
+							SenderBatchID: capturedSenderBatchID,
+						},
+						Amount: &paypal.CurrencyAmount{
+							Value:    "1.00",
+							Currency: "USD",
+						},
+					},
+					Items: []paypal.PayoutItem{
+						{
+							PayoutItemID:      "ITEM-001",
+							TransactionStatus: "SUCCESS",
+							SenderItemID:      capturedSenderItemID,
+							Receiver:          "receiver@example.com",
+							Amount: paypal.CurrencyAmount{
+								Value:    "1.00",
+								Currency: "USD",
+							},
+						},
+					},
+				})
+				return
+			}
+			http.NotFound(w, r)
+		}))
+
+		os.Setenv("PAYPAL_ENV", "sandbox")
+		os.Setenv("PAYPAL_CLIENT_ID", "test_id")
+		os.Setenv("PAYPAL_CLIENT_SECRET", "test_secret")
+
+		cfg := &config.Config{
+			AppEnv:               "development",
+			PayPalEnv:            "sandbox",
+			PayPalClientID:       "test_id",
+			PayPalClientSecret:   "test_secret",
+			PayPalBaseURL:        ts.URL,
+			PayPalRequestTimeout: 5 * time.Second,
+		}
+
+		client, err := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+		if err != nil {
+			t.Fatalf("failed constructing test client: %v", err)
+		}
+		return ts, client, &mutationCount
+	}
+
+	t.Run("ValidScope_SuccessfulMigration_SetsDatabaseMigrationsTrue", func(t *testing.T) {
+		ts, client, mutationCount := setupPayoutServer(t)
+		defer ts.Close()
+
+		baseRepo := setupTestRepo(t)
+		var migrationCalls atomic.Int32
+		var closeCalls atomic.Int32
+
+		mockFactory := func(ctx context.Context, databaseURL string) (db.Repository, error) {
+			return &mockMigratorRepo{
+				Repository:     baseRepo,
+				migrationCalls: &migrationCalls,
+				closeCalls:     &closeCalls,
+				migrationErr:   nil,
+			}, nil
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-migration-pass")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, client, nil, mockFactory)
+
+		if code != ExitCodeSuccess {
+			t.Fatalf("expected ExitCodeSuccess (%d), got: %d\nStderr: %s", ExitCodeSuccess, code, stderr.String())
+		}
+		if migrationCalls.Load() != 1 {
+			t.Fatalf("expected exactly 1 migration call, got: %d", migrationCalls.Load())
+		}
+		if closeCalls.Load() == 0 {
+			t.Fatalf("expected repository Close() to be called")
+		}
+		if mutationCount.Load() != 1 {
+			t.Fatalf("expected 1 payout mutation dispatched, got: %d", mutationCount.Load())
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if !rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=true upon successful migration")
+		}
+		if !rep.DatabaseReachable {
+			t.Errorf("expected DatabaseReachable=true")
+		}
+		if rep.Outcome != "PASS" {
+			t.Errorf("expected Outcome='PASS', got %q", rep.Outcome)
+		}
+	})
+
+	t.Run("ValidScope_MigrationError_LeavesDatabaseMigrationsFalseAndFails", func(t *testing.T) {
+		ts, client, mutationCount := setupPayoutServer(t)
+		defer ts.Close()
+
+		baseRepo := setupTestRepo(t)
+		var migrationCalls atomic.Int32
+		var closeCalls atomic.Int32
+
+		mockFactory := func(ctx context.Context, databaseURL string) (db.Repository, error) {
+			return &mockMigratorRepo{
+				Repository:     baseRepo,
+				migrationCalls: &migrationCalls,
+				closeCalls:     &closeCalls,
+				migrationErr:   errors.New("simulated migration schema error"),
+			}, nil
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-migration-fail")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, client, nil, mockFactory)
+
+		if code != ExitCodeFailure {
+			t.Fatalf("expected ExitCodeFailure (%d), got: %d", ExitCodeFailure, code)
+		}
+		if migrationCalls.Load() != 1 {
+			t.Fatalf("expected exactly 1 migration call, got: %d", migrationCalls.Load())
+		}
+		if closeCalls.Load() == 0 {
+			t.Fatalf("expected repository Close() to be called on failure")
+		}
+		if mutationCount.Load() != 0 {
+			t.Fatalf("expected 0 payout mutations dispatched on migration failure, got: %d", mutationCount.Load())
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=false when migration fails")
+		}
+		if rep.Outcome != "FAIL" {
+			t.Errorf("expected Outcome='FAIL', got %q", rep.Outcome)
+		}
+		if !strings.Contains(rep.Details, "Database schema migrations failed") {
+			t.Errorf("expected details to report migration failure, got: %q", rep.Details)
+		}
+		if rep.MutationDispatched {
+			t.Errorf("expected MutationDispatched=false")
+		}
+		if rep.PayoutAttempted {
+			t.Errorf("expected PayoutAttempted=false")
+		}
+	})
+
+	t.Run("ValidScope_RepositoryWithoutRunMigrations_FailsClosedInMutationMode", func(t *testing.T) {
+		ts, client, mutationCount := setupPayoutServer(t)
+		defer ts.Close()
+
+		baseRepo := setupTestRepo(t)
+		var closeCalls atomic.Int32
+
+		mockFactory := func(ctx context.Context, databaseURL string) (db.Repository, error) {
+			return &mockNonMigratorRepo{
+				Repository: baseRepo,
+				closeCalls: &closeCalls,
+			}, nil
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-no-migrator-mutation")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, client, nil, mockFactory)
+
+		if code != ExitCodeFailure {
+			t.Fatalf("expected ExitCodeFailure (%d), got: %d", ExitCodeFailure, code)
+		}
+		if closeCalls.Load() == 0 {
+			t.Fatalf("expected repository Close() to be called when failing closed")
+		}
+		if mutationCount.Load() != 0 {
+			t.Fatalf("expected 0 payout mutations dispatched, got: %d", mutationCount.Load())
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=false when repo lacks RunMigrations")
+		}
+		if rep.Outcome != "FAIL" {
+			t.Errorf("expected Outcome='FAIL', got %q", rep.Outcome)
+		}
+		if !strings.Contains(rep.Details, "repository does not implement RunMigrations") {
+			t.Errorf("expected details to state missing RunMigrations implementation, got: %q", rep.Details)
+		}
+		if rep.MutationDispatched {
+			t.Errorf("expected MutationDispatched=false")
+		}
+	})
+
+	t.Run("ReadOnly_RepositoryWithoutRunMigrations_PassesPreflight", func(t *testing.T) {
+		ts, client, _ := setupPayoutServer(t)
+		defer ts.Close()
+
+		baseRepo := setupTestRepo(t)
+		var closeCalls atomic.Int32
+
+		mockFactory := func(ctx context.Context, databaseURL string) (db.Repository, error) {
+			return &mockNonMigratorRepo{
+				Repository: baseRepo,
+				closeCalls: &closeCalls,
+			}, nil
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-no-migrator-ro")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, client, nil, mockFactory)
+
+		if code != ExitCodeSuccess {
+			t.Fatalf("expected ExitCodeSuccess (%d) for read-only preflight, got: %d", ExitCodeSuccess, code)
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=false for repository without RunMigrations")
+		}
+		if !rep.DatabaseReachable {
+			t.Errorf("expected DatabaseReachable=true")
+		}
+		if rep.Outcome != "PASS" {
+			t.Errorf("expected Outcome='PASS', got %q", rep.Outcome)
+		}
+	})
+
+	t.Run("InjectedRepo_WithoutRunMigrations_ReportsUnverified", func(t *testing.T) {
+		cleanEnv(t)
+		ts, client, _ := setupPayoutServer(t)
+		defer ts.Close()
+
+		injectedMock := db.NewMockRepository()
+
+		reportDir := filepath.Join(t.TempDir(), "reports-injected-unverified")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, client, injectedMock)
+
+		if code != ExitCodeSuccess {
+			t.Fatalf("expected ExitCodeSuccess (%d) for read-only preflight, got: %d", ExitCodeSuccess, code)
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=false for injected mock repository")
+		}
+		if !rep.DatabaseReachable {
+			t.Errorf("expected DatabaseReachable=true")
+		}
+	})
+
+	t.Run("InjectedRepo_WithRunMigrations_ReportsVerified", func(t *testing.T) {
+		cleanEnv(t)
+		ts, client, _ := setupPayoutServer(t)
+		defer ts.Close()
+
+		baseRepo := setupTestRepo(t)
+		var migrationCalls atomic.Int32
+		injectedMigrator := &mockMigratorRepo{
+			Repository:     baseRepo,
+			migrationCalls: &migrationCalls,
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-injected-verified")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, client, injectedMigrator)
+
+		if code != ExitCodeSuccess {
+			t.Fatalf("expected ExitCodeSuccess (%d), got: %d", ExitCodeSuccess, code)
+		}
+		if migrationCalls.Load() != 1 {
+			t.Fatalf("expected 1 migration call for injected migrator, got: %d", migrationCalls.Load())
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if !rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=true for injected migrator")
+		}
+	})
+
+	t.Run("InjectedRepo_WithRunMigrations_Error_FailsInMutationMode", func(t *testing.T) {
+		cleanEnv(t)
+		ts, client, mutationCount := setupPayoutServer(t)
+		defer ts.Close()
+
+		baseRepo := setupTestRepo(t)
+		var migrationCalls atomic.Int32
+		injectedMigrator := &mockMigratorRepo{
+			Repository:     baseRepo,
+			migrationCalls: &migrationCalls,
+			migrationErr:   errors.New("injected migration error"),
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-injected-fail")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, client, injectedMigrator)
+
+		if code != ExitCodeFailure {
+			t.Fatalf("expected ExitCodeFailure (%d), got: %d", ExitCodeFailure, code)
+		}
+		if migrationCalls.Load() != 1 {
+			t.Fatalf("expected 1 migration call, got: %d", migrationCalls.Load())
+		}
+		if mutationCount.Load() != 0 {
+			t.Fatalf("expected 0 payout mutations dispatched, got: %d", mutationCount.Load())
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=false")
+		}
+		if rep.Outcome != "FAIL" {
+			t.Errorf("expected Outcome='FAIL', got %q", rep.Outcome)
+		}
+	})
+}
+

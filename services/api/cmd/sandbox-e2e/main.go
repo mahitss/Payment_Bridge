@@ -140,9 +140,10 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	}
 
 	report := &SandboxE2EReport{
-		ExecutionTimestamp: time.Now().UTC(),
-		CommitSHA:          getCommitSHA(),
-		Outcome:            "FAIL",
+		ExecutionTimestamp:  time.Now().UTC(),
+		CommitSHA:           getCommitSHA(),
+		Outcome:             "FAIL",
+		SubmissionRequested: shouldSubmit,
 	}
 
 	// 2. Load and Validate Configuration
@@ -269,8 +270,6 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	var recipient, currency, formattedAmount string
 	var amountCents int64
 	if shouldSubmit {
-		report.SubmissionRequested = true
-
 		// Safeguard 1: Explicit confirmation flag
 		if !*confirmSandboxFlag {
 			fmt.Fprintln(stderr, "\n[SAFETY ABORT] Payout creation requires the explicit '-confirm-sandbox-only' flag.")
@@ -343,9 +342,28 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	if injectedRepo != nil {
 		repo = injectedRepo
 		report.DatabaseReachable = true
-		report.DatabaseMigrations = true
-		fmt.Fprintln(stdout, "  • Repository State        : Injected Test Repository Connected")
-		fmt.Fprintln(stdout, "  • Schema Migrations       : Current (Verified)")
+		if migrator, ok := injectedRepo.(interface{ RunMigrations(context.Context) error }); ok {
+			dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer dbCancel()
+			if mErr := migrator.RunMigrations(dbCtx); mErr != nil {
+				fmt.Fprintf(stderr, "  • Schema Migrations       : FAILED (%v)\n", mErr)
+				report.DatabaseMigrations = false
+				if shouldSubmit {
+					report.Outcome = "FAIL"
+					report.Details = "Database schema migrations failed"
+					writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+					return ExitCodeFailure
+				}
+			} else {
+				report.DatabaseMigrations = true
+				fmt.Fprintln(stdout, "  • Repository State        : Injected Test Repository Connected")
+				fmt.Fprintln(stdout, "  • Schema Migrations       : CURRENT (Verified)")
+			}
+		} else {
+			report.DatabaseMigrations = false
+			fmt.Fprintln(stdout, "  • Repository State        : Injected Test Repository Connected")
+			fmt.Fprintln(stdout, "  • Schema Migrations       : UNVERIFIED (Injected Test Repository)")
+		}
 	} else {
 		dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer dbCancel()
@@ -394,8 +412,16 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 					fmt.Fprintln(stdout, "  • Schema Migrations       : CURRENT (Verified)")
 				}
 			} else {
-				report.DatabaseMigrations = true
-				fmt.Fprintln(stdout, "  • Schema Migrations       : CURRENT (Verified)")
+				fmt.Fprintln(stderr, "  • Schema Migrations       : FAILED (repository does not implement RunMigrations)")
+				report.DatabaseMigrations = false
+				if shouldSubmit {
+					report.Outcome = "FAIL"
+					report.Details = "Database schema migration verification failed: repository does not implement RunMigrations"
+					writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+					return ExitCodeFailure
+				} else {
+					fmt.Fprintln(stdout, "  • Preflight Notice        : Read-only preflight will continue with unverified schema migrations.")
+				}
 			}
 			repo = pgRepo
 		}
