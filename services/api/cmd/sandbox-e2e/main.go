@@ -342,6 +342,7 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	if injectedRepo != nil {
 		repo = injectedRepo
 		report.DatabaseReachable = true
+		// Note: Injected repository lifecycle is managed by caller; do not close here.
 		if migrator, ok := injectedRepo.(interface{ RunMigrations(context.Context) error }); ok {
 			dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer dbCancel()
@@ -361,8 +362,16 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 			}
 		} else {
 			report.DatabaseMigrations = false
+			if shouldSubmit {
+				fmt.Fprintln(stderr, "  • Schema Migrations       : FAILED (injected repository does not implement RunMigrations)")
+				report.Outcome = "FAIL"
+				report.Details = "Database schema migration verification failed: injected repository does not implement RunMigrations"
+				writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+				return ExitCodeFailure
+			}
 			fmt.Fprintln(stdout, "  • Repository State        : Injected Test Repository Connected")
 			fmt.Fprintln(stdout, "  • Schema Migrations       : UNVERIFIED (Injected Test Repository)")
+			fmt.Fprintln(stdout, "  • Preflight Notice        : Read-only preflight will continue with unverified schema migrations.")
 		}
 	} else {
 		dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)

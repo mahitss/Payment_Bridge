@@ -55,7 +55,9 @@ func setupTestRepo(t *testing.T) db.Repository {
 	if err := s.Seed(context.Background(), seeder.Options{Reset: false}); err != nil {
 		t.Fatalf("failed seeding test repo: %v", err)
 	}
-	return repo
+	return &mockMigratorRepo{
+		Repository: repo,
+	}
 }
 
 type mockMigratorRepo struct {
@@ -1113,7 +1115,7 @@ func TestRun_MissingOperatorInitializationBlocksPayout(t *testing.T) {
 	}
 
 	// Create an empty repository where operator user does NOT exist
-	unseededRepo := db.NewMockRepository()
+	unseededRepo := &mockMigratorRepo{Repository: db.NewMockRepository()}
 
 	var stdout, stderr bytes.Buffer
 	code := runWithDeps([]string{
@@ -2615,5 +2617,91 @@ func TestRun_MigrationVerification(t *testing.T) {
 			t.Errorf("expected Outcome='FAIL', got %q", rep.Outcome)
 		}
 	})
-}
 
+	t.Run("InjectedRepo_WithoutRunMigrations_FailsClosedInMutationMode", func(t *testing.T) {
+		cleanEnv(t)
+		ts, client, mutationCount := setupPayoutServer(t)
+		defer ts.Close()
+
+		injectedMock := db.NewMockRepository()
+		s := seeder.New(injectedMock)
+		if err := s.Seed(context.Background(), seeder.Options{Reset: false}); err != nil {
+			t.Fatalf("failed seeding test repo: %v", err)
+		}
+
+		user, err := injectedMock.GetUserByEmail(context.Background(), seeder.OperatorEmail)
+		if err != nil {
+			t.Fatalf("GetUserByEmail failed: %v", err)
+		}
+		memberships, err := injectedMock.GetOrganizationMemberships(context.Background(), user.ID)
+		if err != nil || len(memberships) == 0 {
+			t.Fatalf("GetOrganizationMemberships failed: %v", err)
+		}
+		orgID := memberships[0].Organization.ID
+
+		initialCases, totalCasesBefore, err := injectedMock.ListPayoutCasesByOrg(context.Background(), orgID, 100, 0)
+		if err != nil {
+			t.Fatalf("ListPayoutCasesByOrg failed: %v", err)
+		}
+
+		reportDir := filepath.Join(t.TempDir(), "reports-injected-no-migrator-mutation")
+		var stdout, stderr bytes.Buffer
+		code := runWithDeps([]string{
+			"-submit-payout",
+			"-confirm-sandbox-only",
+			"-recipient", "receiver@example.com",
+			"-amount", "1.00",
+			"-report-dir", reportDir,
+		}, &stdout, &stderr, client, injectedMock)
+
+		if code != ExitCodeFailure {
+			t.Fatalf("expected ExitCodeFailure (%d), got: %d\nStderr: %s", ExitCodeFailure, code, stderr.String())
+		}
+		if mutationCount.Load() != 0 {
+			t.Fatalf("expected 0 payout mutations dispatched, got: %d", mutationCount.Load())
+		}
+
+		// Verify no case or operation was created
+		afterCases, totalCasesAfter, err := injectedMock.ListPayoutCasesByOrg(context.Background(), orgID, 100, 0)
+		if err != nil {
+			t.Fatalf("ListPayoutCasesByOrg after run failed: %v", err)
+		}
+		if totalCasesAfter != totalCasesBefore || len(afterCases) != len(initialCases) {
+			t.Errorf("expected no payout case created (before=%d, after=%d)", totalCasesBefore, totalCasesAfter)
+		}
+		for _, c := range afterCases {
+			if strings.HasPrefix(c.Reference, "SANDBOX-E2E") {
+				t.Errorf("expected no SANDBOX-E2E case created in repository, found: %s", c.Reference)
+			}
+			ops, err := injectedMock.ListPayoutOperationsByCaseID(context.Background(), orgID, c.ID)
+			if err != nil {
+				t.Fatalf("ListPayoutOperationsByCaseID failed: %v", err)
+			}
+			for _, op := range ops {
+				if strings.HasPrefix(op.SenderBatchID, "SANDBOX-E2E") {
+				t.Errorf("expected no SANDBOX-E2E operation created, found: %s", op.SenderBatchID)
+				}
+			}
+		}
+
+		rep := readJSONReport(t, reportDir)
+		if rep.DatabaseMigrations {
+			t.Errorf("expected DatabaseMigrations=false when injected repo lacks RunMigrations")
+		}
+		if rep.Outcome != "FAIL" {
+			t.Errorf("expected Outcome='FAIL', got %q", rep.Outcome)
+		}
+		if !strings.Contains(rep.Details, "injected repository does not implement RunMigrations") {
+			t.Errorf("expected details to explain missing RunMigrations, got: %q", rep.Details)
+		}
+		if rep.MutationDispatched {
+			t.Errorf("expected MutationDispatched=false")
+		}
+		if rep.PayoutAttempted {
+			t.Errorf("expected PayoutAttempted=false")
+		}
+		if rep.ProviderResponseReceived {
+			t.Errorf("expected ProviderResponseReceived=false")
+		}
+	})
+}
