@@ -32,26 +32,48 @@ var (
 	ErrSandboxAssertionFailed     = errors.New("paypal environment is not sandbox")
 	ErrUntrustedHATEOASHost       = errors.New("security violation: untrusted HATEOAS host in paypal response")
 	ErrMalformedHATEOASLink       = errors.New("malformed HATEOAS link in paypal response")
+	ErrOversizedResponse          = errors.New("paypal response exceeded maximum allowable size limit")
 )
 
 // OfficialSandboxBaseURL is the immutable official PayPal sandbox API endpoint.
 const OfficialSandboxBaseURL = "https://api-m.sandbox.paypal.com"
 
+// PayPalPayoutsScope is the required OAuth2 scope for PayPal Payouts operations.
+const PayPalPayoutsScope = "https://uri.paypal.com/payments/payouts"
+
+// HasPayoutsScope checks whether the exact Payouts scope exists in a whitespace-delimited scope string.
+func HasPayoutsScope(scopeStr string) bool {
+	for _, s := range strings.Fields(scopeStr) {
+		if s == PayPalPayoutsScope {
+			return true
+		}
+	}
+	return false
+}
+
 // Client is a server-side PayPal REST API client configured strictly for Sandbox.
 type Client struct {
-	baseURL      string
-	clientID     string
-	clientSecret string
-	httpClient   *http.Client
+	baseURL         string
+	clientID        string
+	clientSecret    string
+	httpClient      *http.Client
 
-	tokenMu     sync.RWMutex
-	cachedToken string
-	tokenExpiry time.Time
+	tokenMu         sync.RWMutex
+	cachedToken     string
+	tokenExpiry     time.Time
+	hasPayoutsScope bool
 }
 
 // BaseURL returns the configured base URL for the client.
 func (c *Client) BaseURL() string {
 	return c.baseURL
+}
+
+// HasPayoutsScope returns whether the currently cached access token was granted the payouts scope.
+func (c *Client) HasPayoutsScope() bool {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.hasPayoutsScope
 }
 
 // OAuthTokenResponse represents the response from PayPal OAuth2 token endpoint.
@@ -294,9 +316,141 @@ type APIErrorDetail struct {
 type APIErrorResponse struct {
 	Name            string            `json:"name"`
 	Message         string            `json:"message"`
+	DebugID         string            `json:"debug_id,omitempty"`
 	InformationLink string            `json:"information_link,omitempty"`
 	Details         []APIErrorDetail  `json:"details,omitempty"`
 	Links           []LinkDescription `json:"links,omitempty"`
+}
+
+const (
+	// MaxResponseBodyBytes limits the amount of data read from PayPal REST API endpoints (64 KB).
+	MaxResponseBodyBytes = 64 * 1024
+
+	// MaxDiagnosticFieldLength limits error field string lengths to prevent unbounded log/persistence output.
+	MaxDiagnosticFieldLength = 128
+)
+
+// sanitizeDiagnosticField strips control chars, sanitizes via logger rules, and caps length.
+func sanitizeDiagnosticField(s string, maxLen int) string {
+	cleaned := logger.SanitizeText(s)
+	cleaned = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, cleaned)
+	cleaned = strings.TrimSpace(cleaned)
+	if len(cleaned) > maxLen {
+		cleaned = cleaned[:maxLen]
+	}
+	return cleaned
+}
+
+// OversizedResponseError indicates that the provider response body exceeded MaxResponseBodyBytes.
+type OversizedResponseError struct {
+	Limit int64
+}
+
+func (e *OversizedResponseError) Error() string {
+	return fmt.Sprintf("paypal response exceeded maximum allowable size limit (%d bytes)", e.Limit)
+}
+
+func (e *OversizedResponseError) Unwrap() error {
+	return ErrOversizedResponse
+}
+
+// readResponseBody safely reads an HTTP response body up to MaxResponseBodyBytes.
+// If the response body exceeds MaxResponseBodyBytes, it returns an OversizedResponseError
+// and never returns partial or truncated data to callers.
+func readResponseBody(r io.Reader) ([]byte, error) {
+	if r == nil {
+		return nil, nil
+	}
+	// Read at most MaxResponseBodyBytes + 1 bytes to detect oversized responses
+	// without unbounded memory allocation.
+	bodyBytes, err := io.ReadAll(io.LimitReader(r, MaxResponseBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if int64(len(bodyBytes)) > MaxResponseBodyBytes {
+		return nil, &OversizedResponseError{Limit: MaxResponseBodyBytes}
+	}
+	return bodyBytes, nil
+}
+
+// APIForbiddenError represents a structured HTTP 403 Forbidden error from PayPal REST API.
+type APIForbiddenError struct {
+	Name    string `json:"name,omitempty"`
+	DebugID string `json:"debug_id,omitempty"`
+	Issue   string `json:"issue,omitempty"`
+}
+
+func (e *APIForbiddenError) Error() string {
+	parts := []string{ErrForbidden.Error()}
+	if e.Name != "" {
+		parts = append(parts, fmt.Sprintf("name=%s", e.Name))
+	}
+	if e.Issue != "" {
+		parts = append(parts, fmt.Sprintf("issue=%s", e.Issue))
+	}
+	if e.DebugID != "" {
+		parts = append(parts, fmt.Sprintf("debug_id=%s", e.DebugID))
+	}
+	if len(parts) == 1 {
+		return ErrForbidden.Error()
+	}
+	return strings.Join(parts, " | ")
+}
+
+func (e *APIForbiddenError) Unwrap() error {
+	return ErrForbidden
+}
+
+// AsAPIForbiddenError returns *APIForbiddenError if err wraps one.
+func AsAPIForbiddenError(err error) (*APIForbiddenError, bool) {
+	var fe *APIForbiddenError
+	if errors.As(err, &fe) {
+		return fe, true
+	}
+	return nil, false
+}
+
+func parseForbiddenError(resp *http.Response, bodyBytes []byte) error {
+	debugID := ""
+	if resp != nil && resp.Header != nil {
+		debugID = resp.Header.Get("Paypal-Debug-Id")
+		if debugID == "" {
+			debugID = resp.Header.Get("PayPal-Debug-Id")
+		}
+	}
+
+	var apiErr APIErrorResponse
+	if len(bodyBytes) > 0 {
+		if jsonErr := json.Unmarshal(bodyBytes, &apiErr); jsonErr == nil {
+			if apiErr.DebugID != "" {
+				debugID = apiErr.DebugID
+			}
+		}
+	}
+
+	issue := ""
+	if len(apiErr.Details) > 0 {
+		issue = apiErr.Details[0].Issue
+	}
+
+	name := sanitizeDiagnosticField(apiErr.Name, MaxDiagnosticFieldLength)
+	issue = sanitizeDiagnosticField(issue, MaxDiagnosticFieldLength)
+	debugID = sanitizeDiagnosticField(debugID, MaxDiagnosticFieldLength)
+
+	if name == "" && issue == "" && debugID == "" {
+		return ErrForbidden
+	}
+
+	return &APIForbiddenError{
+		Name:    name,
+		DebugID: debugID,
+		Issue:   issue,
+	}
 }
 
 // DuplicatePayoutError represents a PayPal response indicating sender_batch_id was already submitted.
@@ -558,7 +712,7 @@ func (c *Client) GetAccessToken(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readResponseBody(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read oauth token response: %w", err)
 	}
@@ -567,7 +721,7 @@ func (c *Client) GetAccessToken(ctx context.Context) (string, error) {
 		return "", ErrUnauthorized
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return "", ErrForbidden
+		return "", parseForbiddenError(resp, bodyBytes)
 	}
 	if resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))
@@ -584,6 +738,7 @@ func (c *Client) GetAccessToken(ctx context.Context) (string, error) {
 	}
 
 	c.cachedToken = tokenResp.AccessToken
+	c.hasPayoutsScope = HasPayoutsScope(tokenResp.Scope)
 	// Buffer expiry by 60 seconds to avoid race conditions
 	buffer := 60 * time.Second
 	if time.Duration(tokenResp.ExpiresIn)*time.Second > buffer {
@@ -596,6 +751,7 @@ func (c *Client) GetAccessToken(ctx context.Context) (string, error) {
 		slog.String("token_type", tokenResp.TokenType),
 		slog.Int("expires_in", tokenResp.ExpiresIn),
 		slog.String("app_id", tokenResp.AppID),
+		slog.Bool("has_payouts_scope", c.hasPayoutsScope),
 	)
 
 	return c.cachedToken, nil
@@ -627,7 +783,7 @@ func (c *Client) GetPayoutBatch(ctx context.Context, payoutBatchID string) (*Pay
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readResponseBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read payout batch response: %w", err)
 	}
@@ -639,7 +795,7 @@ func (c *Client) GetPayoutBatch(ctx context.Context, payoutBatchID string) (*Pay
 		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, ErrForbidden
+		return nil, parseForbiddenError(resp, bodyBytes)
 	}
 	if resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))
@@ -680,7 +836,7 @@ func (c *Client) GetPayoutItem(ctx context.Context, payoutItemID string) (*Payou
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readResponseBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read payout item response: %w", err)
 	}
@@ -692,7 +848,7 @@ func (c *Client) GetPayoutItem(ctx context.Context, payoutItemID string) (*Payou
 		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, ErrForbidden
+		return nil, parseForbiddenError(resp, bodyBytes)
 	}
 	if resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))
@@ -764,16 +920,16 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readResponseBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("%w: response read failed: %v", ErrAmbiguousNetworkTimeout, err)
+		return nil, fmt.Errorf("%w: response read failed: %w", ErrAmbiguousNetworkTimeout, err)
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, ErrForbidden
+		return nil, parseForbiddenError(resp, bodyBytes)
 	}
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		var apiErr APIErrorResponse
@@ -848,7 +1004,7 @@ func (c *Client) CancelPayoutItem(ctx context.Context, payoutItemID string) (*Pa
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readResponseBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read cancel payout item response: %w", err)
 	}
@@ -860,7 +1016,7 @@ func (c *Client) CancelPayoutItem(ctx context.Context, payoutItemID string) (*Pa
 		return nil, ErrUnauthorized
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, ErrForbidden
+		return nil, parseForbiddenError(resp, bodyBytes)
 	}
 	if resp.StatusCode != http.StatusOK {
 		sanitizedBody := logger.SanitizeText(string(bodyBytes))

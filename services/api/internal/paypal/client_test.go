@@ -1,7 +1,9 @@
 package paypal
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -901,4 +903,630 @@ func TestClient_CreatePayout_DuplicateResponseWithHATEOAS(t *testing.T) {
 	if dupErr.OriginalBatchID != "ORIGINAL-BATCH-XYZ-789" {
 		t.Errorf("expected original batch ID ORIGINAL-BATCH-XYZ-789, got %q", dupErr.OriginalBatchID)
 	}
+}
+
+
+func TestHasPayoutsScope(t *testing.T) {
+	tests := []struct {
+		name     string
+		scopeStr string
+		expected bool
+	}{
+		{
+			name:     "exact single scope",
+			scopeStr: "https://uri.paypal.com/payments/payouts",
+			expected: true,
+		},
+		{
+			name:     "multiple scopes including payouts",
+			scopeStr: "openid https://uri.paypal.com/payments/payouts https://api.paypal.com/v1/vault/credit-card",
+			expected: true,
+		},
+		{
+			name:     "tab and newline delimited",
+			scopeStr: "openid\t\nhttps://uri.paypal.com/payments/payouts\nhttps://api.paypal.com",
+			expected: true,
+		},
+		{
+			name:     "prefix match must not match",
+			scopeStr: "https://uri.paypal.com/payments/payouts/extra",
+			expected: false,
+		},
+		{
+			name:     "suffix match must not match",
+			scopeStr: "myhttps://uri.paypal.com/payments/payouts",
+			expected: false,
+		},
+		{
+			name:     "empty scope",
+			scopeStr: "",
+			expected: false,
+		},
+		{
+			name:     "other scopes only",
+			scopeStr: "openid profile email https://api.paypal.com/v1/payments/.*",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := HasPayoutsScope(tc.scopeStr)
+			if actual != tc.expected {
+				t.Errorf("HasPayoutsScope(%q) = %t, expected %t", tc.scopeStr, actual, tc.expected)
+			}
+		})
+	}
+}
+
+func TestClient_GetAccessToken_PayoutsScopeDetection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(OAuthTokenResponse{
+			AccessToken: "TOKEN-WITH-PAYOUTS",
+			TokenType:   "Bearer",
+			ExpiresIn:   3600,
+			AppID:       "APP-SCOPE-TEST",
+			Scope:       "openid https://uri.paypal.com/payments/payouts email",
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "client_id",
+		PayPalClientSecret:   "client_secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create test client: %v", err)
+	}
+
+	token, err := client.GetAccessToken(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccessToken failed: %v", err)
+	}
+	if token != "TOKEN-WITH-PAYOUTS" {
+		t.Errorf("unexpected token: %s", token)
+	}
+	if !client.HasPayoutsScope() {
+		t.Errorf("expected client.HasPayoutsScope() to be true")
+	}
+}
+
+func TestAPIForbiddenError_StructuredDiagnostics(t *testing.T) {
+	body := []byte(`{
+		"name": "NOT_AUTHORIZED",
+		"message": "Authorization error",
+		"debug_id": "test-debug-999",
+		"details": [
+			{"issue": "PERMISSION_DENIED"}
+		]
+	}`)
+
+	req, _ := http.NewRequest(http.MethodPost, "http://example.com", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Header:     http.Header{"Paypal-Debug-Id": []string{"header-debug-id"}},
+		Request:    req,
+	}
+
+	err := parseForbiddenError(resp, body)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected errors.Is(err, ErrForbidden) to be true")
+	}
+
+	fe, ok := AsAPIForbiddenError(err)
+	if !ok {
+		t.Fatalf("expected AsAPIForbiddenError to return true")
+	}
+
+	if fe.Name != "NOT_AUTHORIZED" {
+		t.Errorf("expected Name NOT_AUTHORIZED, got: %s", fe.Name)
+	}
+	if fe.Issue != "PERMISSION_DENIED" {
+		t.Errorf("expected Issue PERMISSION_DENIED, got: %s", fe.Issue)
+	}
+	if fe.DebugID != "test-debug-999" {
+		t.Errorf("expected DebugID test-debug-999, got: %s", fe.DebugID)
+	}
+	if !strings.Contains(fe.Error(), "name=NOT_AUTHORIZED") ||
+		!strings.Contains(fe.Error(), "issue=PERMISSION_DENIED") ||
+		!strings.Contains(fe.Error(), "debug_id=test-debug-999") {
+		t.Errorf("unexpected fe.Error() string: %s", fe.Error())
+	}
+}
+
+func TestClient_CreatePayout_HTTP403StructuredDiagnostics(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/oauth2/token" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(OAuthTokenResponse{
+				AccessToken: "TEST-TOKEN",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+				AppID:       "APP-TEST",
+				Scope:       "openid",
+			})
+			return
+		}
+		if r.URL.Path == "/v1/payments/payouts" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Paypal-Debug-Id", "hdr-dbg-888")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{
+				"name": "INSUFFICIENT_PERMISSIONS",
+				"message": "User not authorized for payouts",
+				"debug_id": "body-dbg-888",
+				"details": [{"issue": "PAYOUTS_NOT_ENABLED"}]
+			}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cfg := &config.Config{
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        ts.URL,
+		PayPalClientID:       "client_id",
+		PayPalClientSecret:   "client_secret",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	client, err := NewTestClient(cfg, ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create test client: %v", err)
+	}
+
+	req := CreatePayoutRequest{
+		SenderBatchID: "BATCH-403-TEST",
+		SenderItemID:  "ITEM-403-TEST",
+		Recipient:     "test@example.com",
+		Amount:        "1.00",
+		Currency:      "USD",
+	}
+
+	_, pErr := client.CreatePayout(context.Background(), req)
+	if pErr == nil {
+		t.Fatal("expected CreatePayout to return error, got nil")
+	}
+
+	if !errors.Is(pErr, ErrForbidden) {
+		t.Fatalf("expected errors.Is(pErr, ErrForbidden) to be true, got: %v", pErr)
+	}
+
+	fe, ok := AsAPIForbiddenError(pErr)
+	if !ok {
+		t.Fatalf("expected AsAPIForbiddenError to be true, got %T: %v", pErr, pErr)
+	}
+
+	if fe.Name != "INSUFFICIENT_PERMISSIONS" {
+		t.Errorf("expected Name INSUFFICIENT_PERMISSIONS, got: %s", fe.Name)
+	}
+	if fe.Issue != "PAYOUTS_NOT_ENABLED" {
+		t.Errorf("expected Issue PAYOUTS_NOT_ENABLED, got: %s", fe.Issue)
+	}
+	if fe.DebugID != "body-dbg-888" {
+		t.Errorf("expected DebugID body-dbg-888, got: %s", fe.DebugID)
+	}
+}
+
+
+func TestSanitizeDiagnosticField_ControlCharsAndLength(t *testing.T) {
+	// Long string with control characters and newlines
+	longInput := "  MALICIOUS_ERROR_NAME\r\n\t[INJECTION]\x00\x1b[31m" + strings.Repeat("A", 200)
+	sanitized := sanitizeDiagnosticField(longInput, MaxDiagnosticFieldLength)
+
+	if len(sanitized) > MaxDiagnosticFieldLength {
+		t.Errorf("expected length <= %d, got %d", MaxDiagnosticFieldLength, len(sanitized))
+	}
+	if strings.ContainsAny(sanitized, "\r\n\t\x00\x1b") {
+		t.Errorf("sanitized string contains control characters: %q", sanitized)
+	}
+}
+
+func TestParseForbiddenError_MalformedAndOversized(t *testing.T) {
+	// 1. Malformed JSON
+	req, _ := http.NewRequest(http.MethodPost, "http://example.com", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Header:     http.Header{"Paypal-Debug-Id": []string{"debug-header-only"}},
+		Request:    req,
+	}
+	malformedBody := []byte(`{not valid json at all...`)
+	err := parseForbiddenError(resp, malformedBody)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected errors.Is(err, ErrForbidden) on malformed body, got: %v", err)
+	}
+	fe, ok := AsAPIForbiddenError(err)
+	if !ok {
+		t.Fatalf("expected AsAPIForbiddenError to succeed from header debug id")
+	}
+	if fe.DebugID != "debug-header-only" {
+		t.Errorf("expected DebugID from header, got: %s", fe.DebugID)
+	}
+
+	// 2. Completely empty body and headers
+	emptyResp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Request:    req,
+	}
+	errEmpty := parseForbiddenError(emptyResp, nil)
+	if errEmpty != ErrForbidden {
+		t.Errorf("expected base ErrForbidden when body and headers are empty, got: %v", errEmpty)
+	}
+
+	// 3. Oversized fields in JSON
+	hugeIssue := strings.Repeat("ISSUE_", 50)
+	hugeName := strings.Repeat("NAME_", 50)
+	oversizedBody := []byte(fmt.Sprintf(`{
+		"name": %q,
+		"details": [{"issue": %q}]
+	}`, hugeName, hugeIssue))
+
+	errOver := parseForbiddenError(resp, oversizedBody)
+	feOver, ok := AsAPIForbiddenError(errOver)
+	if !ok {
+		t.Fatalf("expected AsAPIForbiddenError to succeed")
+	}
+	if len(feOver.Name) > MaxDiagnosticFieldLength {
+		t.Errorf("expected Name length <= %d, got %d", MaxDiagnosticFieldLength, len(feOver.Name))
+	}
+	if len(feOver.Issue) > MaxDiagnosticFieldLength {
+		t.Errorf("expected Issue length <= %d, got %d", MaxDiagnosticFieldLength, len(feOver.Issue))
+	}
+}
+
+func TestReadResponseBody_StrictLimits(t *testing.T) {
+	t.Run("nil reader returns nil", func(t *testing.T) {
+		data, err := readResponseBody(nil)
+		if err != nil {
+			t.Fatalf("expected nil error for nil reader, got: %v", err)
+		}
+		if data != nil {
+			t.Fatalf("expected nil data for nil reader, got: %v", data)
+		}
+	})
+
+	t.Run("exact limit response is accepted", func(t *testing.T) {
+		exactData := bytes.Repeat([]byte("A"), MaxResponseBodyBytes)
+		reader := bytes.NewReader(exactData)
+
+		data, err := readResponseBody(reader)
+		if err != nil {
+			t.Fatalf("expected success for exact limit (%d bytes), got error: %v", MaxResponseBodyBytes, err)
+		}
+		if len(data) != MaxResponseBodyBytes {
+			t.Fatalf("expected %d bytes, got %d", MaxResponseBodyBytes, len(data))
+		}
+		if !bytes.Equal(data, exactData) {
+			t.Fatal("data read does not match original exact data")
+		}
+	})
+
+	t.Run("one byte over limit is rejected with typed error", func(t *testing.T) {
+		oneByteOver := bytes.Repeat([]byte("B"), MaxResponseBodyBytes+1)
+		reader := bytes.NewReader(oneByteOver)
+
+		data, err := readResponseBody(reader)
+		if err == nil {
+			t.Fatal("expected error for response 1 byte over limit, got nil")
+		}
+		if data != nil {
+			t.Fatalf("expected nil data on oversized error, got %d bytes", len(data))
+		}
+		if !errors.Is(err, ErrOversizedResponse) {
+			t.Fatalf("expected errors.Is(err, ErrOversizedResponse), got: %v", err)
+		}
+		var ore *OversizedResponseError
+		if !errors.As(err, &ore) {
+			t.Fatalf("expected error to be *OversizedResponseError, got: %T", err)
+		}
+		if ore.Limit != MaxResponseBodyBytes {
+			t.Fatalf("expected Limit %d, got %d", MaxResponseBodyBytes, ore.Limit)
+		}
+	})
+
+	t.Run("large response with valid JSON prefix is rejected without leak", func(t *testing.T) {
+		sensitiveSecret := "SECRET_TOKEN_DO_NOT_LEAK_99999"
+		prefix := fmt.Sprintf(`{"name":"NOT_AUTHORIZED","token":%q,"message":"forbidden"}`, sensitiveSecret)
+		// Pad beyond limit
+		padding := strings.Repeat(" ", MaxResponseBodyBytes+500)
+		oversizedPayload := []byte(prefix + padding)
+
+		reader := bytes.NewReader(oversizedPayload)
+		data, err := readResponseBody(reader)
+		if err == nil {
+			t.Fatal("expected error for oversized response starting with JSON, got nil")
+		}
+		if data != nil {
+			t.Fatalf("expected nil data on oversized error, got %d bytes", len(data))
+		}
+		if !errors.Is(err, ErrOversizedResponse) {
+			t.Fatalf("expected errors.Is(err, ErrOversizedResponse), got: %v", err)
+		}
+
+		// Ensure error string does not leak the sensitive secret, token, or JSON content
+		errMsg := err.Error()
+		if strings.Contains(errMsg, sensitiveSecret) {
+			t.Fatalf("security violation: sensitive secret leaked in error string: %s", errMsg)
+		}
+		if strings.Contains(errMsg, "NOT_AUTHORIZED") {
+			t.Fatalf("provider payload leaked in error string: %s", errMsg)
+		}
+		if strings.Contains(errMsg, "forbidden") {
+			t.Fatalf("provider payload leaked in error string: %s", errMsg)
+		}
+	})
+
+	t.Run("underlying io error is propagated", func(t *testing.T) {
+		expectedErr := errors.New("simulated network read failure")
+		errReader := &faultyReader{err: expectedErr}
+
+		data, err := readResponseBody(errReader)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if data != nil {
+			t.Fatalf("expected nil data on io error, got %d bytes", len(data))
+		}
+		if errors.Is(err, ErrOversizedResponse) {
+			t.Fatal("io error should not be classified as ErrOversizedResponse")
+		}
+		if !errors.Is(err, expectedErr) {
+			t.Fatalf("expected underlying error to be preserved, got: %v", err)
+		}
+	})
+}
+
+type faultyReader struct {
+	err error
+}
+
+func (r *faultyReader) Read(p []byte) (n int, err error) {
+	return 0, r.err
+}
+
+func TestClient_OversizedResponse_Endpoints(t *testing.T) {
+	t.Run("GetAccessToken rejects oversized response and preserves no leak", func(t *testing.T) {
+		sensitiveSecret := "LEAK_SENSITIVE_OAUTH_TOKEN_VALUE_42"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			// Send valid JSON start with secret, padded beyond MaxResponseBodyBytes
+			w.Write([]byte(fmt.Sprintf(`{"access_token":%q,"token_type":"Bearer","expires_in":3600,"scope":"payouts",`, sensitiveSecret)))
+			padding := make([]byte, MaxResponseBodyBytes+500)
+			for i := range padding {
+				padding[i] = ' '
+			}
+			w.Write(padding)
+			w.Write([]byte(`"end":true}`))
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			AppEnv:             "development",
+			PayPalEnv:          "sandbox",
+			PayPalBaseURL:      server.URL,
+			PayPalClientID:     "client123",
+			PayPalClientSecret: "secret456",
+		}
+		client, err := NewTestClient(cfg, server.Client(), server.URL)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+
+		token, err := client.GetAccessToken(context.Background())
+		if err == nil {
+			t.Fatal("expected GetAccessToken to fail on oversized response, got nil error")
+		}
+		if token != "" {
+			t.Fatalf("expected empty token on error, got %q", token)
+		}
+		if !errors.Is(err, ErrOversizedResponse) {
+			t.Fatalf("expected errors.Is(err, ErrOversizedResponse), got: %v", err)
+		}
+		if strings.Contains(err.Error(), sensitiveSecret) {
+			t.Fatalf("security violation: secret leaked in error string: %s", err.Error())
+		}
+	})
+
+	t.Run("GetAccessToken rejects oversized HTTP 403 without parsing body", func(t *testing.T) {
+		sensitiveMessage := "SECRET_INTERNAL_403_MESSAGE"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Paypal-Debug-Id", "dbg-403-hdr")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(fmt.Sprintf(`{"name":"NOT_AUTHORIZED","message":%q,"details":[{"issue":"RESTRICTED"}]}`, sensitiveMessage)))
+			padding := make([]byte, MaxResponseBodyBytes+100)
+			for i := range padding {
+				padding[i] = ' '
+			}
+			w.Write(padding)
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			AppEnv:             "development",
+			PayPalEnv:          "sandbox",
+			PayPalBaseURL:      server.URL,
+			PayPalClientID:     "client123",
+			PayPalClientSecret: "secret456",
+		}
+		client, err := NewTestClient(cfg, server.Client(), server.URL)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+
+		_, err = client.GetAccessToken(context.Background())
+		if err == nil {
+			t.Fatal("expected error on oversized 403 response, got nil")
+		}
+		if !errors.Is(err, ErrOversizedResponse) {
+			t.Fatalf("expected errors.Is(err, ErrOversizedResponse), got: %v", err)
+		}
+		if strings.Contains(err.Error(), sensitiveMessage) {
+			t.Fatalf("security violation: message leaked in error string: %s", err.Error())
+		}
+		// Oversized body was aborted before parseForbiddenError, so ErrForbidden is NOT wrapped
+		if errors.Is(err, ErrForbidden) {
+			t.Fatalf("oversized body should fail with ErrOversizedResponse before reaching 403 parser")
+		}
+	})
+
+	t.Run("GetPayoutBatch rejects oversized response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v1/oauth2/token" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(OAuthTokenResponse{
+					AccessToken: "valid-token",
+					TokenType:   "Bearer",
+					ExpiresIn:   3600,
+					Scope:       PayPalPayoutsScope,
+				})
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			padding := make([]byte, MaxResponseBodyBytes+1000)
+			for i := range padding {
+				padding[i] = 'X'
+			}
+			w.Write(padding)
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			AppEnv:             "development",
+			PayPalEnv:          "sandbox",
+			PayPalBaseURL:      server.URL,
+			PayPalClientID:     "client123",
+			PayPalClientSecret: "secret456",
+		}
+		client, err := NewTestClient(cfg, server.Client(), server.URL)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+
+		batch, err := client.GetPayoutBatch(context.Background(), "batch-123")
+		if err == nil {
+			t.Fatal("expected error on oversized batch response, got nil")
+		}
+		if batch != nil {
+			t.Fatalf("expected nil batch on error, got %v", batch)
+		}
+		if !errors.Is(err, ErrOversizedResponse) {
+			t.Fatalf("expected errors.Is(err, ErrOversizedResponse), got: %v", err)
+		}
+	})
+
+	t.Run("CreatePayout marks oversized response with ErrAmbiguousNetworkTimeout and ErrOversizedResponse", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v1/oauth2/token" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(OAuthTokenResponse{
+					AccessToken: "valid-token",
+					TokenType:   "Bearer",
+					ExpiresIn:   3600,
+					Scope:       PayPalPayoutsScope,
+				})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			padding := make([]byte, MaxResponseBodyBytes+500)
+			for i := range padding {
+				padding[i] = 'Y'
+			}
+			w.Write(padding)
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			AppEnv:             "development",
+			PayPalEnv:          "sandbox",
+			PayPalBaseURL:      server.URL,
+			PayPalClientID:     "client123",
+			PayPalClientSecret: "secret456",
+		}
+		client, err := NewTestClient(cfg, server.Client(), server.URL)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+
+		resp, err := client.CreatePayout(context.Background(), CreatePayoutRequest{
+			SenderBatchID: "sb-123",
+			SenderItemID:  "item-123",
+			Recipient:     "recipient@example.com",
+			Amount:        "1.00",
+			Currency:      "USD",
+		})
+		if err == nil {
+			t.Fatal("expected CreatePayout to fail on oversized response, got nil error")
+		}
+		if resp != nil {
+			t.Fatalf("expected nil response on error, got: %v", resp)
+		}
+		if !errors.Is(err, ErrAmbiguousNetworkTimeout) {
+			t.Fatalf("expected errors.Is(err, ErrAmbiguousNetworkTimeout), got: %v", err)
+		}
+		if !errors.Is(err, ErrOversizedResponse) {
+			t.Fatalf("expected errors.Is(err, ErrOversizedResponse), got: %v", err)
+		}
+	})
+
+	t.Run("Exact limit response with valid HTTP 403 parses correctly", func(t *testing.T) {
+		exactHeader := `{"name":"NOT_AUTHORIZED","details":[{"issue":"PAYOUTS_NOT_ELIGIBLE"}]`
+		padPrefix := `,"pad":"`
+		padSuffix := `"}`
+		neededPad := MaxResponseBodyBytes - len(exactHeader) - len(padPrefix) - len(padSuffix)
+		if neededPad < 0 {
+			t.Fatalf("exactHeader is already longer than MaxResponseBodyBytes")
+		}
+		payload := []byte(exactHeader + padPrefix + strings.Repeat("x", neededPad) + padSuffix)
+		if len(payload) != MaxResponseBodyBytes {
+			t.Fatalf("expected exact payload length %d, got %d", MaxResponseBodyBytes, len(payload))
+		}
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Paypal-Debug-Id", "dbg-exact-limit")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write(payload)
+		}))
+		defer server.Close()
+
+		cfg := &config.Config{
+			AppEnv:             "development",
+			PayPalEnv:          "sandbox",
+			PayPalBaseURL:      server.URL,
+			PayPalClientID:     "client123",
+			PayPalClientSecret: "secret456",
+		}
+		client, err := NewTestClient(cfg, server.Client(), server.URL)
+		if err != nil {
+			t.Fatalf("NewClient failed: %v", err)
+		}
+
+		_, err = client.GetAccessToken(context.Background())
+		if err == nil {
+			t.Fatal("expected error on 403 exact limit response, got nil")
+		}
+		if !errors.Is(err, ErrForbidden) {
+			t.Fatalf("expected errors.Is(err, ErrForbidden), got: %v", err)
+		}
+		fe, ok := AsAPIForbiddenError(err)
+		if !ok {
+			t.Fatalf("expected AsAPIForbiddenError(err) to succeed, got: %T (%v)", err, err)
+		}
+		if fe.Name != "NOT_AUTHORIZED" {
+			t.Errorf("expected fe.Name 'NOT_AUTHORIZED', got %q", fe.Name)
+		}
+		if fe.Issue != "PAYOUTS_NOT_ELIGIBLE" {
+			t.Errorf("expected fe.Issue 'PAYOUTS_NOT_ELIGIBLE', got %q", fe.Issue)
+		}
+		if fe.DebugID != "dbg-exact-limit" {
+			t.Errorf("expected fe.DebugID 'dbg-exact-limit', got %q", fe.DebugID)
+		}
+	})
 }

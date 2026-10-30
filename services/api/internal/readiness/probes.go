@@ -430,7 +430,12 @@ func ProbePayPalOAuth(ctx context.Context, cfg *config.Config, client PayPalRead
 
 	res.Status = StatusPass
 	res.Summary = "OAuth2 Bearer token acquired & verified"
-	res.Detail = "Token cached and redacted ([REDACTED_ACCESS_TOKEN]). Target: api-m.sandbox.paypal.com"
+	if scoper, ok := client.(interface{ HasPayoutsScope() bool }); ok && !scoper.HasPayoutsScope() {
+		res.Detail = "Token cached and redacted ([REDACTED_ACCESS_TOKEN]). Warning: Payouts scope missing (payouts require 'https://uri.paypal.com/payments/payouts')."
+		res.OperatorAction = "Enable 'Payouts' under App Features in the PayPal Developer Dashboard for your Sandbox App"
+	} else {
+		res.Detail = "Token cached and redacted ([REDACTED_ACCESS_TOKEN]). Target: api-m.sandbox.paypal.com"
+	}
 	return res
 }
 

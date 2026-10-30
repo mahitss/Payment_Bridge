@@ -522,6 +522,13 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 		op.Status = "FAILED"
 		errMsg := err.Error()
 		op.ErrorMessage = &errMsg
+		if fe, ok := paypal.AsAPIForbiddenError(err); ok {
+			op.RawProviderResponse = map[string]interface{}{
+				"error_name": fe.Name,
+				"issue":      fe.Issue,
+				"debug_id":   fe.DebugID,
+			}
+		}
 		_ = s.repo.UpdatePayoutOperation(ctx, op)
 		return op, err
 	}
