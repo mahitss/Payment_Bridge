@@ -28,6 +28,7 @@ var (
 	ErrForbidden                  = errors.New("paypal operation forbidden: insufficient permissions or account restricted")
 	ErrPayoutNotFound             = errors.New("paypal payout batch or item not found")
 	ErrAmbiguousNetworkTimeout    = errors.New("ambiguous network timeout during payout mutation: DO NOT RETRY WITH NEW ID; run reconciliation")
+	ErrAmbiguousServerResponse    = errors.New("ambiguous server error (HTTP 5xx): transaction state unknown")
 	ErrInvalidPayoutRequest       = errors.New("invalid payout request: missing sender_batch_id or items")
 	ErrSandboxAssertionFailed     = errors.New("paypal environment is not sandbox")
 	ErrUntrustedHATEOASHost       = errors.New("security violation: untrusted HATEOAS host in paypal response")
@@ -51,12 +52,20 @@ func HasPayoutsScope(scopeStr string) bool {
 	return false
 }
 
+// IsAmbiguousOutcome returns whether an error represents an ambiguous outcome where PayPal may have accepted or processed the payout.
+func IsAmbiguousOutcome(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ErrAmbiguousNetworkTimeout) || errors.Is(err, ErrAmbiguousServerResponse)
+}
+
 // Client is a server-side PayPal REST API client configured strictly for Sandbox.
 type Client struct {
-	baseURL         string
-	clientID        string
-	clientSecret    string
-	httpClient      *http.Client
+	baseURL      string
+	clientID     string
+	clientSecret string
+	httpClient   *http.Client
 
 	tokenMu         sync.RWMutex
 	cachedToken     string
@@ -931,6 +940,16 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 	if resp.StatusCode == http.StatusForbidden {
 		return nil, parseForbiddenError(resp, bodyBytes)
 	}
+
+	// Ambiguous HTTP 5xx responses (500, 502, 503, 504) per ADR-005
+	if resp.StatusCode == http.StatusInternalServerError ||
+		resp.StatusCode == http.StatusBadGateway ||
+		resp.StatusCode == http.StatusServiceUnavailable ||
+		resp.StatusCode == http.StatusGatewayTimeout {
+		sanitizedBody := logger.SanitizeText(string(bodyBytes))
+		return nil, fmt.Errorf("%w: paypal create payout server error (status %d): %s", ErrAmbiguousServerResponse, resp.StatusCode, sanitizedBody)
+	}
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		var apiErr APIErrorResponse
 		if jsonErr := json.Unmarshal(bodyBytes, &apiErr); jsonErr == nil {

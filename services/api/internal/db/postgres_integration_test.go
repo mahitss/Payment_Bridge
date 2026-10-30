@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -604,4 +606,314 @@ func TestPostgres_CountAuditEvents(t *testing.T) {
 	if countB != 1 {
 		t.Errorf("expected count 1 for case 1 in org B, got %d", countB)
 	}
+}
+
+// TestPostgres_Mission033_8_1A_Concurrency_Integration validates the partial unique index,
+// atomic submission claim, and conditional approval transitions under real PostgreSQL concurrency.
+func TestPostgres_Mission033_8_1A_Concurrency_Integration(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		t.Skip("skipping postgresql integration test: TEST_DATABASE_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	repo, err := db.NewPostgresRepository(ctx, dbURL)
+	if err != nil {
+		t.Skipf("skipping postgresql integration test: unable to connect to %s: %v", dbURL, err)
+	}
+	defer repo.Close()
+
+	if err := repo.RunMigrations(ctx); err != nil {
+		t.Fatalf("failed applying database migrations: %v", err)
+	}
+
+	// Setup User and Organization
+	passHash, _ := crypto.HashPassword("TestPass123!")
+	user := &db.User{
+		Email:         fmt.Sprintf("officer.concurrency.%d@test.com", time.Now().UnixNano()),
+		PasswordHash:  passHash,
+		Name:          "Officer Concurrency",
+		EmailVerified: true,
+		IsActive:      true,
+	}
+	createdUser, org, err := repo.CreateUserWithPersonalOrg(ctx, user, "Concurrency Testing Org")
+	if err != nil {
+		t.Fatalf("failed creating user and org: %v", err)
+	}
+
+	// 1. Partial Unique Index: Enforces single active operation per case
+	t.Run("PartialUniqueIndex_EnforcesSingleActiveOperation", func(t *testing.T) {
+		pCase := &db.PayoutCase{
+			OrganizationID:       org.ID,
+			CreatedByUserID:      createdUser.ID,
+			Reference:            fmt.Sprintf("CASE-CONC-%d", time.Now().UnixNano()),
+			RecipientEmail:       "test@example.com",
+			RecipientName:        "Test User",
+			Title:                "Partial Unique Index Test",
+			AmountCents:          10000,
+			Currency:             "USD",
+			Status:               "DRAFT",
+			DualApprovalRequired: false,
+		}
+		if err := repo.CreatePayoutCase(ctx, pCase); err != nil {
+			t.Fatalf("failed creating case: %v", err)
+		}
+
+		// First active operation (PREPARED) succeeds
+		op1 := &db.PayoutOperation{
+			PayoutCaseID:      pCase.ID,
+			OrganizationID:    org.ID,
+			InitiatedByUserID: createdUser.ID,
+			SenderBatchID:     fmt.Sprintf("BATCH-%d-1", time.Now().UnixNano()),
+			SenderItemID:      fmt.Sprintf("ITEM-%d-1", time.Now().UnixNano()),
+			AmountCents:       10000,
+			Currency:          "USD",
+			Status:            "PREPARED",
+		}
+		if err := repo.CreatePayoutOperation(ctx, op1); err != nil {
+			t.Fatalf("failed creating op1: %v", err)
+		}
+
+		// Second active operation (PREPARED) on the same case MUST fail with ErrActivePayoutOperationConflict
+		op2 := &db.PayoutOperation{
+			PayoutCaseID:      pCase.ID,
+			OrganizationID:    org.ID,
+			InitiatedByUserID: createdUser.ID,
+			SenderBatchID:     fmt.Sprintf("BATCH-%d-2", time.Now().UnixNano()),
+			SenderItemID:      fmt.Sprintf("ITEM-%d-2", time.Now().UnixNano()),
+			AmountCents:       10000,
+			Currency:          "USD",
+			Status:            "PREPARED",
+		}
+		err = repo.CreatePayoutOperation(ctx, op2)
+		if err == nil {
+			t.Fatal("expected conflict creating second active operation for same case, got nil")
+		}
+		if !errors.Is(err, db.ErrActivePayoutOperationConflict) {
+			t.Errorf("expected ErrActivePayoutOperationConflict, got: %v", err)
+		}
+
+		// Transition op1 to CANCELLED (terminal status)
+		op1.Status = "CANCELLED"
+		if err := repo.UpdatePayoutOperation(ctx, op1); err != nil {
+			t.Fatalf("failed updating op1 to CANCELLED: %v", err)
+		}
+
+		// Now creating an active operation on the same case MUST succeed
+		op3 := &db.PayoutOperation{
+			PayoutCaseID:      pCase.ID,
+			OrganizationID:    org.ID,
+			InitiatedByUserID: createdUser.ID,
+			SenderBatchID:     fmt.Sprintf("BATCH-%d-3", time.Now().UnixNano()),
+			SenderItemID:      fmt.Sprintf("ITEM-%d-3", time.Now().UnixNano()),
+			AmountCents:       10000,
+			Currency:          "USD",
+			Status:            "PREPARED",
+		}
+		if err := repo.CreatePayoutOperation(ctx, op3); err != nil {
+			t.Fatalf("expected op3 to succeed after op1 was CANCELLED, got: %v", err)
+		}
+
+		// Transition op3 to FAILED (terminal status)
+		op3.Status = "FAILED"
+		if err := repo.UpdatePayoutOperation(ctx, op3); err != nil {
+			t.Fatalf("failed updating op3 to FAILED: %v", err)
+		}
+
+		// Now creating another active operation succeeds again
+		op4 := &db.PayoutOperation{
+			PayoutCaseID:      pCase.ID,
+			OrganizationID:    org.ID,
+			InitiatedByUserID: createdUser.ID,
+			SenderBatchID:     fmt.Sprintf("BATCH-%d-4", time.Now().UnixNano()),
+			SenderItemID:      fmt.Sprintf("ITEM-%d-4", time.Now().UnixNano()),
+			AmountCents:       10000,
+			Currency:          "USD",
+			Status:            "PREPARED",
+		}
+		if err := repo.CreatePayoutOperation(ctx, op4); err != nil {
+			t.Fatalf("expected op4 to succeed after op3 was FAILED, got: %v", err)
+		}
+	})
+
+	// 2. Atomic Submission Claim under real PostgreSQL concurrency
+	t.Run("AtomicSubmissionClaim_PostgresConcurrency", func(t *testing.T) {
+		pCase := &db.PayoutCase{
+			OrganizationID:       org.ID,
+			CreatedByUserID:      createdUser.ID,
+			Reference:            fmt.Sprintf("CASE-CLAIM-%d", time.Now().UnixNano()),
+			RecipientEmail:       "test@example.com",
+			RecipientName:        "Test User",
+			Title:                "Submission Claim Concurrency Test",
+			AmountCents:          10000,
+			Currency:             "USD",
+			Status:               "DRAFT",
+			DualApprovalRequired: false,
+		}
+		if err := repo.CreatePayoutCase(ctx, pCase); err != nil {
+			t.Fatalf("failed creating case: %v", err)
+		}
+
+		op := &db.PayoutOperation{
+			PayoutCaseID:      pCase.ID,
+			OrganizationID:    org.ID,
+			InitiatedByUserID: createdUser.ID,
+			SenderBatchID:     fmt.Sprintf("BATCH-SUB-%d", time.Now().UnixNano()),
+			SenderItemID:      fmt.Sprintf("ITEM-SUB-%d", time.Now().UnixNano()),
+			AmountCents:       10000,
+			Currency:          "USD",
+			Status:            "PREPARED",
+		}
+		if err := repo.CreatePayoutOperation(ctx, op); err != nil {
+			t.Fatalf("failed creating op: %v", err)
+		}
+
+		concurrency := 10
+		startGate := make(chan struct{})
+		var wg sync.WaitGroup
+		var successCount int32
+		var conflictCount int32
+
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				<-startGate
+				fp := fmt.Sprintf("v2:fp-%d", idx)
+				claimedOp, claimErr := repo.ClaimPayoutOperationForSubmission(ctx, org.ID, op.ID, fp, time.Now().UTC())
+				if claimErr == nil && claimedOp != nil {
+					atomic.AddInt32(&successCount, 1)
+				} else if errors.Is(claimErr, db.ErrSubmissionClaimConflict) {
+					atomic.AddInt32(&conflictCount, 1)
+				}
+			}(i)
+		}
+
+		close(startGate)
+		wg.Wait()
+
+		if successCount != 1 {
+			t.Errorf("expected exactly 1 winning submission claim, got: %d", successCount)
+		}
+		if int(conflictCount) != concurrency-1 {
+			t.Errorf("expected %d conflict rejections, got: %d", concurrency-1, conflictCount)
+		}
+
+		finalOp, err := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+		if err != nil {
+			t.Fatalf("failed retrieving final op: %v", err)
+		}
+		if finalOp.Status != "SUBMITTING" {
+			t.Errorf("expected final op status SUBMITTING, got: %s", finalOp.Status)
+		}
+	})
+
+	// 3. Conditional Approval Transitions under real PostgreSQL concurrency
+	t.Run("ConditionalApproval_PostgresConcurrency", func(t *testing.T) {
+		pCase := &db.PayoutCase{
+			OrganizationID:       org.ID,
+			CreatedByUserID:      createdUser.ID,
+			Reference:            fmt.Sprintf("CASE-APPR-%d", time.Now().UnixNano()),
+			RecipientEmail:       "test@example.com",
+			RecipientName:        "Test User",
+			Title:                "Approval Concurrency Test",
+			AmountCents:          30000,
+			Currency:             "USD",
+			Status:               "DRAFT",
+			DualApprovalRequired: true,
+		}
+		if err := repo.CreatePayoutCase(ctx, pCase); err != nil {
+			t.Fatalf("failed creating case: %v", err)
+		}
+
+		op := &db.PayoutOperation{
+			PayoutCaseID:         pCase.ID,
+			OrganizationID:       org.ID,
+			InitiatedByUserID:    createdUser.ID,
+			SenderBatchID:        fmt.Sprintf("BATCH-APPR-%d", time.Now().UnixNano()),
+			SenderItemID:         fmt.Sprintf("ITEM-APPR-%d", time.Now().UnixNano()),
+			AmountCents:          30000,
+			Currency:             "USD",
+			Status:               "AWAITING_APPROVAL",
+			RequiresDualApproval: true,
+		}
+		if err := repo.CreatePayoutOperation(ctx, op); err != nil {
+			t.Fatalf("failed creating op: %v", err)
+		}
+
+		// Self-approval must be rejected
+		selfErr := repo.ApprovePayoutOperation(ctx, org.ID, op.ID, createdUser.ID)
+		if selfErr == nil {
+			t.Fatal("expected self-approval to fail, got nil")
+		}
+		if !errors.Is(selfErr, db.ErrSelfApprovalForbidden) {
+			t.Errorf("expected ErrSelfApprovalForbidden, got: %v", selfErr)
+		}
+
+		// Create distinct approvers
+		approverCount := 5
+		approverIDs := make([]string, approverCount)
+		for i := 0; i < approverCount; i++ {
+			appUser := &db.User{
+				Email:         fmt.Sprintf("approver.%d.%d@test.com", i, time.Now().UnixNano()),
+				PasswordHash:  passHash,
+				Name:          fmt.Sprintf("Approver %d", i),
+				EmailVerified: true,
+				IsActive:      true,
+			}
+			createdApp, _, err := repo.CreateUserWithPersonalOrg(ctx, appUser, fmt.Sprintf("Approver Org %d", i))
+			if err != nil {
+				t.Fatalf("failed creating approver %d: %v", i, err)
+			}
+			approverIDs[i] = createdApp.ID
+		}
+
+		startGate := make(chan struct{})
+		var wg sync.WaitGroup
+		var successCount int32
+		var conflictCount int32
+
+		for i := 0; i < approverCount; i++ {
+			wg.Add(1)
+			go func(appID string) {
+				defer wg.Done()
+				<-startGate
+				appErr := repo.ApprovePayoutOperation(ctx, org.ID, op.ID, appID)
+				if appErr == nil {
+					atomic.AddInt32(&successCount, 1)
+				} else if errors.Is(appErr, db.ErrInvalidOperationTransition) {
+					atomic.AddInt32(&conflictCount, 1)
+				}
+			}(approverIDs[i])
+		}
+
+		close(startGate)
+		wg.Wait()
+
+		if successCount != 1 {
+			t.Errorf("expected exactly 1 winning approval, got: %d", successCount)
+		}
+		if int(conflictCount) != approverCount-1 {
+			t.Errorf("expected %d conflict rejections, got: %d", approverCount-1, conflictCount)
+		}
+
+		finalOp, err := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+		if err != nil {
+			t.Fatalf("failed retrieving final op: %v", err)
+		}
+		if finalOp.Status != "APPROVED" {
+			t.Errorf("expected final op status APPROVED, got: %s", finalOp.Status)
+		}
+
+		// Further approval attempts must fail with ErrInvalidOperationTransition
+		extraErr := repo.ApprovePayoutOperation(ctx, org.ID, op.ID, approverIDs[0])
+		if !errors.Is(extraErr, db.ErrInvalidOperationTransition) {
+			t.Errorf("expected ErrInvalidOperationTransition on already-approved op, got: %v", extraErr)
+		}
+	})
 }

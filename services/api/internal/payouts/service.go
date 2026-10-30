@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -27,12 +28,13 @@ var (
 	ErrInvalidRecipientName              = errors.New("recipient name cannot be empty")
 	ErrInvalidTitle                      = errors.New("title cannot be empty")
 	ErrSelfApprovalForbidden             = errors.New("self-approval forbidden: dual-custody requires a distinct authorized approver")
-	ErrOperationNotApproved              = errors.New("operation requires approval before submission")
-	ErrOperationAlreadySubmitted         = errors.New("operation is already in-flight or submitted")
+	ErrOperationNotApproved              = db.ErrOperationNotApproved
+	ErrOperationAlreadySubmitted         = db.ErrOperationAlreadySubmitted
 	ErrNotEligibleForCancellation        = errors.New("operation is not eligible for cancellation; only unclaimed payouts can be cancelled")
 	ErrNoOperationsToSync                = errors.New("no payout operations found for this case to synchronize")
-	ErrActiveOperationExists             = errors.New("payout case already has an active operation in progress")
-	ErrOperationCannotBeSubmitted        = errors.New("operation cannot be submitted from current status")
+	ErrActiveOperationExists             = db.ErrActivePayoutOperationConflict
+	ErrOperationCannotBeSubmitted        = db.ErrOperationCannotBeSubmitted
+	ErrSubmissionClaimConflict           = db.ErrSubmissionClaimConflict
 	ErrCaseInTerminalState               = errors.New("cannot perform operation on case in terminal status")
 	ErrOperationAlreadyCancelled         = errors.New("payout operation is already cancelled")
 	ErrFixtureExternalOperationForbidden = errors.New("forbidden on synthetic demo fixtures: cannot perform external PayPal operation on synthetic demo fixture: demo fixtures are strictly isolated from live financial destinations")
@@ -327,11 +329,12 @@ func (s *Service) InitiatePayoutOperation(ctx context.Context, user *db.User, or
 
 	// Invariant: Payout case must not have multiple concurrent active operations
 	existingOps, err := s.repo.ListPayoutOperationsByCaseID(ctx, org.ID, caseID)
-	if err == nil {
-		for _, existing := range existingOps {
-			if existing.Status != "CANCELLED" && existing.Status != "FAILED" {
-				return nil, fmt.Errorf("%w: operation %s has status %s", ErrActiveOperationExists, existing.ID, existing.Status)
-			}
+	if err != nil {
+		return nil, fmt.Errorf("failed listing existing payout operations: %w", err)
+	}
+	for _, existing := range existingOps {
+		if existing.Status != "CANCELLED" && existing.Status != "FAILED" {
+			return nil, fmt.Errorf("%w: operation %s has status %s", ErrActiveOperationExists, existing.ID, existing.Status)
 		}
 	}
 
@@ -359,6 +362,9 @@ func (s *Service) InitiatePayoutOperation(ctx context.Context, user *db.User, or
 	}
 
 	if err := s.repo.CreatePayoutOperation(ctx, op); err != nil {
+		if errors.Is(err, db.ErrActivePayoutOperationConflict) {
+			return nil, fmt.Errorf("%w: concurrent initiation conflict", ErrActiveOperationExists)
+		}
 		return nil, fmt.Errorf("failed to persist payout operation: %w", err)
 	}
 
@@ -398,7 +404,7 @@ func (s *Service) ApprovePayoutOperation(ctx context.Context, user *db.User, org
 	}
 
 	if op.Status != "AWAITING_APPROVAL" {
-		return nil, fmt.Errorf("operation cannot be approved from status: %s", op.Status)
+		return nil, fmt.Errorf("%w: operation status is %s (must be AWAITING_APPROVAL)", db.ErrInvalidOperationTransition, op.Status)
 	}
 
 	if err := s.repo.ApprovePayoutOperation(ctx, org.ID, opID, user.ID); err != nil {
@@ -464,17 +470,18 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 
 	// Verify no other operation on the case was already submitted or succeeded
 	existingOps, err := s.repo.ListPayoutOperationsByCaseID(ctx, org.ID, caseID)
-	if err == nil {
-		for _, existing := range existingOps {
-			if existing.ID != op.ID {
-				if existing.Status == "SUBMITTING" || existing.Status == "SUBMITTED" || existing.Status == "SUCCEEDED" || existing.Status == "RECONCILIATION_REQUIRED" {
-					return nil, fmt.Errorf("%w: case already has active submitted operation %s in status %s", ErrOperationAlreadySubmitted, existing.ID, existing.Status)
-				}
+	if err != nil {
+		return nil, fmt.Errorf("failed listing case payout operations: %w", err)
+	}
+	for _, existing := range existingOps {
+		if existing.ID != op.ID {
+			if existing.Status == "SUBMITTING" || existing.Status == "SUBMITTED" || existing.Status == "SUCCEEDED" || existing.Status == "RECONCILIATION_REQUIRED" {
+				return nil, fmt.Errorf("%w: case already has active submitted operation %s in status %s", ErrOperationAlreadySubmitted, existing.ID, existing.Status)
 			}
 		}
 	}
 
-	// 1. Compute canonical fingerprint and transactionally transition to SUBMITTING before outbound call
+	// 1. Compute canonical outbound request and submission fingerprint
 	amountStr := fmt.Sprintf("%.2f", float64(op.AmountCents)/100.0)
 	paypalReq := paypal.CreatePayoutRequest{
 		SenderBatchID: op.SenderBatchID,
@@ -487,24 +494,80 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 	}
 
 	fp := ComputeSubmissionFingerprint(paypalReq)
-	op.SubmissionFingerprint = &fp
-	op.Status = "SUBMITTING"
 	now := time.Now().UTC()
-	op.SubmittedAt = &now
-	if err := s.repo.UpdatePayoutOperation(ctx, op); err != nil {
-		return nil, fmt.Errorf("failed to update operation to SUBMITTING: %w", err)
-	}
 
-	// 2. Call PayPal Sandbox
+	// Atomic conditional repository transition to SUBMITTING before outbound call
+	claimedOp, err := s.repo.ClaimPayoutOperationForSubmission(ctx, org.ID, op.ID, fp, now)
+	if err != nil {
+		if errors.Is(err, db.ErrSubmissionClaimConflict) {
+			return nil, ErrOperationAlreadySubmitted
+		}
+		return nil, err
+	}
+	op = claimedOp
+
+	// 2. Call PayPal Sandbox - only the single winning caller dispatches outbound POST
 	paypalResp, err := s.paypalClient.CreatePayout(ctx, paypalReq)
 	if err != nil {
-		// SAFETY: If ambiguous timeout, transition to RECONCILIATION_REQUIRED
-		if errors.Is(err, paypal.ErrAmbiguousNetworkTimeout) {
-			op.Status = "RECONCILIATION_REQUIRED"
-			errMsg := err.Error()
-			op.ErrorMessage = &errMsg
-			_ = s.repo.UpdatePayoutOperation(ctx, op)
+		// Existing duplicate-response HATEOAS recovery behavior
+		var dupErr *paypal.DuplicatePayoutError
+		if errors.As(err, &dupErr) {
+			reconOp := *op
+			reconOp.Status = "RECONCILIATION_REQUIRED"
+			if dupErr.OriginalBatchID != "" {
+				reconOp.PayPalPayoutBatchID = &dupErr.OriginalBatchID
+			}
+			errMsg := fmt.Sprintf("Duplicate submission detected: %s", dupErr.Message)
+			reconOp.ErrorMessage = &errMsg
+			if updateErr := s.repo.UpdatePayoutOperation(ctx, &reconOp); updateErr != nil {
+				slog.ErrorContext(ctx, "Failed to persist RECONCILIATION_REQUIRED on duplicate response; preserving SUBMITTING",
+					slog.String("operation_id", op.ID),
+					slog.Any("update_error", updateErr),
+					slog.Any("duplicate_error", dupErr))
+				return op, fmt.Errorf("duplicate provider response received but failed to persist RECONCILIATION_REQUIRED state: %w", updateErr)
+			}
+			*op = reconOp
+			_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+				UserID:         &user.ID,
+				OrganizationID: &org.ID,
+				EventType:      "PAYOUT_AMBIGUOUS_DUPLICATE_DETECTED",
+				Metadata: map[string]interface{}{
+					"operation_id":           op.ID,
+					"sender_batch_id":        op.SenderBatchID,
+					"paypal_payout_batch_id": dupErr.OriginalBatchID,
+				},
+			})
+			return op, err
+		}
 
+		// Ambiguous outcome: timeouts, connection resets, response read failures, HTTP 500/502/503/504
+		if paypal.IsAmbiguousOutcome(err) {
+			errMsg := err.Error()
+			reconOp := *op
+			reconOp.Status = "RECONCILIATION_REQUIRED"
+			reconOp.ErrorMessage = &errMsg
+			if updateErr := s.repo.UpdatePayoutOperation(ctx, &reconOp); updateErr != nil {
+				// If persistence fails, preserve and report the unresolved SUBMITTING state honestly
+				slog.ErrorContext(ctx, "Failed to persist RECONCILIATION_REQUIRED status; preserving unresolved SUBMITTING state",
+					slog.String("operation_id", op.ID),
+					slog.String("sender_batch_id", op.SenderBatchID),
+					slog.Any("update_error", updateErr),
+					slog.Any("provider_error", err))
+				_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+					UserID:         &user.ID,
+					OrganizationID: &org.ID,
+					EventType:      "PAYOUT_RECONCILIATION_TRANSITION_FAILED",
+					Metadata: map[string]interface{}{
+						"operation_id":    op.ID,
+						"sender_batch_id": op.SenderBatchID,
+						"provider_error":  errMsg,
+						"persist_error":   updateErr.Error(),
+						"current_status":  op.Status, // "SUBMITTING"
+					},
+				})
+				return op, fmt.Errorf("ambiguous provider response occurred (%w) but failed to persist RECONCILIATION_REQUIRED state: %v", err, updateErr)
+			}
+			*op = reconOp
 			_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
 				UserID:         &user.ID,
 				OrganizationID: &org.ID,
@@ -518,7 +581,7 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 			return op, err
 		}
 
-		// Definitive error
+		// Definitive error: HTTP 400, 401, 403, 422, etc.
 		op.Status = "FAILED"
 		errMsg := err.Error()
 		op.ErrorMessage = &errMsg
