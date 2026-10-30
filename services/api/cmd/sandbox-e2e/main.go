@@ -381,6 +381,20 @@ func runWithDeps(args []string, stdout, stderr io.Writer, injectedClient *paypal
 	}
 	report.Amount = formattedAmount
 
+	// Safeguard 5: Required Payouts OAuth scope
+	if !client.HasPayoutsScope() {
+		fmt.Fprintln(stderr, "\n--------------------------------------------------------------------------------")
+		fmt.Fprintln(stderr, "[STATUS: BLOCKED] PayPal Sandbox OAuth Token Missing Payouts Scope")
+		fmt.Fprintln(stderr, "--------------------------------------------------------------------------------")
+		fmt.Fprintf(stderr, "The acquired OAuth2 access token does not have the required Payouts scope:\n")
+		fmt.Fprintf(stderr, "  • Required Scope: %s\n", paypal.PayPalPayoutsScope)
+		fmt.Fprintln(stderr, "Action: Enable 'Payouts' permission under App Features in the PayPal Developer Dashboard.")
+		report.Outcome = "BLOCKED"
+		report.Details = fmt.Sprintf("PayPal Sandbox OAuth token missing required Payouts permission scope (%s)", paypal.PayPalPayoutsScope)
+		writeReportsIfEnabled(report, *reportDirFlag, *noReportFileFlag, stdout)
+		return ExitCodeBlocked
+	}
+
 	// Ensure we have a database repository
 	if repo == nil {
 		fmt.Fprintln(stderr, "\n[ERROR] Database repository is not available.")
