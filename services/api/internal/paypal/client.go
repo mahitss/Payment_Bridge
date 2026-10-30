@@ -29,6 +29,7 @@ var (
 	ErrPayoutNotFound             = errors.New("paypal payout batch or item not found")
 	ErrAmbiguousNetworkTimeout    = errors.New("ambiguous network timeout during payout mutation: DO NOT RETRY WITH NEW ID; run reconciliation")
 	ErrAmbiguousServerResponse    = errors.New("ambiguous server error (HTTP 5xx): transaction state unknown")
+	ErrAmbiguousMalformedSuccess  = errors.New("ambiguous successful response: provider returned 200/201 but response body was empty, malformed, or missing payout_batch_id")
 	ErrInvalidPayoutRequest       = errors.New("invalid payout request: missing sender_batch_id or items")
 	ErrSandboxAssertionFailed     = errors.New("paypal environment is not sandbox")
 	ErrUntrustedHATEOASHost       = errors.New("security violation: untrusted HATEOAS host in paypal response")
@@ -57,7 +58,9 @@ func IsAmbiguousOutcome(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, ErrAmbiguousNetworkTimeout) || errors.Is(err, ErrAmbiguousServerResponse)
+	return errors.Is(err, ErrAmbiguousNetworkTimeout) ||
+		errors.Is(err, ErrAmbiguousServerResponse) ||
+		errors.Is(err, ErrAmbiguousMalformedSuccess)
 }
 
 // Client is a server-side PayPal REST API client configured strictly for Sandbox.
@@ -989,9 +992,19 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 		return nil, fmt.Errorf("paypal create payout failed with status %d: %s", resp.StatusCode, sanitizedBody)
 	}
 
+	if len(bytes.TrimSpace(bodyBytes)) == 0 {
+		return nil, fmt.Errorf("%w: successful response body was empty (status %d)", ErrAmbiguousMalformedSuccess, resp.StatusCode)
+	}
+
 	var payoutResp CreatePayoutResponse
 	if err := json.Unmarshal(bodyBytes, &payoutResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal payout creation response: %w", err)
+		sanitizedBody := logger.SanitizeText(string(bodyBytes))
+		return nil, fmt.Errorf("%w: failed to unmarshal payout creation response (status %d): %v; body: %s", ErrAmbiguousMalformedSuccess, resp.StatusCode, err, sanitizedBody)
+	}
+
+	payoutBatchID := strings.TrimSpace(payoutResp.BatchHeader.PayoutBatchID)
+	if payoutBatchID == "" {
+		return nil, fmt.Errorf("%w: successful payout response missing payout_batch_id in batch_header (status %d)", ErrAmbiguousMalformedSuccess, resp.StatusCode)
 	}
 
 	return &payoutResp, nil

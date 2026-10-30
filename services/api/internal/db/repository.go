@@ -31,11 +31,6 @@ var (
 	ErrOperationNotApproved          = errors.New("operation requires approval before submission")
 	ErrOperationCannotBeSubmitted    = errors.New("operation cannot be submitted from current status")
 	ErrOperationAlreadySubmitted     = errors.New("operation is already in-flight or submitted")
-	ErrActivePayoutOperationConflict = errors.New("active payout operation conflict: case already has an active payout operation")
-	ErrSubmissionClaimConflict     = errors.New("submission claim conflict: operation already claimed or transitioned by another request")
-	ErrOperationNotApproved        = errors.New("operation requires approval before submission")
-	ErrOperationCannotBeSubmitted  = errors.New("operation cannot be submitted from current status")
-	ErrOperationAlreadySubmitted   = errors.New("operation is already in-flight or submitted")
 )
 
 // Repository encapsulates data access operations for ClaimBridge.

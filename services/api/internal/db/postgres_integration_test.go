@@ -611,12 +611,10 @@ func TestPostgres_CountAuditEvents(t *testing.T) {
 // TestPostgres_Mission033_8_1A_Concurrency_Integration validates the partial unique index,
 // atomic submission claim, and conditional approval transitions under real PostgreSQL concurrency.
 func TestPostgres_Mission033_8_1A_Concurrency_Integration(t *testing.T) {
+	// Strict safety: use dedicated disposable TEST_DATABASE_URL only; do not fall back to DATABASE_URL.
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
-	}
-	if dbURL == "" {
-		t.Skip("skipping postgresql integration test: TEST_DATABASE_URL not set")
+		t.Skip("skipping postgresql integration test: dedicated disposable TEST_DATABASE_URL not set")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -624,12 +622,14 @@ func TestPostgres_Mission033_8_1A_Concurrency_Integration(t *testing.T) {
 
 	repo, err := db.NewPostgresRepository(ctx, dbURL)
 	if err != nil {
-		t.Skipf("skipping postgresql integration test: unable to connect to %s: %v", dbURL, err)
+		// Fail the test on configured connection failure; never leak connection string or credentials
+		t.Fatalf("failed connecting to TEST_DATABASE_URL: database connection failed")
 	}
 	defer repo.Close()
 
+	// Never run migrations against an arbitrary application database; run only on verified dedicated test database
 	if err := repo.RunMigrations(ctx); err != nil {
-		t.Fatalf("failed applying database migrations: %v", err)
+		t.Fatalf("failed applying database migrations on TEST_DATABASE_URL: %v", err)
 	}
 
 	// Setup User and Organization
@@ -645,6 +645,16 @@ func TestPostgres_Mission033_8_1A_Concurrency_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed creating user and org: %v", err)
 	}
+
+	// Safe cleanup of persistent test data where practical
+	t.Cleanup(func() {
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanCancel()
+		_, _ = repo.Pool().Exec(cleanCtx, `DELETE FROM payout_operations WHERE organization_id = $1`, org.ID)
+		_, _ = repo.Pool().Exec(cleanCtx, `DELETE FROM payout_cases WHERE organization_id = $1`, org.ID)
+		_, _ = repo.Pool().Exec(cleanCtx, `DELETE FROM users WHERE id = $1`, createdUser.ID)
+		_, _ = repo.Pool().Exec(cleanCtx, `DELETE FROM organizations WHERE id = $1`, org.ID)
+	})
 
 	// 1. Partial Unique Index: Enforces single active operation per case
 	t.Run("PartialUniqueIndex_EnforcesSingleActiveOperation", func(t *testing.T) {
@@ -914,6 +924,89 @@ func TestPostgres_Mission033_8_1A_Concurrency_Integration(t *testing.T) {
 		extraErr := repo.ApprovePayoutOperation(ctx, org.ID, op.ID, approverIDs[0])
 		if !errors.Is(extraErr, db.ErrInvalidOperationTransition) {
 			t.Errorf("expected ErrInvalidOperationTransition on already-approved op, got: %v", extraErr)
+		}
+	})
+
+	// 4. True concurrent operation creation on the same payout case using real PostgresRepository
+	t.Run("ConcurrentOperationCreation_PostgresConcurrency", func(t *testing.T) {
+		pCase := &db.PayoutCase{
+			OrganizationID:       org.ID,
+			CreatedByUserID:      createdUser.ID,
+			Reference:            fmt.Sprintf("CASE-CONC-INIT-%d", time.Now().UnixNano()),
+			RecipientEmail:       "test@example.com",
+			RecipientName:        "Test User",
+			Title:                "True Concurrent Creation Test",
+			AmountCents:          10000,
+			Currency:             "USD",
+			Status:               "DRAFT",
+			DualApprovalRequired: false,
+		}
+		if err := repo.CreatePayoutCase(ctx, pCase); err != nil {
+			t.Fatalf("failed creating case: %v", err)
+		}
+
+		concurrency := 6
+		startGate := make(chan struct{})
+		var wg sync.WaitGroup
+		var successCount int32
+		var conflictCount int32
+		var unexpectedErrors []error
+		var errMu sync.Mutex
+
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				<-startGate
+				op := &db.PayoutOperation{
+					PayoutCaseID:      pCase.ID,
+					OrganizationID:    org.ID,
+					InitiatedByUserID: createdUser.ID,
+					SenderBatchID:     fmt.Sprintf("BATCH-RACE-%d-%d", time.Now().UnixNano(), idx),
+					SenderItemID:      fmt.Sprintf("ITEM-RACE-%d-%d", time.Now().UnixNano(), idx),
+					AmountCents:       10000,
+					Currency:          "USD",
+					Status:            "PREPARED",
+				}
+				createErr := repo.CreatePayoutOperation(ctx, op)
+				if createErr == nil {
+					atomic.AddInt32(&successCount, 1)
+				} else if errors.Is(createErr, db.ErrActivePayoutOperationConflict) {
+					atomic.AddInt32(&conflictCount, 1)
+				} else {
+					errMu.Lock()
+					unexpectedErrors = append(unexpectedErrors, createErr)
+					errMu.Unlock()
+				}
+			}(i)
+		}
+
+		close(startGate)
+		wg.Wait()
+
+		if len(unexpectedErrors) > 0 {
+			t.Fatalf("unexpected errors during concurrent creation: %v", unexpectedErrors)
+		}
+		if successCount != 1 {
+			t.Errorf("expected exactly 1 winning creation, got: %d", successCount)
+		}
+		if int(conflictCount) != concurrency-1 {
+			t.Errorf("expected %d conflict rejections, got: %d", concurrency-1, conflictCount)
+		}
+
+		// Verify exactly one active operation exists in PostgreSQL
+		ops, err := repo.ListPayoutOperationsByCaseID(ctx, org.ID, pCase.ID)
+		if err != nil {
+			t.Fatalf("failed listing operations from Postgres: %v", err)
+		}
+		activeCount := 0
+		for _, op := range ops {
+			if op.Status != "CANCELLED" && op.Status != "FAILED" {
+				activeCount++
+			}
+		}
+		if activeCount != 1 {
+			t.Errorf("expected exactly 1 active operation in Postgres afterward, got: %d", activeCount)
 		}
 	})
 }

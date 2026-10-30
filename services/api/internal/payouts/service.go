@@ -582,17 +582,38 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 		}
 
 		// Definitive error: HTTP 400, 401, 403, 422, etc.
-		op.Status = "FAILED"
+		failedOp := *op
+		failedOp.Status = "FAILED"
 		errMsg := err.Error()
-		op.ErrorMessage = &errMsg
+		failedOp.ErrorMessage = &errMsg
 		if fe, ok := paypal.AsAPIForbiddenError(err); ok {
-			op.RawProviderResponse = map[string]interface{}{
+			failedOp.RawProviderResponse = map[string]interface{}{
 				"error_name": fe.Name,
 				"issue":      fe.Issue,
 				"debug_id":   fe.DebugID,
 			}
 		}
-		_ = s.repo.UpdatePayoutOperation(ctx, op)
+		if updateErr := s.repo.UpdatePayoutOperation(ctx, &failedOp); updateErr != nil {
+			slog.ErrorContext(ctx, "Failed to persist FAILED status on definitive rejection; preserving unresolved SUBMITTING state",
+				slog.String("operation_id", op.ID),
+				slog.String("sender_batch_id", op.SenderBatchID),
+				slog.Any("update_error", updateErr),
+				slog.Any("provider_error", err))
+			_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+				UserID:         &user.ID,
+				OrganizationID: &org.ID,
+				EventType:      "PAYOUT_FAILED_TRANSITION_FAILED",
+				Metadata: map[string]interface{}{
+					"operation_id":    op.ID,
+					"sender_batch_id": op.SenderBatchID,
+					"provider_error":  errMsg,
+					"persist_error":   updateErr.Error(),
+					"current_status":  op.Status, // "SUBMITTING"
+				},
+			})
+			return op, fmt.Errorf("definitive provider error received (%w) but failed to persist FAILED state: %v", err, updateErr)
+		}
+		*op = failedOp
 		return op, err
 	}
 

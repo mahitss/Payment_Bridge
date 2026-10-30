@@ -712,9 +712,11 @@ func TestMission033_8_1A_CaseI_SubmissionClaimFailureZeroPOSTs(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	cfg := &config.Config{
-		AppEnv:        "development",
-		PayPalEnv:     "sandbox",
-		PayPalBaseURL: ts.URL,
+		AppEnv:             "development",
+		PayPalEnv:          "sandbox",
+		PayPalClientID:     "test-client-id",
+		PayPalClientSecret: "test-client-secret",
+		PayPalBaseURL:      ts.URL,
 	}
 	ppClient, _ := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
 
@@ -940,5 +942,410 @@ func TestMission033_8_1A_CaseK_SenderIdentifiersRemainImmutable(t *testing.T) {
 	}
 	if persistedOp.SenderItemID != initialItemID {
 		t.Errorf("persisted sender_item_id mutated: expected %s, got %s", initialItemID, persistedOp.SenderItemID)
+	}
+}
+
+// Mission 033.8.1A.1 Phase 2: Malformed Successful PayPal Responses
+// Test A: HTTP 201 with malformed JSON
+func TestMission033_8_1A_1_MalformedSuccess_HTTP201MalformedJSON(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/oauth2/token":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+				"app_id":       "APP-SANDBOX-TEST",
+				"scope":        paypal.PayPalPayoutsScope,
+			})
+		case "/v1/payments/payouts":
+			atomic.AddInt32(&postCount, 1)
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"batch_header": { broken json`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, err := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Alex Claimant", Title: "Malformed 201 JSON", AmountCents: 10000,
+	})
+	if err != nil {
+		t.Fatalf("failed creating case: %v", err)
+	}
+
+	op, err := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	if err != nil {
+		t.Fatalf("failed initiating op: %v", err)
+	}
+
+	origBatchID := op.SenderBatchID
+	origItemID := op.SenderItemID
+
+	submittedOp, submitErr := svc.SubmitPayoutOperation(ctx, userA, org, pCase.ID, op.ID)
+	if submitErr == nil {
+		t.Fatal("expected error on malformed 201 JSON, got nil")
+	}
+
+	if !paypal.IsAmbiguousOutcome(submitErr) {
+		t.Fatalf("expected ambiguous outcome classification, got: %v", submitErr)
+	}
+
+	if submittedOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected status RECONCILIATION_REQUIRED, got: %s", submittedOp.Status)
+	}
+	if submittedOp.Status == "SUBMITTED" || submittedOp.Status == "FAILED" {
+		t.Errorf("must not produce false SUBMITTED or FAILED result: %s", submittedOp.Status)
+	}
+	if submittedOp.SenderBatchID != origBatchID || submittedOp.SenderItemID != origItemID {
+		t.Errorf("identifiers altered on malformed 201 response")
+	}
+	if count := atomic.LoadInt32(&postCount); count != 1 {
+		t.Errorf("expected exactly 1 outbound POST (no retry), got: %d", count)
+	}
+
+	persistedOp, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	if persistedOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected persisted status RECONCILIATION_REQUIRED, got: %s", persistedOp.Status)
+	}
+}
+
+// Test B: HTTP 201 with an empty JSON object
+func TestMission033_8_1A_1_MalformedSuccess_HTTP201EmptyJSON(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/oauth2/token":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+				"app_id":       "APP-SANDBOX-TEST",
+				"scope":        paypal.PayPalPayoutsScope,
+			})
+		case "/v1/payments/payouts":
+			atomic.AddInt32(&postCount, 1)
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, err := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Blake Claimant", Title: "Empty 201 JSON", AmountCents: 10000,
+	})
+	if err != nil {
+		t.Fatalf("failed creating case: %v", err)
+	}
+
+	op, err := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	if err != nil {
+		t.Fatalf("failed initiating op: %v", err)
+	}
+
+	origBatchID := op.SenderBatchID
+	origItemID := op.SenderItemID
+
+	submittedOp, submitErr := svc.SubmitPayoutOperation(ctx, userA, org, pCase.ID, op.ID)
+	if submitErr == nil {
+		t.Fatal("expected error on empty 201 JSON object, got nil")
+	}
+
+	if !paypal.IsAmbiguousOutcome(submitErr) {
+		t.Fatalf("expected ambiguous outcome classification, got: %v", submitErr)
+	}
+
+	if submittedOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected status RECONCILIATION_REQUIRED, got: %s", submittedOp.Status)
+	}
+	if submittedOp.Status == "SUBMITTED" || submittedOp.Status == "FAILED" {
+		t.Errorf("must not produce false SUBMITTED or FAILED result: %s", submittedOp.Status)
+	}
+	if submittedOp.SenderBatchID != origBatchID || submittedOp.SenderItemID != origItemID {
+		t.Errorf("identifiers altered on empty 201 response")
+	}
+	if count := atomic.LoadInt32(&postCount); count != 1 {
+		t.Errorf("expected exactly 1 outbound POST (no retry), got: %d", count)
+	}
+
+	persistedOp, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	if persistedOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected persisted status RECONCILIATION_REQUIRED, got: %s", persistedOp.Status)
+	}
+}
+
+// Test C: HTTP 201 with batch_header missing payout_batch_id
+func TestMission033_8_1A_1_MalformedSuccess_HTTP201MissingPayoutBatchID(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/oauth2/token":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+				"app_id":       "APP-SANDBOX-TEST",
+				"scope":        paypal.PayPalPayoutsScope,
+			})
+		case "/v1/payments/payouts":
+			atomic.AddInt32(&postCount, 1)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"batch_header": map[string]interface{}{
+					"batch_status": "PENDING",
+					// payout_batch_id is omitted!
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, err := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Casey Claimant", Title: "Missing batch_id 201", AmountCents: 10000,
+	})
+	if err != nil {
+		t.Fatalf("failed creating case: %v", err)
+	}
+
+	op, err := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	if err != nil {
+		t.Fatalf("failed initiating op: %v", err)
+	}
+
+	origBatchID := op.SenderBatchID
+	origItemID := op.SenderItemID
+
+	submittedOp, submitErr := svc.SubmitPayoutOperation(ctx, userA, org, pCase.ID, op.ID)
+	if submitErr == nil {
+		t.Fatal("expected error on 201 missing payout_batch_id, got nil")
+	}
+
+	if !paypal.IsAmbiguousOutcome(submitErr) {
+		t.Fatalf("expected ambiguous outcome classification, got: %v", submitErr)
+	}
+
+	if submittedOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected status RECONCILIATION_REQUIRED, got: %s", submittedOp.Status)
+	}
+	if submittedOp.Status == "SUBMITTED" || submittedOp.Status == "FAILED" {
+		t.Errorf("must not produce false SUBMITTED or FAILED result: %s", submittedOp.Status)
+	}
+	if submittedOp.SenderBatchID != origBatchID || submittedOp.SenderItemID != origItemID {
+		t.Errorf("identifiers altered on response missing batch ID")
+	}
+	if count := atomic.LoadInt32(&postCount); count != 1 {
+		t.Errorf("expected exactly 1 outbound POST (no retry), got: %d", count)
+	}
+
+	persistedOp, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	if persistedOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected persisted status RECONCILIATION_REQUIRED, got: %s", persistedOp.Status)
+	}
+}
+
+// Test D: HTTP 200 with malformed response JSON
+func TestMission033_8_1A_1_MalformedSuccess_HTTP200MalformedJSON(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/oauth2/token":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+				"app_id":       "APP-SANDBOX-TEST",
+				"scope":        paypal.PayPalPayoutsScope,
+			})
+		case "/v1/payments/payouts":
+			atomic.AddInt32(&postCount, 1)
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`non-json arbitrary response text`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	svc, repo, userA, _, org := setupTestService(t, paypalHandler)
+	ctx := context.Background()
+
+	pCase, err := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com", RecipientName: "Devon Claimant", Title: "Malformed 200 JSON", AmountCents: 10000,
+	})
+	if err != nil {
+		t.Fatalf("failed creating case: %v", err)
+	}
+
+	op, err := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+	if err != nil {
+		t.Fatalf("failed initiating op: %v", err)
+	}
+
+	origBatchID := op.SenderBatchID
+	origItemID := op.SenderItemID
+
+	submittedOp, submitErr := svc.SubmitPayoutOperation(ctx, userA, org, pCase.ID, op.ID)
+	if submitErr == nil {
+		t.Fatal("expected error on malformed 200 JSON, got nil")
+	}
+
+	if !paypal.IsAmbiguousOutcome(submitErr) {
+		t.Fatalf("expected ambiguous outcome classification, got: %v", submitErr)
+	}
+
+	if submittedOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected status RECONCILIATION_REQUIRED, got: %s", submittedOp.Status)
+	}
+	if submittedOp.Status == "SUBMITTED" || submittedOp.Status == "FAILED" {
+		t.Errorf("must not produce false SUBMITTED or FAILED result: %s", submittedOp.Status)
+	}
+	if submittedOp.SenderBatchID != origBatchID || submittedOp.SenderItemID != origItemID {
+		t.Errorf("identifiers altered on malformed 200 response")
+	}
+	if count := atomic.LoadInt32(&postCount); count != 1 {
+		t.Errorf("expected exactly 1 outbound POST (no retry), got: %d", count)
+	}
+
+	persistedOp, _ := repo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	if persistedOp.Status != "RECONCILIATION_REQUIRED" {
+		t.Errorf("expected persisted status RECONCILIATION_REQUIRED, got: %s", persistedOp.Status)
+	}
+}
+
+// Phase 5 Regression Test: Definitive provider failure persistence error
+type failUpdateOnFailedRepo struct {
+	*db.MockRepository
+}
+
+func (r *failUpdateOnFailedRepo) UpdatePayoutOperation(ctx context.Context, op *db.PayoutOperation) error {
+	if op.Status == "FAILED" {
+		return errors.New("simulated disk write failure when persisting FAILED status")
+	}
+	return r.MockRepository.UpdatePayoutOperation(ctx, op)
+}
+
+func TestMission033_8_1A_1_DefinitiveFailurePersistenceError(t *testing.T) {
+	var postCount int32
+	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/oauth2/token":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "fake-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+				"app_id":       "APP-SANDBOX-TEST",
+				"scope":        paypal.PayPalPayoutsScope,
+			})
+		case "/v1/payments/payouts":
+			atomic.AddInt32(&postCount, 1)
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"name":    "INVALID_PARAMETER_VALUE",
+				"message": "The recipient account is invalid",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	mockRepo := db.NewMockRepository()
+	ctx := context.Background()
+
+	userA, org, err := mockRepo.CreateUserWithPersonalOrg(ctx, &db.User{
+		Email:         "userFail@example.com",
+		Name:          "User Fail",
+		EmailVerified: true,
+	}, "Org Fail")
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	pCase := &db.PayoutCase{
+		OrganizationID:  org.ID,
+		CreatedByUserID: userA.ID,
+		Reference:       "CASE-FAIL-1",
+		RecipientEmail:  "userFail@example.com",
+		RecipientName:   "User Fail",
+		Title:           "Case Definitive Failure Persistence",
+		AmountCents:     10000,
+		Status:          "DRAFT",
+	}
+	_ = mockRepo.CreatePayoutCase(ctx, pCase)
+
+	op := &db.PayoutOperation{
+		PayoutCaseID:      pCase.ID,
+		OrganizationID:    org.ID,
+		InitiatedByUserID: userA.ID,
+		SenderBatchID:     "CB-BATCH-FAIL-1",
+		SenderItemID:      "CB-ITEM-FAIL-1",
+		AmountCents:       10000,
+		Currency:          "USD",
+		Status:            "PREPARED",
+	}
+	_ = mockRepo.CreatePayoutOperation(ctx, op)
+
+	ts := httptest.NewServer(paypalHandler)
+	t.Cleanup(ts.Close)
+
+	cfg := &config.Config{
+		AppEnv:             "development",
+		PayPalEnv:          "sandbox",
+		PayPalClientID:     "test-client-id",
+		PayPalClientSecret: "test-client-secret",
+		PayPalBaseURL:      ts.URL,
+	}
+	ppClient, _ := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+
+	failingRepo := &failUpdateOnFailedRepo{MockRepository: mockRepo}
+	svc := NewService(cfg, failingRepo, policy.NewEngine(""), ppClient)
+
+	origBatchID := op.SenderBatchID
+	origItemID := op.SenderItemID
+
+	submittedOp, submitErr := svc.SubmitPayoutOperation(ctx, userA, org, pCase.ID, op.ID)
+	if submitErr == nil {
+		t.Fatal("expected persistence error on definitive rejection, got nil")
+	}
+
+	if !strings.Contains(submitErr.Error(), "failed to persist FAILED state") {
+		t.Errorf("expected explicit persistence error, got: %v", submitErr)
+	}
+
+	// Must NOT report an in-memory FAILED state as if it were persisted.
+	// Must preserve and report the unresolved SUBMITTING state!
+	if submittedOp.Status != "SUBMITTING" {
+		t.Errorf("expected reported status SUBMITTING on persistence failure, got: %s", submittedOp.Status)
+	}
+
+	// Status in underlying repository must remain SUBMITTING
+	persistedOp, _ := mockRepo.GetPayoutOperationByID(ctx, org.ID, op.ID)
+	if persistedOp.Status != "SUBMITTING" {
+		t.Errorf("expected repo op status to remain SUBMITTING, got: %s", persistedOp.Status)
+	}
+
+	// Identifiers remain unchanged
+	if submittedOp.SenderBatchID != origBatchID || submittedOp.SenderItemID != origItemID {
+		t.Errorf("identifiers altered on persistence failure")
+	}
+
+	// Exactly 1 outbound POST (no automatic retry)
+	if count := atomic.LoadInt32(&postCount); count != 1 {
+		t.Errorf("expected exactly 1 outbound POST, got: %d", count)
 	}
 }
