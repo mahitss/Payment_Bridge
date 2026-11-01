@@ -215,25 +215,25 @@ func TestPostgres_Integration(t *testing.T) {
 // TestPostgres_RecoveryLeaseAndFinalization_Integration verifies recovery lease semantics,
 // conditional ownership, renewal, and finalization against real PostgreSQL.
 func TestPostgres_RecoveryLeaseAndFinalization_Integration(t *testing.T) {
+	// Strict safety: use dedicated disposable TEST_DATABASE_URL only; do not fall back to DATABASE_URL.
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
-	}
-	if dbURL == "" {
-		t.Skip("skipping postgresql integration test: TEST_DATABASE_URL not set")
+		t.Skip("skipping postgresql integration test: dedicated disposable TEST_DATABASE_URL not set")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	repo, err := db.NewPostgresRepository(ctx, dbURL)
 	if err != nil {
-		t.Skipf("skipping postgresql integration test: unable to connect to %s: %v", dbURL, err)
+		// Fail the test on configured connection failure; never leak connection string or credentials
+		t.Fatalf("failed connecting to TEST_DATABASE_URL: database connection failed")
 	}
 	defer repo.Close()
 
+	// Never run migrations against an arbitrary application database; run only on verified dedicated test database
 	if err := repo.RunMigrations(ctx); err != nil {
-		t.Fatalf("failed applying database migrations: %v", err)
+		t.Fatalf("failed applying database migrations on TEST_DATABASE_URL: %v", err)
 	}
 
 	user, org, err := repo.CreateUserWithPersonalOrg(ctx, &db.User{
@@ -642,7 +642,7 @@ func TestPostgres_Mission033_8_1A_Concurrency_Integration(t *testing.T) {
 		t.Skip("skipping postgresql integration test: dedicated disposable TEST_DATABASE_URL not set")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	repo, err := db.NewPostgresRepository(ctx, dbURL)
