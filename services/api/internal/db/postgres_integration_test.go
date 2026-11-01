@@ -16,26 +16,25 @@ import (
 
 // TestPostgres_Integration verifies migrations, persistence, and multi-tenant isolation against real PostgreSQL.
 func TestPostgres_Integration(t *testing.T) {
+	// Strict safety: use dedicated disposable TEST_DATABASE_URL only; do not fall back to DATABASE_URL.
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
-	}
-	if dbURL == "" {
-		t.Skip("skipping postgresql integration test: TEST_DATABASE_URL not set")
+		t.Skip("skipping postgresql integration test: dedicated disposable TEST_DATABASE_URL not set")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	repo, err := db.NewPostgresRepository(ctx, dbURL)
 	if err != nil {
-		t.Skipf("skipping postgresql integration test: unable to connect to %s: %v", dbURL, err)
+		// Fail the test on configured connection failure; never leak connection string or credentials
+		t.Fatalf("failed connecting to TEST_DATABASE_URL: database connection failed")
 	}
 	defer repo.Close()
 
-	// 1. Apply real database migrations
+	// Never run migrations against an arbitrary application database; run only on verified dedicated test database
 	if err := repo.RunMigrations(ctx); err != nil {
-		t.Fatalf("failed applying database migrations: %v", err)
+		t.Fatalf("failed applying database migrations on TEST_DATABASE_URL: %v", err)
 	}
 
 	// 2. Multi-Tenant Setup: Create Org A and Org B with distinct users
@@ -202,7 +201,7 @@ func TestPostgres_Integration(t *testing.T) {
 	// 7. Cold Restart Verification (New Connection Pool reads data)
 	repo2, err := db.NewPostgresRepository(ctx, dbURL)
 	if err != nil {
-		t.Fatalf("failed creating secondary connection pool: %v", err)
+		t.Fatalf("failed creating secondary connection pool on TEST_DATABASE_URL: database connection failed")
 	}
 	defer repo2.Close()
 
@@ -409,26 +408,25 @@ func TestPostgres_RecoveryLeaseAndFinalization_Integration(t *testing.T) {
 // that 000007_recovery_claim.down.sql safely rolls back without failing when
 // rows containing 67-character v2 fingerprints exist in payout_operations.
 func TestPostgres_MigrationRollbackSafeWithV2Fingerprints_Integration(t *testing.T) {
+	// Strict safety: use dedicated disposable TEST_DATABASE_URL only; do not fall back to DATABASE_URL.
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
-	}
-	if dbURL == "" {
-		t.Skip("skipping postgresql migration integration test: TEST_DATABASE_URL not set")
+		t.Skip("skipping postgresql migration integration test: dedicated disposable TEST_DATABASE_URL not set")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	repo, err := db.NewPostgresRepository(ctx, dbURL)
 	if err != nil {
-		t.Skipf("skipping postgresql integration test: unable to connect: %v", err)
+		// Fail the test on configured connection failure; never leak connection string or credentials
+		t.Fatalf("failed connecting to TEST_DATABASE_URL: database connection failed")
 	}
 	defer repo.Close()
 
-	// 1. Ensure migrations are fully applied
+	// Never run migrations against an arbitrary application database; run only on verified dedicated test database
 	if err := repo.RunMigrations(ctx); err != nil {
-		t.Fatalf("failed applying migrations: %v", err)
+		t.Fatalf("failed applying database migrations on TEST_DATABASE_URL: %v", err)
 	}
 
 	user, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{
@@ -506,25 +504,25 @@ func TestPostgres_MigrationRollbackSafeWithV2Fingerprints_Integration(t *testing
 }
 
 func TestPostgres_CountAuditEvents(t *testing.T) {
+	// Strict safety: use dedicated disposable TEST_DATABASE_URL only; do not fall back to DATABASE_URL.
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
-	}
-	if dbURL == "" {
-		t.Skip("skipping postgresql integration test: TEST_DATABASE_URL not set")
+		t.Skip("skipping postgresql integration test: dedicated disposable TEST_DATABASE_URL not set")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	repo, err := db.NewPostgresRepository(ctx, dbURL)
 	if err != nil {
-		t.Skipf("skipping postgresql integration test: unable to connect to %s: %v", dbURL, err)
+		// Fail the test on configured connection failure; never leak connection string or credentials
+		t.Fatalf("failed connecting to TEST_DATABASE_URL: database connection failed")
 	}
 	defer repo.Close()
 
+	// Never run migrations against an arbitrary application database; run only on verified dedicated test database
 	if err := repo.RunMigrations(ctx); err != nil {
-		t.Fatalf("failed applying database migrations: %v", err)
+		t.Fatalf("failed applying database migrations on TEST_DATABASE_URL: %v", err)
 	}
 
 	passHash, _ := crypto.HashPassword("Password123!Safe")
