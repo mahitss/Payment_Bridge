@@ -322,9 +322,29 @@ func TestPostgres_RecoveryLeaseAndFinalization_Integration(t *testing.T) {
 		t.Errorf("expected operation finalized as SUBMITTED, got %v", persistedFinal)
 	}
 
-	// 5. Expired Lease Quarantine: Create another operation and test finalization after lease expiry
+	// 5. Expired Lease Quarantine: Create a separate payout case for the second operation
+	// to respect migration 000008 (one active operation per payout case).
+	pCase2 := &db.PayoutCase{
+		OrganizationID:  org.ID,
+		CreatedByUserID: user.ID,
+		Reference:       fmt.Sprintf("REF-REC-EXPIRED-%d", time.Now().UnixNano()),
+		RecipientEmail:  "recip2@example.com",
+		RecipientName:   "Claimant Two",
+		Title:           "Recovery Expired Lease Claim",
+		Currency:        "USD",
+		AmountCents:     10000,
+		Status:          "SUBMITTED",
+	}
+	if err := repo.CreatePayoutCase(ctx, pCase2); err != nil {
+		t.Fatalf("failed creating payout case 2: %v", err)
+	}
+
+	if pCase.ID == pCase2.ID {
+		t.Fatalf("expected distinct payout cases, got identical IDs: %s", pCase.ID)
+	}
+
 	op2 := &db.PayoutOperation{
-		PayoutCaseID:      pCase.ID,
+		PayoutCaseID:      pCase2.ID,
 		OrganizationID:    org.ID,
 		InitiatedByUserID: user.ID,
 		SenderBatchID:     fmt.Sprintf("CB-BATCH-EXPIRED-%d", time.Now().UnixNano()),
@@ -336,6 +356,11 @@ func TestPostgres_RecoveryLeaseAndFinalization_Integration(t *testing.T) {
 	}
 	if err := repo.CreatePayoutOperation(ctx, op2); err != nil {
 		t.Fatalf("failed creating payout op 2: %v", err)
+	}
+
+	// Invariant: op and op2 must belong to distinct payout cases per migration 000008
+	if op.PayoutCaseID == op2.PayoutCaseID {
+		t.Fatalf("invariant violation: operations op and op2 must belong to distinct payout cases, but both have case ID %s", op.PayoutCaseID)
 	}
 
 	attemptExpired := fmt.Sprintf("attempt-expired-%d", time.Now().UnixNano())
