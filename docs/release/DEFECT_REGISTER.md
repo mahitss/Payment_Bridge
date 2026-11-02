@@ -1,15 +1,15 @@
 # ClaimBridge — Defect Register & Remediation Log
-**Document Version:** 2.0 (Mission 033.8.1A.4 Release Evidence Reconciliation)  
-**Date of Audit & Remediation:** November 2, 2026  
-**Auditor & Remediation Lead:** Senior Technical Documentation Auditor & Application Security Engineer  
-**Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)  
-**Standard:** OWASP ASVS v4.0.3 L2 / Fail-Closed Deterministic Enforcement  
+**Document Version:** 2.1 (Mission 033.8.1A.4.1 Post-Merge Documentation Accuracy Corrections)
+**Date of Audit & Remediation:** November 2, 2026
+**Auditor & Remediation Lead:** Senior Technical Documentation Auditor & Application Security Engineer
+**Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)
+**Standard:** OWASP ASVS v4.0.3 L2 / Fail-Closed Deterministic Enforcement
 
 ---
 
 ## 1. Remediation Executive Summary
 
-During Missions 008, 009, 021–024, and 033.8.1A through 033.8.1A.4, the ClaimBridge codebase underwent comprehensive evidence-driven remediation and full-system integration verification targeting financial state machine integrity, duplicate disbursement prevention, server context timeout harmonization, database partial unique constraints, ambiguous provider outcome quarantine, and dedicated PostgreSQL test isolation.
+During Missions 008, 009, 021–024, and 033.8.1A through 033.8.1A.4.1, the ClaimBridge codebase underwent comprehensive evidence-driven remediation and full-system integration verification targeting financial state machine integrity, duplicate disbursement prevention, server context timeout harmonization, database partial unique constraints, ambiguous provider outcome quarantine, and dedicated PostgreSQL test isolation.
 
 All two critical P0 defects (`DEF-007`, `DEF-010`) and four high-priority P1 defects (`DEF-006`, `DEF-009`, `DEF-011`, `DEF-012`) have been remediated, verified fixed, and proven resolved via dedicated automated regression test suites, PostgreSQL concurrency integration tests, and the 32-scenario end-to-end acceptance suite. The external sandbox dependency (`DEF-001`) remains blocked on developer sandbox keys, demo video publication (`DEF-003`) is verified by automated CI artifact generation with public hosting link pending, and local Ollama inference (`DEF-002`) has been resolved and verified in local runtime on a single CPU development environment with native bounded `/api/chat` transport.
 
@@ -167,13 +167,13 @@ Allowed Final Status Taxonomy:
   - `services/api/internal/paypal/client.go`
   - `services/api/internal/paypal/client_test.go`
   - `services/api/internal/payouts/service_test.go`
-- **Expected Behavior:** Ambiguous provider responses and malformed HTTP 200/201 bodies must safely transition the operation to `RECONCILIATION_REQUIRED`. The original `sender_batch_id` must be preserved; blind retries and generating replacement batch IDs are strictly prohibited.
+- **Expected Behavior:** Ambiguous provider responses and malformed HTTP 200/201 bodies must safely transition the operation to `RECONCILIATION_REQUIRED`. The original `sender_batch_id` must be preserved; blind retries and generating replacement batch IDs are strictly prohibited. Provider-side execution status can remain unknown until reconciliation is completed.
 - **Root Cause:** Absence of explicit classification for malformed successful responses (e.g. HTTP 200/201 with missing `payout_batch_id`) and insufficient quarantine guards for network disconnects and body read errors.
 - **Resolution:** Hardened `SubmitPayoutOperation` and `paypal.Client` to classify 5xx, timeouts, connection resets, response body read failures, and missing batch IDs as ambiguous, transitioning to `RECONCILIATION_REQUIRED`. Prohibited blind retries; original sender ID retained.
 - **Regression Test Evidence:**
   - `TestPayoutService_AmbiguousProviderOutcomes`: PASS
   - `TestPayPal_CreatePayout_MalformedResponses`: PASS
-- **Remaining Risk:** None. Ambiguous outcomes quarantined safely without capital risk.
+- **Remaining Risk:** The operation is quarantined in `RECONCILIATION_REQUIRED` and blind retries are prevented. Provider-side execution status can remain unknown until reconciliation is completed. Quarantine does not prove whether PayPal executed the payout.
 - **Final Status:** `VERIFIED_FIXED`
 
 ---
@@ -188,11 +188,11 @@ Allowed Final Status Taxonomy:
   - `services/api/internal/db/postgres.go`
   - `services/api/internal/payouts/service.go`
   - `services/api/internal/db/postgres_integration_test.go`
-- **Expected Behavior:** Single active operation per payout case must be enforced unconditionally by the database engine via a partial unique index, rejecting concurrent inserts at the transaction commit level. Atomic submission claim (`ClaimPayoutOperationForSubmission`) must ensure exactly one winning worker dispatches.
+- **Expected Behavior:** Single active operation per payout case must be enforced unconditionally by the database engine via a partial unique index, enforcing the single-active-operation invariant at the database level and rejecting conflicting inserts or updates that would create a second active operation. `ClaimPayoutOperationForSubmission` must execute a conditional `SQL UPDATE ... RETURNING` transitioning an eligible `PREPARED` or `APPROVED` operation into `SUBMITTING` and persisting `submission_fingerprint` and `submitted_at`. PostgreSQL conditional `UPDATE` and row-level locking permit exactly one successful claimant across concurrent attempts. The payout service subsequently performs provider dispatch only after the successful claim; the database claim itself does not execute the PayPal request. Recovery leases are separate and managed independently by `ClaimPayoutOperationForRecovery` and `RenewRecoveryLease`.
 - **Root Cause:** Absence of a database-level partial unique index on active payout operations.
-- **Resolution:** Added Migration 000008 creating partial unique index `uq_payout_ops_case_active` on `payout_operations(payout_case_id) WHERE status NOT IN ('CANCELLED', 'FAILED')`. Added `ClaimPayoutOperationForSubmission` row-level locking atomic claim.
+- **Resolution:** Added Migration 000008 creating partial unique index `uq_payout_ops_case_active` on `payout_operations(payout_case_id) WHERE status NOT IN ('CANCELLED', 'FAILED')`. Implemented `ClaimPayoutOperationForSubmission` using a conditional `SQL UPDATE ... RETURNING` with row-level locking.
 - **Regression Test Evidence:**
-  - `TestPostgres_Mission033_8_1A_Concurrency_Integration` (10 concurrent goroutines against dedicated PostgreSQL test DB, exactly 1 winner, 9 conflicts) PASS.
+  - `TestPostgres_Mission033_8_1A_Concurrency_Integration`: PASS. Concurrency integration testing against a dedicated PostgreSQL database verified database row-level locking with exactly one winning claim and nine conflicts across ten contenders. This test does not execute external PayPal requests; PayPal HTTP behavior is tested through deterministic mock doubles.
 - **Remaining Risk:** None. Enforced at the storage engine level.
 - **Final Status:** `VERIFIED_FIXED`
 
@@ -223,9 +223,9 @@ Allowed Final Status Taxonomy:
   - `services/api/internal/seeder/seeder_postgres_test.go`
 - **Expected Behavior:** All database integration tests must require `TEST_DATABASE_URL` exclusively. When unset, tests must skip cleanly in 0.00s with zero connection attempts. If configured but unreachable, tests must fail closed without leaking credentials in logs.
 - **Root Cause:** Legacy tests contained fallback logic `url := os.Getenv("TEST_DATABASE_URL"); if url == "" { url = os.Getenv("DATABASE_URL") }`.
-- **Resolution:** Removed all `DATABASE_URL` fallbacks across all 6 integration tests. Added explicit sanitized error reporting (zero credential leakage). Added sentinel regression test confirming invalid `DATABASE_URL` is ignored.
+- **Resolution:** Removed all `DATABASE_URL` fallbacks across all 6 integration tests. Added explicit sanitized error reporting (zero credential leakage). A manual sentinel experiment was performed with `TEST_DATABASE_URL` unset and an invalid `DATABASE_URL` value. The integration tests skipped without attempting a connection.
 - **Regression Test Evidence:**
-  - All 6 integration tests skip cleanly in 0.00s when `TEST_DATABASE_URL` is unset; all pass when set; invalid `DATABASE_URL` sentinel confirmed inert.
+  - All 6 integration tests skip cleanly in 0.00s when `TEST_DATABASE_URL` is unset; all pass when set against dedicated disposable PostgreSQL infrastructure. A manual sentinel experiment confirmed that with `TEST_DATABASE_URL` unset and an invalid `DATABASE_URL` value, tests skipped cleanly without attempting a connection.
 - **Remaining Risk:** None. Test isolation completely enforced.
 - **Final Status:** `VERIFIED_FIXED`
 
