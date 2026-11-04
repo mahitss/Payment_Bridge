@@ -1,10 +1,12 @@
 # ClaimBridge — Hackathon Release Checklist & Gate Signoff
 
-**Release Version:** v1.0.0-hackathon (Reconciliation Baseline v3.0)  
-**Target Event:** PayPal AI Hackathon  
-**Lead Verification Engineer:** Senior AI Systems & Security Engineer  
-**Signoff Date:** November 2, 2026  
-**CI Baseline:** Main-Head Validation [Workflow Run 41336877333](https://github.com/mahitss/Payment_Bridge/actions/runs/41336877333) (Commit `2f6785d`, 6/6 jobs green) | PR #21 [Workflow Run 41336768393](https://github.com/mahitss/Payment_Bridge/actions/runs/41336768393) (Commit `ffc7484`) | PR #20 [Workflow Run 41334651373](https://github.com/mahitss/Payment_Bridge/actions/runs/41334651373) (Commit `c7e3a38`) | PR #19 [Workflow Run 41331295240](https://github.com/mahitss/Payment_Bridge/actions/runs/41331295240) (Commit `37603c4`) | Historical Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`)  
+**Release Version:** v1.0.0-hackathon (Reconciliation Baseline v3.1)
+**Target Event:** PayPal AI Hackathon
+**Lead Verification Engineer:** Senior AI Systems & Security Engineer
+**Signoff Date:** November 2, 2026
+**Current Main Merge Baseline:** Commit [`577aa877678cadded306bcca1812bbbdb9dc65a7`](https://github.com/mahitss/Payment_Bridge/commit/577aa877678cadded306bcca1812bbbdb9dc65a7) (PR #22 Documentation Reconciliation)
+**Audited Application Source Baseline:** Commit [`2f6785d30dc441b3d6c454461a8554237ba3a491`](https://github.com/mahitss/Payment_Bridge/commit/2f6785d30dc441b3d6c454461a8554237ba3a491) (PR #21 Merge)
+**CI Baseline:** Main-Head Validation [Workflow Run 41495450882](https://github.com/mahitss/Payment_Bridge/actions/runs/41495450882) (Run #107, Commit `577aa87`, 6/6 jobs green, SUCCESS) | PR #22 [Workflow Run 41495433921](https://github.com/mahitss/Payment_Bridge/actions/runs/41495433921) (Run #106, Head `63d3294`, 6/6 jobs green, SUCCESS) | Audited Application Baseline [Workflow Run 41336877333](https://github.com/mahitss/Payment_Bridge/actions/runs/41336877333) (Run #105, Commit `2f6785d`, 6/6 jobs green, SUCCESS) | PR #21 [Workflow Run 41335781910](https://github.com/mahitss/Payment_Bridge/actions/runs/41335781910) (Run #104, Head `ffc7484`, 6/6 jobs green, SUCCESS) | PR #20 Main Merge [Workflow Run 41333539848](https://github.com/mahitss/Payment_Bridge/actions/runs/41333539848) (Run #103, Commit `9f0ff5d`, 6/6 jobs green, SUCCESS) | PR #20 Recovery Fix [Workflow Run 41332615965](https://github.com/mahitss/Payment_Bridge/actions/runs/41332615965) (Run #102, Head `2696e72`, 6/6 jobs green) / [Workflow Run 41330448224](https://github.com/mahitss/Payment_Bridge/actions/runs/41330448224) (Run #101, Head `c9816c8`, 6/6 jobs green) | Historical Failures: PR #19 [Workflow Run 41133820056](https://github.com/mahitss/Payment_Bridge/actions/runs/41133820056) (Run #99, failure) & Main [Workflow Run 41133832451](https://github.com/mahitss/Payment_Bridge/actions/runs/41133832451) (Run #100, failure, resolved in PR #20) | Historical Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`)
 
 ---
 
@@ -16,9 +18,9 @@
 | **G-02** | **Multi-Tenant Scoping Enforced** | All DB queries include verified `organization_id` filter; IDOR returns HTTP 404 | **PASSED** |
 | **G-03** | **Zero Committed Secrets** | Git index scanned; zero `.env`, private keys, or credentials committed | **PASSED** |
 | **G-04** | **No Unauthorized Money Movement** | Payout operations require explicit authenticated dispatch, dual approval, and $500 ceiling | **PASSED** |
-| **G-05** | **Zero Duplicate Payout Risk** | Deterministic `sender_batch_id` locked to persistent case ID before external call; atomic `ClaimPayoutOperationForSubmission` transitions operation to `SUBMITTING`; partial unique index `uq_payout_ops_case_active` in migration 000008 prohibits multiple active operations per payout case at the database engine level | **PASSED** |
+| **G-05** | **Zero Duplicate Payout Risk** | Deterministic `sender_batch_id` locked to persistent case ID before external call; atomic `ClaimPayoutOperationForSubmission` transitions operation to `SUBMITTING` (concurrency testing verified database row locks without live external PayPal requests); partial unique index `uq_payout_ops_case_active` in migration 000008 prohibits multiple active operations per payout case at the database engine level | **PASSED** |
 | **G-06** | **Deterministic Policy Precedence** | Rust policy engine evaluates all invariants; AI cannot override | **PASSED** |
-| **G-07** | **Accurate Provider Status Semantics & Quarantine** | Backend verifies authentic PayPal REST JSON response contracts; acceptance suite runs against deterministic test doubles (Scenarios 20–22); ambiguous provider outcomes (network timeouts, 5xx errors, connection resets, malformed 200/201 bodies missing batch ID/status) safely quarantine operation in `RECONCILIATION_REQUIRED`; live sandbox execution is gated by operator credentials and reported honestly as unverified until genuine credentials and non-fixture transaction are supplied; zero real money moved or cancelled | **PASSED** |
+| **G-07** | **Accurate Provider Status Semantics & Quarantine** | Backend verifies authentic PayPal REST JSON response contracts; acceptance suite runs against deterministic test doubles (Scenarios 20–22); ambiguous provider outcomes (network timeouts, 5xx errors, connection resets, malformed 200/201 bodies missing batch ID/status) safely quarantine operation in `RECONCILIATION_REQUIRED` and prevent blind retries. Provider-side execution status can remain unknown until reconciliation is completed (quarantine does not prove whether PayPal executed the payout); live sandbox execution is gated by operator credentials and reported honestly as unverified until genuine credentials and non-fixture transaction are supplied; zero real money moved or cancelled | **PASSED** |
 | **G-08** | **Database Migration Reliability** | 8 migrations apply and roll back cleanly (auth, claims, payouts, investigations, fixture provenance, case notes, audit log, active operation unique constraint); `init.sql` updated | **PASSED** |
 | **G-09** | **Full User Journey Operability** | All routes, buttons, forms, and error states tested and functional in real browser sessions | **PASSED** |
 | **G-10** | **Clean Production Builds** | Next.js standalone build passes; Go builds with `-race`; Rust clippy clean; deterministic `npm ci` | **PASSED** |
@@ -81,7 +83,7 @@ $ env TEST_DATABASE_URL="postgres://..." go test -v ./internal/db ./internal/see
 PASS
 
 6/6 PostgreSQL dedicated integration tests executed and passed!
-Regression sentinel test: When TEST_DATABASE_URL is unset, all tests skip cleanly in 0.00s.
+Manual sentinel experiment: A manual sentinel experiment was performed with TEST_DATABASE_URL unset and an invalid DATABASE_URL value. The integration tests skipped cleanly in 0.00s without attempting a connection.
 
 ======================================================================
 4. SYSTEM ACCEPTANCE RUNNER (32 SCENARIOS, DETERMINISTIC HARNESS)
