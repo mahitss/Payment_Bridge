@@ -35,6 +35,8 @@ var (
 	ErrUntrustedHATEOASHost       = errors.New("security violation: untrusted HATEOAS host in paypal response")
 	ErrMalformedHATEOASLink       = errors.New("malformed HATEOAS link in paypal response")
 	ErrOversizedResponse          = errors.New("paypal response exceeded maximum allowable size limit")
+	ErrMissingPayoutsScope        = errors.New("paypal authorization failed: access token lacks required payouts scope (" + PayPalPayoutsScope + ")")
+	ErrAccountRestricted          = errors.New("paypal account restricted: sender sandbox account is not eligible for payouts (PAYOUT_NOT_AVAILABLE)")
 )
 
 // OfficialSandboxBaseURL is the immutable official PayPal sandbox API endpoint.
@@ -86,6 +88,23 @@ func (c *Client) HasPayoutsScope() bool {
 	c.tokenMu.RLock()
 	defer c.tokenMu.RUnlock()
 	return c.hasPayoutsScope
+}
+
+// EnsurePayoutsAuthorization acquires an OAuth access token and verifies that the
+// required PayPalPayoutsScope has been granted. Returns ErrMissingCredentials,
+// ErrUnauthorized, parseForbiddenError, or ErrMissingPayoutsScope.
+func (c *Client) EnsurePayoutsAuthorization(ctx context.Context) error {
+	token, err := c.GetAccessToken(ctx)
+	if err != nil {
+		return err
+	}
+	if token == "" {
+		return errors.New("empty access token acquired from paypal oauth")
+	}
+	if !c.HasPayoutsScope() {
+		return ErrMissingPayoutsScope
+	}
+	return nil
 }
 
 // OAuthTokenResponse represents the response from PayPal OAuth2 token endpoint.
@@ -416,6 +435,18 @@ func (e *APIForbiddenError) Error() string {
 
 func (e *APIForbiddenError) Unwrap() error {
 	return ErrForbidden
+}
+
+// IsAccountRestricted returns true if the error indicates an account restriction or ineligibility,
+// such as PAYOUT_NOT_AVAILABLE or account restriction issue.
+func (e *APIForbiddenError) IsAccountRestricted() bool {
+	if strings.EqualFold(e.Name, "PAYOUT_NOT_AVAILABLE") ||
+		strings.EqualFold(e.Name, "ACCOUNT_RESTRICTED") ||
+		strings.Contains(strings.ToUpper(e.Issue), "RESTRICT") ||
+		strings.Contains(strings.ToUpper(e.Issue), "ELIGIB") {
+		return true
+	}
+	return false
 }
 
 // AsAPIForbiddenError returns *APIForbiddenError if err wraps one.
@@ -882,6 +913,11 @@ func (c *Client) CreatePayout(ctx context.Context, req CreatePayoutRequest) (*Cr
 		return nil, ErrInvalidPayoutRequest
 	}
 
+	// Verify payouts authorization before sending outbound mutation (defense in depth)
+	if err := c.EnsurePayoutsAuthorization(ctx); err != nil {
+		return nil, err
+	}
+
 	token, err := c.GetAccessToken(ctx)
 	if err != nil {
 		return nil, err
@@ -1065,13 +1101,16 @@ func (c *Client) CancelPayoutItem(ctx context.Context, payoutItemID string) (*Pa
 
 // ConnectionStatus represents the live verified status of the PayPal Sandbox connection.
 type ConnectionStatus struct {
-	Connected      bool      `json:"connected"`
-	Environment    string    `json:"environment"`
-	BaseURL        string    `json:"base_url"`
-	AppID          string    `json:"app_id,omitempty"`
-	TokenExpiresIn int       `json:"token_expires_in,omitempty"`
-	CheckedAt      time.Time `json:"checked_at"`
-	Error          string    `json:"error,omitempty"`
+	Connected         bool      `json:"connected"`
+	Environment       string    `json:"environment"`
+	BaseURL           string    `json:"base_url"`
+	AppID             string    `json:"app_id,omitempty"`
+	TokenExpiresIn    int       `json:"token_expires_in,omitempty"`
+	CheckedAt         time.Time `json:"checked_at"`
+	Error             string    `json:"error,omitempty"`
+	HasPayoutsScope   bool      `json:"has_payouts_scope"`
+	PayoutsPermission string    `json:"payouts_permission,omitempty"`
+	Note              string    `json:"note,omitempty"`
 }
 
 // CheckConnection probes PayPal Sandbox by acquiring an actual OAuth2 token.
@@ -1099,10 +1138,21 @@ func (c *Client) CheckConnection(ctx context.Context) *ConnectionStatus {
 
 	status.Connected = token != ""
 	c.tokenMu.RLock()
+	status.HasPayoutsScope = c.hasPayoutsScope
 	if c.tokenExpiry.After(now) {
 		status.TokenExpiresIn = int(time.Until(c.tokenExpiry).Seconds())
 	}
 	c.tokenMu.RUnlock()
+
+	if status.Connected {
+		if status.HasPayoutsScope {
+			status.PayoutsPermission = "scope_granted_account_unverified"
+			status.Note = "OAuth token acquired with payouts scope. Note: granted OAuth scope does not guarantee sender account eligibility; provider may still reject payouts if the sandbox account lacks Payouts capability."
+		} else {
+			status.PayoutsPermission = "missing_scope"
+			status.Note = "OAuth token acquired but missing required scope https://uri.paypal.com/payments/payouts."
+		}
+	}
 
 	return status
 }

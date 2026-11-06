@@ -197,12 +197,23 @@ func (s *Server) handleSandboxStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hasScope := s.paypalClient.HasPayoutsScope()
+	payoutsPerm := "missing_scope"
+	note := "OAuth token acquired but missing required scope https://uri.paypal.com/payments/payouts"
+	if hasScope {
+		payoutsPerm = "scope_granted_account_unverified"
+		note = "OAuth token acquired with payouts scope; sender account eligibility is verified only upon payout submission"
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":       "authenticated",
-		"token_valid":  len(token) > 0,
-		"paypal_env":   s.cfg.PayPalEnv,
-		"endpoint":     s.cfg.PayPalBaseURL,
-		"access_token": "[REDACTED_ACCESS_TOKEN]",
+		"status":                    "authenticated",
+		"token_valid":               len(token) > 0,
+		"has_payouts_scope":         hasScope,
+		"payouts_permission_status": payoutsPerm,
+		"message":                   note,
+		"paypal_env":                s.cfg.PayPalEnv,
+		"endpoint":                  s.cfg.PayPalBaseURL,
+		"access_token":              "[REDACTED_ACCESS_TOKEN]",
 	})
 }
 

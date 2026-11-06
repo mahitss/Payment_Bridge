@@ -291,3 +291,65 @@ func TestPayoutHandler_RejectSubmitCancelledOperation(t *testing.T) {
 		t.Fatalf("expected 409 Conflict when submitting cancelled operation, got: %d (%s)", recSubmit.Code, recSubmit.Body.String())
 	}
 }
+
+func TestPayoutHandler_Submit_MissingScopeReturnsHTTP403(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/oauth2/token" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "token-no-payouts",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+				"scope":        "openid email",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	repo := db.NewMockRepository()
+	ctx := context.Background()
+	userA, org, _ := repo.CreateUserWithPersonalOrg(ctx, &db.User{
+		Email:         "user@example.com",
+		Name:          "User",
+		EmailVerified: true,
+	}, "ScopeTestCorp")
+
+	cfg := &config.Config{
+		AppEnv:               "development",
+		PayPalEnv:            "sandbox",
+		PayPalClientID:       "id",
+		PayPalClientSecret:   "secret",
+		PayPalBaseURL:        ts.URL,
+		PayPalRequestTimeout: 2 * time.Second,
+	}
+
+	ppClient, _ := paypal.NewTestClient(cfg, ts.Client(), ts.URL)
+	svc := NewService(cfg, repo, policy.NewEngine(""), ppClient)
+	h := NewHandler(cfg, svc)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	pCase, _ := svc.CreatePayoutCase(ctx, userA, org, CreateCaseRequest{
+		RecipientEmail: "claimant@example.com",
+		RecipientName:  "Jane Claimant",
+		Title:          "Scope Test",
+		AmountCents:    10000,
+	})
+	op, _ := svc.InitiatePayoutOperation(ctx, userA, org, pCase.ID)
+
+	req := authenticatedRequest(http.MethodPost, "/api/v1/payout-operations/"+op.ID+"/submit", nil, userA, org)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403 Forbidden for missing scope, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var res map[string]interface{}
+	_ = json.NewDecoder(rec.Body).Decode(&res)
+	if res["code"] != "PAYPAL_SCOPE_MISSING" {
+		t.Errorf("expected code PAYPAL_SCOPE_MISSING, got %v", res["code"])
+	}
+}

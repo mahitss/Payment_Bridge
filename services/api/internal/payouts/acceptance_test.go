@@ -37,6 +37,7 @@ func TestMission003_PayoutAcceptanceScenarios(t *testing.T) {
 				"token_type":   "Bearer",
 				"app_id":       "APP-SANDBOX-TEST",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 		case r.URL.Path == "/v1/payments/payouts" && r.Method == http.MethodPost:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -397,6 +398,7 @@ func TestMission003_PayoutAcceptanceScenarios(t *testing.T) {
 					"token_type":   "Bearer",
 					"app_id":       "APP-SANDBOX-TEST",
 					"expires_in":   3600,
+					"scope":        paypal.PayPalPayoutsScope,
 				})
 			case r.URL.Path == "/v1/payments/payouts" && r.Method == http.MethodPost:
 				// Hold for 100ms to deterministically exceed the 30ms timeout, then exit cleanly

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -218,6 +219,55 @@ func TestResolveAndLoadEnvFiles(t *testing.T) {
 	}
 	if val := os.Getenv("TEST_ENV_VAR_2"); val != "world" {
 		t.Errorf("expected TEST_ENV_VAR_2 to be 'world' (quotes stripped), got %q", val)
+	}
+}
+
+func TestLoadEnvFiles_ExplicitEnvPrecedence(t *testing.T) {
+	tempDir := t.TempDir()
+	tmpFile, err := os.CreateTemp(tempDir, "claimbridge-precedence-*.env")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	content := "OVERRIDE_ME=file_value\nNEW_VAR=file_new\n"
+	if _, err := tmpFile.WriteString(content); err != nil {
+		t.Fatalf("failed writing temp env file: %v", err)
+	}
+	tmpFile.Close()
+
+	os.Setenv("OVERRIDE_ME", "explicit_process_value")
+	os.Unsetenv("NEW_VAR")
+	defer func() {
+		os.Unsetenv("OVERRIDE_ME")
+		os.Unsetenv("NEW_VAR")
+	}()
+
+	resolved, err := LoadEnvFiles(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("LoadEnvFiles failed: %v", err)
+	}
+	if resolved != tmpFile.Name() {
+		t.Errorf("expected resolved path %q, got %q", tmpFile.Name(), resolved)
+	}
+
+	// Invariant: explicitly set process environment variable is preserved and NOT overwritten
+	if val := os.Getenv("OVERRIDE_ME"); val != "explicit_process_value" {
+		t.Errorf("expected explicit process variable to be preserved, got %q", val)
+	}
+	// Invariant: unset variable is populated from .env
+	if val := os.Getenv("NEW_VAR"); val != "file_new" {
+		t.Errorf("expected NEW_VAR to be populated from file, got %q", val)
+	}
+}
+
+func TestLoadEnvFiles_MissingFileHandling(t *testing.T) {
+	// When called with no arguments in an environment without .env,
+	// or when candidate resolution returns empty, it must not return an error.
+	nonExistent := filepath.Join(t.TempDir(), "non-existent.env")
+	_, err := LoadEnvFiles(nonExistent)
+	if err == nil {
+		t.Errorf("expected error when explicit path does not exist, got nil")
 	}
 }
 
