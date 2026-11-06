@@ -368,7 +368,7 @@ func (h *Handler) handleSubmitPayoutOperation(w http.ResponseWriter, r *http.Req
 
 	op, err := h.service.SubmitPayoutOperation(r.Context(), user, org, existingOp.PayoutCaseID, opID)
 	if err != nil {
-		switch {
+	switch {
 		case errors.Is(err, ErrFixtureExternalOperationForbidden):
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error": err.Error(),
@@ -378,6 +378,36 @@ func (h *Handler) handleSubmitPayoutOperation(w http.ResponseWriter, r *http.Req
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
 		case errors.Is(err, ErrOperationAlreadySubmitted), errors.Is(err, ErrOperationCannotBeSubmitted), errors.Is(err, ErrCaseInTerminalState), errors.Is(err, db.ErrSubmissionClaimConflict):
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		case errors.Is(err, paypal.ErrMissingCredentials), errors.Is(err, ErrPayPalNotConfigured):
+			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+				"error":     "PayPal credentials not configured",
+				"code":      "PAYPAL_NOT_CONFIGURED",
+				"operation": op,
+			})
+		case errors.Is(err, paypal.ErrUnauthorized):
+			writeJSON(w, http.StatusBadGateway, map[string]interface{}{
+				"error":     "PayPal OAuth authentication failed: invalid credentials",
+				"code":      "PAYPAL_OAUTH_FAILED",
+				"operation": op,
+			})
+		case errors.Is(err, paypal.ErrMissingPayoutsScope):
+			writeJSON(w, http.StatusForbidden, map[string]interface{}{
+				"error":     "PayPal OAuth token missing required scope https://uri.paypal.com/payments/payouts",
+				"code":      "PAYPAL_SCOPE_MISSING",
+				"operation": op,
+			})
+		case errors.Is(err, ErrPayPalAccountRestricted), errors.Is(err, paypal.ErrAccountRestricted):
+			writeJSON(w, http.StatusForbidden, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "PAYPAL_ACCOUNT_RESTRICTED",
+				"operation": op,
+			})
+		case errors.Is(err, paypal.ErrForbidden):
+			writeJSON(w, http.StatusForbidden, map[string]interface{}{
+				"error":     err.Error(),
+				"code":      "PAYPAL_FORBIDDEN",
+				"operation": op,
+			})
 		case paypal.IsAmbiguousOutcome(err) || errors.Is(err, paypal.ErrAmbiguousNetworkTimeout):
 			writeJSON(w, http.StatusGatewayTimeout, map[string]interface{}{
 				"error":     "Payout submission ambiguous. Status transitioned to RECONCILIATION_REQUIRED for safety.",

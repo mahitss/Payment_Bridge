@@ -211,6 +211,7 @@ func TestPayoutService_SubmitOperation_SuccessAndAudit(t *testing.T) {
 				"token_type":   "Bearer",
 				"expires_in":   3600,
 				"app_id":       "APP-SANDBOX-TEST",
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 		case "/v1/payments/payouts":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -291,6 +292,7 @@ func TestPayoutService_SubmitOperation_AmbiguousTimeoutSafety(t *testing.T) {
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -352,6 +354,7 @@ func TestPayoutService_SyncAndCancel(t *testing.T) {
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 		case "/v1/payments/payouts/PAYPAL-BATCH-777":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -599,6 +602,7 @@ func TestPayoutService_SubmitOperation_SendsPersistedSenderItemID(t *testing.T) 
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -662,6 +666,7 @@ func TestPayoutService_SyncPayoutCase_BatchSuccessItemUnclaimed_DoesNotComplete(
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -736,6 +741,7 @@ func TestPayoutService_SyncPayoutCase_BatchSuccessItemSuccess_MarksCompleted(t *
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -811,6 +817,7 @@ func TestPayoutService_SyncPayoutCase_MultiItemNoUniqueMatch_FailsClosed(t *test
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -891,6 +898,7 @@ func TestPayoutService_SyncPayoutCase_MultiItemUniqueMatch_Succeeds(t *testing.T
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -976,6 +984,7 @@ func TestPayoutService_SyncPayoutCase_AmbiguousTimeoutReconciledWithoutRepaying(
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1077,6 +1086,7 @@ func TestPayoutService_SyncPayoutCase_PreserveLocalCancellation(t *testing.T) {
 				"access_token": "fake-access-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1200,6 +1210,7 @@ func TestPayoutService_Recovery_TimeoutFollowedByDuplicateRecovery(t *testing.T)
 				"access_token": "fake-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1371,6 +1382,7 @@ func TestPayoutService_Recovery_FirstRequestNeverReachedPayPal(t *testing.T) {
 				"access_token": "fake-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1461,6 +1473,7 @@ func TestPayoutService_Recovery_UnclaimedItemDoesNotCompleteCase(t *testing.T) {
 		if r.URL.Path == "/v1/oauth2/token" {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1555,7 +1568,9 @@ func TestPayoutService_Recovery_UntrustedHATEOASLinkFailsClosed(t *testing.T) {
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 		if r.URL.Path == "/v1/payments/payouts" {
@@ -1735,7 +1750,9 @@ func TestMission031_Req01_FreshEligibleOperationCanEnterRecovery(t *testing.T) {
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
@@ -1919,7 +1936,9 @@ func TestMission031_Req04_Req05_ConcurrentRecoveryExactlyOneWinsZeroDuplicatePOS
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
@@ -2089,7 +2108,9 @@ func TestMission031_Req08_ProcessFailurePreservesHonestUnresolvedOutcome(t *test
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
@@ -2374,7 +2395,9 @@ func TestMission031_Req13_ValidRecentDuplicateUsesOriginalSenderIDsAndProviderBa
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 
@@ -2477,7 +2500,9 @@ func TestMission031_Req14_KnownProviderBatchCanBeQueriedWithoutReplayingPayout(t
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 		if r.Method == http.MethodPost {
@@ -2552,7 +2577,9 @@ func TestMission032_Finding1_FinalizationBeforeExpirySucceeds(t *testing.T) {
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
@@ -2621,7 +2648,9 @@ func TestMission032_Finding1_FinalizationAfterExpiryQuarantinesEvidence(t *testi
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {
@@ -2783,7 +2812,9 @@ func TestMission032_Finding1_AmbiguousProviderTimeout(t *testing.T) {
 	paypalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/v1/oauth2/token" {
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "token_type": "Bearer", "expires_in": 3600,
+				"scope":        paypal.PayPalPayoutsScope,
+			})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/payments/payouts" {

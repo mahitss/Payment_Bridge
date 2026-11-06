@@ -36,6 +36,16 @@ func main() {
 
 	slog.Info("Starting ClaimBridge API Gateway...")
 
+	// Attempt to load .env file from candidate paths during local development
+	loadedPath, envErr := config.LoadEnvFiles()
+	if envErr != nil {
+		slog.Warn("Failed reading environment file", slog.String("path", loadedPath), slog.String("error", envErr.Error()))
+	} else if loadedPath != "" {
+		slog.Info("Loaded environment configuration from file", slog.String("path", loadedPath))
+	} else {
+		slog.Info("No local .env file found in search paths; relying on process environment variables")
+	}
+
 	// 2. Load and Strictly Validate Configuration
 	cfg, err := config.LoadFromEnv()
 	if err != nil {

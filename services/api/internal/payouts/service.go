@@ -51,6 +51,9 @@ var (
 	ErrRecoveryWindowExpired             = db.ErrRecoveryWindowExpired
 	ErrSubmissionTimestampMissing        = db.ErrSubmissionTimestampMissing
 	ErrSubmissionTimestampInvalid        = db.ErrSubmissionTimestampInvalid
+	ErrPayPalNotConfigured               = errors.New("paypal client is not configured")
+	ErrPayPalMissingScope                = paypal.ErrMissingPayoutsScope
+	ErrPayPalAccountRestricted           = paypal.ErrAccountRestricted
 )
 
 // PayPalDuplicateSafetyWindowCutoff is ClaimBridge's conservative policy cutoff for recovery replays.
@@ -496,6 +499,25 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 	fp := ComputeSubmissionFingerprint(paypalReq)
 	now := time.Now().UTC()
 
+	// Preflight PayPal client readiness and Payouts authorization BEFORE claiming operation
+	if s.paypalClient == nil {
+		return nil, ErrPayPalNotConfigured
+	}
+	if preflightErr := s.paypalClient.EnsurePayoutsAuthorization(ctx); preflightErr != nil {
+		_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+			UserID:         &user.ID,
+			OrganizationID: &org.ID,
+			EventType:      "PAYOUT_AUTHORIZATION_PREFLIGHT_FAILED",
+			Metadata: map[string]interface{}{
+				"operation_id":    op.ID,
+				"sender_batch_id": op.SenderBatchID,
+				"error":           preflightErr.Error(),
+				"case_id":         pCase.ID,
+			},
+		})
+		return nil, fmt.Errorf("paypal authorization preflight failed: %w", preflightErr)
+	}
+
 	// Atomic conditional repository transition to SUBMITTING before outbound call
 	claimedOp, err := s.repo.ClaimPayoutOperationForSubmission(ctx, org.ID, op.ID, fp, now)
 	if err != nil {
@@ -586,11 +608,27 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 		failedOp.Status = "FAILED"
 		errMsg := err.Error()
 		failedOp.ErrorMessage = &errMsg
+		auditMeta := map[string]interface{}{
+			"operation_id":    op.ID,
+			"sender_batch_id": op.SenderBatchID,
+			"error":           errMsg,
+		}
 		if fe, ok := paypal.AsAPIForbiddenError(err); ok {
 			failedOp.RawProviderResponse = map[string]interface{}{
 				"error_name": fe.Name,
 				"issue":      fe.Issue,
 				"debug_id":   fe.DebugID,
+			}
+			auditMeta["provider_error_name"] = fe.Name
+			auditMeta["provider_debug_id"] = fe.DebugID
+			if fe.IsAccountRestricted() {
+				auditMeta["is_account_restricted"] = true
+				restrictedMsg := fmt.Sprintf("%s: sender sandbox account not eligible for payouts (%s)", ErrPayPalAccountRestricted, fe.Name)
+				if fe.DebugID != "" {
+					restrictedMsg += fmt.Sprintf(" [debug_id: %s]", fe.DebugID)
+				}
+				failedOp.ErrorMessage = &restrictedMsg
+				err = fmt.Errorf("%w: %w", ErrPayPalAccountRestricted, fe)
 			}
 		}
 		if updateErr := s.repo.UpdatePayoutOperation(ctx, &failedOp); updateErr != nil {
@@ -614,6 +652,12 @@ func (s *Service) SubmitPayoutOperation(ctx context.Context, user *db.User, org 
 			return op, fmt.Errorf("definitive provider error received (%w) but failed to persist FAILED state: %v", err, updateErr)
 		}
 		*op = failedOp
+		_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+			UserID:         &user.ID,
+			OrganizationID: &org.ID,
+			EventType:      "PAYOUT_SUBMISSION_REJECTED",
+			Metadata:       auditMeta,
+		})
 		return op, err
 	}
 

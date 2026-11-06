@@ -218,6 +218,7 @@ func TestClient_GetPayoutBatch_SuccessAndNotFound(t *testing.T) {
 				AccessToken: "A21AA_TEST_TOKEN",
 				TokenType:   "Bearer",
 				ExpiresIn:   3600,
+				Scope:       PayPalPayoutsScope,
 			})
 			return
 		}
@@ -290,6 +291,7 @@ func TestClient_CreatePayout_AmbiguousTimeoutSafety(t *testing.T) {
 				AccessToken: "A21AA_TEST_TOKEN",
 				TokenType:   "Bearer",
 				ExpiresIn:   3600,
+				Scope:       PayPalPayoutsScope,
 			})
 			return
 		}
@@ -645,6 +647,8 @@ func TestClient_GetPayoutItem_OfficialNestedResponse(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(OAuthTokenResponse{
 				AccessToken: "TEST_TOKEN",
 				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+				Scope:       PayPalPayoutsScope,
 			})
 			return
 		}
@@ -697,6 +701,8 @@ func TestClient_CreatePayout_SendsSenderItemID(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(OAuthTokenResponse{
 				AccessToken: "TEST_TOKEN",
 				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+				Scope:       PayPalPayoutsScope,
 			})
 			return
 		}
@@ -845,6 +851,7 @@ func TestClient_CreatePayout_DuplicateResponseWithHATEOAS(t *testing.T) {
 				AccessToken: "A21AA_TEST_TOKEN",
 				TokenType:   "Bearer",
 				ExpiresIn:   3600,
+				Scope:       PayPalPayoutsScope,
 			})
 			return
 		}
@@ -1049,7 +1056,7 @@ func TestClient_CreatePayout_HTTP403StructuredDiagnostics(t *testing.T) {
 				TokenType:   "Bearer",
 				ExpiresIn:   3600,
 				AppID:       "APP-TEST",
-				Scope:       "openid",
+				Scope:       "openid " + PayPalPayoutsScope,
 			})
 			return
 		}
