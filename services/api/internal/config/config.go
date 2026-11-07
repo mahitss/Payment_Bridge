@@ -45,6 +45,7 @@ type Config struct {
 	PayPalEnv              string
 	PayPalClientID         string
 	PayPalClientSecret     string
+	PayPalWebhookID        string
 	PayPalBaseURL          string
 	PayPalRequestTimeout   time.Duration
 	PolicyEngineBinaryPath string
@@ -53,9 +54,12 @@ type Config struct {
 	AIBaseURL              string
 	AIModel                string
 	AIAPIKey               string
-	AIRequestTimeout       time.Duration
-	AIMaxOutputTokens      int
-	AIContextSize          int
+	AIRequestTimeout         time.Duration
+	AIMaxOutputTokens        int
+	AIContextSize            int
+	WebhookRecoveryInterval  time.Duration
+	WebhookRecoveryOlderThan time.Duration
+	WebhookRecoveryBatchSize int
 }
 
 // LoadFromEnv loads configuration from environment variables with strict validation.
@@ -133,6 +137,7 @@ func LoadFromEnv() (*Config, error) {
 		PayPalEnv:              payPalEnv,
 		PayPalClientID:         os.Getenv("PAYPAL_CLIENT_ID"),
 		PayPalClientSecret:     os.Getenv("PAYPAL_CLIENT_SECRET"),
+		PayPalWebhookID:        strings.TrimSpace(getEnv("PAYPAL_WEBHOOK_ID", "")),
 		PayPalBaseURL:          OfficialPayPalSandboxBaseURL,
 		PayPalRequestTimeout:   time.Duration(timeoutSec) * time.Second,
 		PolicyEngineBinaryPath: getEnv("POLICY_ENGINE_BIN", ""),
@@ -142,8 +147,11 @@ func LoadFromEnv() (*Config, error) {
 		AIModel:                getEnv("AI_MODEL", "llama3.2"),
 		AIAPIKey:               os.Getenv("AI_API_KEY"),
 		AIRequestTimeout:       time.Duration(getEnvInt("AI_REQUEST_TIMEOUT_SECONDS", 30)) * time.Second,
-		AIMaxOutputTokens:      getEnvInt("AI_MAX_OUTPUT_TOKENS", 2048),
-		AIContextSize:          aiContextSize,
+		AIMaxOutputTokens:        getEnvInt("AI_MAX_OUTPUT_TOKENS", 2048),
+		AIContextSize:            aiContextSize,
+		WebhookRecoveryInterval:  time.Duration(getEnvInt("WEBHOOK_RECOVERY_INTERVAL_SECONDS", 30)) * time.Second,
+		WebhookRecoveryOlderThan: time.Duration(getEnvInt("WEBHOOK_RECOVERY_OLDER_THAN_SECONDS", 60)) * time.Second,
+		WebhookRecoveryBatchSize: getEnvInt("WEBHOOK_RECOVERY_BATCH_SIZE", 50),
 	}
 
 	// Validate AI Base URL
@@ -173,6 +181,19 @@ func (c *Config) ValidatePayPalCredentials() error {
 	}
 	if err := ValidatePayPalSandboxEndpoint(c.PayPalBaseURL); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ValidatePayPalWebhookConfig checks if a dedicated PayPal Webhook ID is configured.
+// It explicitly forbids the simulator dummy ID "WEBHOOK_ID" when running in production.
+func (c *Config) ValidatePayPalWebhookConfig() error {
+	trimmedID := strings.TrimSpace(c.PayPalWebhookID)
+	if trimmedID == "" {
+		return errors.New("PAYPAL_WEBHOOK_ID is not configured in environment")
+	}
+	if (c.AppEnv == "production" || c.PayPalEnv == "production" || c.PayPalEnv == "live") && strings.EqualFold(trimmedID, "WEBHOOK_ID") {
+		return errors.New("simulator WEBHOOK_ID is strictly forbidden in production environment")
 	}
 	return nil
 }

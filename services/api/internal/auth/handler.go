@@ -262,6 +262,12 @@ func RequireAuth(next http.Handler) http.Handler {
 // OriginCheckMiddleware enforces Origin validation for state-changing requests.
 func (h *Handler) OriginCheckMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Webhook endpoints authenticate cryptographically, not via session/origin
+		if r.URL.Path == "/api/v1/paypal/webhooks" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		method := r.Method
 		if method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete || method == http.MethodPatch {
 			origin := r.Header.Get("Origin")

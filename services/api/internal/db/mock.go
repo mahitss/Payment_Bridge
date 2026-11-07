@@ -24,27 +24,31 @@ type MockRepository struct {
 	Cases               map[string]*PayoutCase             // id -> Case
 	Operations          map[string]*PayoutOperation        // id -> Operation
 	OperationsByBatchID map[string]*PayoutOperation        // sender_batch_id -> Operation
-	Investigations      map[string]*PayoutInvestigation    // id -> Investigation
-	Snapshots           []*PayoutStatusSnapshot
-	AuditEvents         []*AuditEvent
-	FailNextOp          bool
+	Investigations          map[string]*PayoutInvestigation    // id -> Investigation
+	WebhookEvents           map[string]*PayPalWebhookEvent     // id -> WebhookEvent
+	WebhookEventsByPayPalID map[string]*PayPalWebhookEvent     // paypal_event_id -> WebhookEvent
+	Snapshots               []*PayoutStatusSnapshot
+	AuditEvents             []*AuditEvent
+	FailNextOp              bool
 }
 
 func NewMockRepository() *MockRepository {
 	return &MockRepository{
-		Users:               make(map[string]*User),
-		UsersByEmail:        make(map[string]*User),
-		Orgs:                make(map[string]*Organization),
-		Memberships:         make(map[string]*OrganizationMembership),
-		Sessions:            make(map[string]*Session),
-		VerifyTokens:        make(map[string]*EmailVerificationToken),
-		ResetTokens:         make(map[string]*PasswordResetToken),
-		Cases:               make(map[string]*PayoutCase),
-		Operations:          make(map[string]*PayoutOperation),
-		OperationsByBatchID: make(map[string]*PayoutOperation),
-		Investigations:      make(map[string]*PayoutInvestigation),
-		Snapshots:           make([]*PayoutStatusSnapshot, 0),
-		AuditEvents:         make([]*AuditEvent, 0),
+		Users:                   make(map[string]*User),
+		UsersByEmail:            make(map[string]*User),
+		Orgs:                    make(map[string]*Organization),
+		Memberships:             make(map[string]*OrganizationMembership),
+		Sessions:                make(map[string]*Session),
+		VerifyTokens:            make(map[string]*EmailVerificationToken),
+		ResetTokens:             make(map[string]*PasswordResetToken),
+		Cases:                   make(map[string]*PayoutCase),
+		Operations:              make(map[string]*PayoutOperation),
+		OperationsByBatchID:     make(map[string]*PayoutOperation),
+		Investigations:          make(map[string]*PayoutInvestigation),
+		WebhookEvents:           make(map[string]*PayPalWebhookEvent),
+		WebhookEventsByPayPalID: make(map[string]*PayPalWebhookEvent),
+		Snapshots:               make([]*PayoutStatusSnapshot, 0),
+		AuditEvents:             make([]*AuditEvent, 0),
 	}
 }
 
@@ -970,4 +974,264 @@ func (m *MockRepository) DeleteSyntheticFixtures(ctx context.Context, orgID stri
 	}
 
 	return deletedCount, nil
+}
+
+// Webhook Events
+
+func (m *MockRepository) CreateWebhookEvent(ctx context.Context, event *PayPalWebhookEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.FailNextOp {
+		return ErrPayoutOperationNotFound
+	}
+
+	if _, exists := m.WebhookEventsByPayPalID[event.PayPalEventID]; exists {
+		return ErrWebhookEventAlreadyExists
+	}
+
+	if event.ID == "" {
+		event.ID = crypto.GenerateUUID()
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+
+	copied := *event
+	m.WebhookEvents[copied.ID] = &copied
+	m.WebhookEventsByPayPalID[copied.PayPalEventID] = &copied
+	return nil
+}
+
+func (m *MockRepository) GetWebhookEventByPayPalEventID(ctx context.Context, paypalEventID string) (*PayPalWebhookEvent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.FailNextOp {
+		return nil, ErrPayoutOperationNotFound
+	}
+
+	event, exists := m.WebhookEventsByPayPalID[paypalEventID]
+	if !exists {
+		return nil, ErrWebhookEventNotFound
+	}
+
+	copied := *event
+	return &copied, nil
+}
+
+func (m *MockRepository) UpdateWebhookEventStatus(ctx context.Context, id, status string, processingError *string, processedAt *time.Time, orgID, opID *string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.FailNextOp {
+		return ErrPayoutOperationNotFound
+	}
+
+	event, exists := m.WebhookEvents[id]
+	if !exists {
+		return ErrWebhookEventNotFound
+	}
+
+	event.ProcessingStatus = status
+	event.ProcessingError = processingError
+	event.ProcessedAt = processedAt
+	if orgID != nil {
+		event.OrganizationID = orgID
+	}
+	if opID != nil {
+		event.PayoutOperationID = opID
+	}
+
+	if byPayPal, ok := m.WebhookEventsByPayPalID[event.PayPalEventID]; ok {
+		*byPayPal = *event
+	}
+
+	return nil
+}
+
+func (m *MockRepository) GetPayoutOperationByPayPalIDs(ctx context.Context, paypalBatchID, paypalItemID, senderBatchID, senderItemID string) (*PayoutOperation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.FailNextOp {
+		return nil, ErrPayoutOperationNotFound
+	}
+
+	// 1. By paypal_payout_item_id
+	if strings.TrimSpace(paypalItemID) != "" {
+		for _, op := range m.Operations {
+			if op.PayPalPayoutItemID != nil && *op.PayPalPayoutItemID == strings.TrimSpace(paypalItemID) {
+				copied := *op
+				return &copied, nil
+			}
+		}
+	}
+
+	// 2. By sender_item_id
+	if strings.TrimSpace(senderItemID) != "" {
+		for _, op := range m.Operations {
+			if op.SenderItemID == strings.TrimSpace(senderItemID) {
+				copied := *op
+				return &copied, nil
+			}
+		}
+	}
+
+	// 3. By paypal_payout_batch_id
+	if strings.TrimSpace(paypalBatchID) != "" {
+		for _, op := range m.Operations {
+			if op.PayPalPayoutBatchID != nil && *op.PayPalPayoutBatchID == strings.TrimSpace(paypalBatchID) {
+				copied := *op
+				return &copied, nil
+			}
+		}
+	}
+
+	// 4. By sender_batch_id
+	if strings.TrimSpace(senderBatchID) != "" {
+		if op, ok := m.OperationsByBatchID[strings.TrimSpace(senderBatchID)]; ok {
+			copied := *op
+			return &copied, nil
+		}
+	}
+
+	return nil, ErrPayoutOperationNotFound
+}
+
+func (m *MockRepository) ClaimWebhookEventForProcessing(
+	ctx context.Context,
+	id, claimToken string,
+	leaseExpiresAt time.Time,
+) (*PayPalWebhookEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.FailNextOp {
+		return nil, ErrPayoutOperationNotFound
+	}
+
+	event, exists := m.WebhookEvents[id]
+	if !exists {
+		return nil, ErrWebhookEventNotFound
+	}
+
+	now := time.Now().UTC()
+
+	// Check if already processed
+	if event.ProcessingStatus == "PROCESSED" {
+		return nil, ErrWebhookEventAlreadyProcessed
+	}
+
+	// Check if active lease held
+	if event.ProcessingStatus == "PROCESSING" && event.LeaseExpiresAt != nil && now.Before(*event.LeaseExpiresAt) {
+		return nil, ErrWebhookEventActiveClaim
+	}
+
+	// Check if failed event is in backoff
+	if event.ProcessingStatus == "FAILED" && event.NextRetryAt != nil && now.Before(*event.NextRetryAt) {
+		return nil, ErrWebhookEventClaimConflict
+	}
+
+	// Check if attempts exhausted
+	if event.ProcessingAttempts >= 5 {
+		return nil, ErrWebhookEventExhausted
+	}
+
+	// Atomically acquire processing lease
+	event.ProcessingStatus = "PROCESSING"
+	event.ClaimToken = &claimToken
+	event.LeaseExpiresAt = &leaseExpiresAt
+	event.ProcessingAttempts++
+
+	if byPayPal, ok := m.WebhookEventsByPayPalID[event.PayPalEventID]; ok {
+		*byPayPal = *event
+	}
+
+	copied := *event
+	return &copied, nil
+}
+
+func (m *MockRepository) FinalizeWebhookEventProcessing(
+	ctx context.Context,
+	id, claimToken, status string,
+	processingErr *string,
+	nextRetryAt *time.Time,
+	orgID, opID *string,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.FailNextOp {
+		return ErrPayoutOperationNotFound
+	}
+
+	event, exists := m.WebhookEvents[id]
+	if !exists {
+		return ErrWebhookEventNotFound
+	}
+
+	// Must match active claim token
+	if event.ClaimToken == nil || *event.ClaimToken != claimToken {
+		return ErrWebhookEventLeaseExpired
+	}
+
+	now := time.Now().UTC()
+	event.ProcessingStatus = status
+	event.ProcessingError = processingErr
+	event.NextRetryAt = nextRetryAt
+	event.ProcessedAt = &now
+	event.ClaimToken = nil
+	event.LeaseExpiresAt = nil
+	if orgID != nil {
+		event.OrganizationID = orgID
+	}
+	if opID != nil {
+		event.PayoutOperationID = opID
+	}
+
+	if byPayPal, ok := m.WebhookEventsByPayPalID[event.PayPalEventID]; ok {
+		*byPayPal = *event
+	}
+
+	return nil
+}
+
+func (m *MockRepository) ListPendingWebhookEvents(ctx context.Context, olderThan time.Duration, limit int) ([]PayPalWebhookEvent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.FailNextOp {
+		return nil, ErrPayoutOperationNotFound
+	}
+
+	cutoff := time.Now().UTC().Add(-olderThan)
+	now := time.Now().UTC()
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+
+	var results []PayPalWebhookEvent
+	for _, ev := range m.WebhookEvents {
+		if ev.ProcessingAttempts >= 5 {
+			continue
+		}
+		claimable := false
+		if ev.ProcessingStatus == "RECEIVED" && !ev.CreatedAt.After(cutoff) {
+			claimable = true
+		} else if ev.ProcessingStatus == "FAILED" && (ev.NextRetryAt == nil || !ev.NextRetryAt.After(now)) {
+			claimable = true
+		} else if ev.ProcessingStatus == "PROCESSING" && ev.LeaseExpiresAt != nil && ev.LeaseExpiresAt.Before(now) {
+			claimable = true
+		}
+
+		if claimable {
+			copied := *ev
+			results = append(results, copied)
+			if len(results) >= limit {
+				break
+			}
+		}
+	}
+	return results, nil
 }

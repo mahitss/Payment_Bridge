@@ -176,3 +176,28 @@ type PayoutInvestigation struct {
 	ErrorMessage         *string                       `json:"error_message,omitempty"`
 	CreatedAt            time.Time                     `json:"created_at"`
 }
+
+type PayPalWebhookEvent struct {
+	ID                string                 `json:"id"`
+	PayPalEventID     string                 `json:"paypal_event_id"`
+	EventType         string                 `json:"event_type"`
+	ResourceType      string                 `json:"resource_type"`
+	Summary           string                 `json:"summary"`
+	TransmissionID    string                 `json:"transmission_id"`
+	TransmissionTime  *time.Time             `json:"transmission_time,omitempty"`
+	WebhookID         string                 `json:"webhook_id"`
+	PayoutBatchID     *string                `json:"payout_batch_id,omitempty"`
+	PayoutItemID      *string                `json:"payout_item_id,omitempty"`
+	SignatureVerified bool                   `json:"signature_verified"`
+	ProcessingStatus   string                 `json:"processing_status"` // RECEIVED, PROCESSING, PROCESSED, DUPLICATE, IGNORED, FAILED, FAILED_SIGNATURE, DEAD_LETTER
+	ProcessingError    *string                `json:"processing_error,omitempty"`
+	ClaimToken         *string                `json:"claim_token,omitempty"`
+	LeaseExpiresAt     *time.Time             `json:"lease_expires_at,omitempty"`
+	ProcessingAttempts int                    `json:"processing_attempts"`
+	NextRetryAt        *time.Time             `json:"next_retry_at,omitempty"`
+	PayloadSnapshot    map[string]interface{} `json:"payload_snapshot"`
+	OrganizationID    *string                `json:"organization_id,omitempty"`
+	PayoutOperationID *string                `json:"payout_operation_id,omitempty"`
+	CreatedAt         time.Time              `json:"created_at"`
+	ProcessedAt       *time.Time             `json:"processed_at,omitempty"`
+}

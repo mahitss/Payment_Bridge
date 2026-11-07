@@ -210,6 +210,7 @@ func (s *Server) handleSandboxStatus(w http.ResponseWriter, r *http.Request) {
 		"token_valid":               len(token) > 0,
 		"has_payouts_scope":         hasScope,
 		"payouts_permission_status": payoutsPerm,
+		"webhook_configured":        s.cfg.PayPalWebhookID != "",
 		"message":                   note,
 		"paypal_env":                s.cfg.PayPalEnv,
 		"endpoint":                  s.cfg.PayPalBaseURL,
