@@ -51,6 +51,7 @@ services:
       PAYPAL_SANDBOX_BASE_URL: https://api-m.sandbox.paypal.com
       PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
       PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-WEBHOOK_ID}
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_FROM: no-reply@claimbridge.internal

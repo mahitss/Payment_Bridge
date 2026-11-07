@@ -368,6 +368,42 @@ func TestWebhook_MissingWebhookID_Rejection(t *testing.T) {
 	}
 }
 
+func TestWebhook_StorageNotDurable_SandboxRejected_HTTP(t *testing.T) {
+	env := setupWebhookTestEnv(t)
+	// Change environment to sandbox
+	env.cfg.AppEnv = "sandbox"
+
+	rawBody := []byte(`{"id":"WH-STAGING-TEST","event_type":"PAYMENT.PAYOUTS-ITEM.SUCCEEDED"}`)
+	headers, err := env.sign(t, "t-staging-1", "2026-11-07T02:00:00Z", rawBody)
+	if err != nil {
+		t.Fatalf("sign failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/paypal/webhooks", bytes.NewReader(rawBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("PAYPAL-TRANSMISSION-ID", headers.TransmissionID)
+	req.Header.Set("PAYPAL-TRANSMISSION-TIME", headers.TransmissionTime)
+	req.Header.Set("PAYPAL-CERT-URL", headers.CertURL)
+	req.Header.Set("PAYPAL-AUTH-ALGO", headers.AuthAlgo)
+	req.Header.Set("PAYPAL-TRANSMISSION-SIG", headers.TransmissionSig)
+
+	w := httptest.NewRecorder()
+	mux := http.NewServeMux()
+	env.handler.RegisterRoutes(mux)
+	mux.ServeHTTP(w, req)
+
+	// Since env.repo is db.MockRepository (driver: mock_memory), it must be rejected with 503
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected HTTP 503 when persistent PostgreSQL storage is unavailable in sandbox mode, got %d", w.Code)
+	}
+
+	var respBody map[string]string
+	_ = json.NewDecoder(w.Body).Decode(&respBody)
+	if respBody["code"] != "STORAGE_NOT_DURABLE" {
+		t.Errorf("expected code STORAGE_NOT_DURABLE, got %v", respBody["code"])
+	}
+}
+
 func TestWebhook_DuplicateDeliveries_Idempotency(t *testing.T) {
 	env := setupWebhookTestEnv(t)
 	ctx := context.Background()

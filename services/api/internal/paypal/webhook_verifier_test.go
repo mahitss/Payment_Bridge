@@ -2,12 +2,19 @@ package paypal
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 )
@@ -530,3 +537,403 @@ func TestValidateHATEOASURL(t *testing.T) {
 	}
 }
 
+// -----------------------------------------------------------------------------
+// Mission 039.4 — Controlled RSA Signature Verification Proofs
+// -----------------------------------------------------------------------------
+
+func TestWebhookVerifier_Proof_ValidRSASignatureAccepted(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-PROOF-01.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-proof-001"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WH-PROOF-12345"
+	rawBody := []byte(`{"id":"WH-EVT-PROOF-01","event_type":"PAYMENT.PAYOUTS-ITEM.SUCCEEDED"}`)
+
+	sig, err := SignWebhookPayload(privKey, transmissionID, transmissionTime, webhookID, rawBody)
+	if err != nil {
+		t.Fatalf("failed generating valid signature: %v", err)
+	}
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	if err := verifier.Verify(context.Background(), headers, webhookID, rawBody); err != nil {
+		t.Fatalf("expected valid RSA signature to pass verification, got error: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Proof_ForgedSignatureRejected(t *testing.T) {
+	now := time.Now().UTC()
+	// Legitimate cert uses privKeyA
+	certA, _ := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+	// Attacker generates separate key pair privKeyB
+	_, privKeyB := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-PROOF-02.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: certA},
+	})
+
+	transmissionID := "trans-proof-002"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WH-PROOF-12345"
+	rawBody := []byte(`{"id":"WH-EVT-PROOF-02","event_type":"PAYMENT.PAYOUTS-ITEM.SUCCEEDED"}`)
+
+	// Attacker signs with privKeyB
+	forgedSig, err := SignWebhookPayload(privKeyB, transmissionID, transmissionTime, webhookID, rawBody)
+	if err != nil {
+		t.Fatalf("failed generating forged signature: %v", err)
+	}
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  forgedSig,
+	}
+
+	err = verifier.Verify(context.Background(), headers, webhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: forged RSA signature was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Proof_ModifiedPayloadRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-PROOF-03.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-proof-003"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WH-PROOF-12345"
+	rawBody := []byte(`{"id":"WH-EVT-PROOF-03","amount":100}`)
+
+	sig, err := SignWebhookPayload(privKey, transmissionID, transmissionTime, webhookID, rawBody)
+	if err != nil {
+		t.Fatalf("failed generating signature: %v", err)
+	}
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	// Payload modified by 1 character
+	modifiedBody := []byte(`{"id":"WH-EVT-PROOF-03","amount":101}`)
+
+	err = verifier.Verify(context.Background(), headers, webhookID, modifiedBody)
+	if err == nil {
+		t.Fatalf("security violation: tampered payload was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Proof_ModifiedTransmissionIDRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-PROOF-04.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-proof-004-original"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WH-PROOF-12345"
+	rawBody := []byte(`{"id":"WH-EVT-PROOF-04"}`)
+
+	sig, err := SignWebhookPayload(privKey, transmissionID, transmissionTime, webhookID, rawBody)
+	if err != nil {
+		t.Fatalf("failed generating signature: %v", err)
+	}
+
+	// Header presents different transmission ID
+	headers := WebhookHeaders{
+		TransmissionID:   "trans-proof-004-tampered",
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	err = verifier.Verify(context.Background(), headers, webhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: modified transmission ID was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Proof_ModifiedTransmissionTimeRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-PROOF-05.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-proof-005"
+	signedTime := now.Add(-5 * time.Minute).Format(time.RFC3339)
+	webhookID := "WH-PROOF-12345"
+	rawBody := []byte(`{"id":"WH-EVT-PROOF-05"}`)
+
+	sig, err := SignWebhookPayload(privKey, transmissionID, signedTime, webhookID, rawBody)
+	if err != nil {
+		t.Fatalf("failed generating signature: %v", err)
+	}
+
+	// Header presents different transmission time (1 second difference)
+	tamperedTime := now.Add(-5*time.Minute + 1*time.Second).Format(time.RFC3339)
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: tamperedTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	err = verifier.Verify(context.Background(), headers, webhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: modified transmission time was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Proof_IncorrectCRC32Rejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-PROOF-06.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-proof-006"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WH-PROOF-12345"
+	rawBody := []byte(`{"id":"WH-EVT-PROOF-06","status":"legitimate"}`)
+
+	// Manually construct signature with deliberately wrong CRC32 decimal string
+	wrongCRC := "999999999"
+	canonicalStringWithWrongCRC := fmt.Sprintf("%s|%s|%s|%s", transmissionID, transmissionTime, webhookID, wrongCRC)
+	hash := sha256.Sum256([]byte(canonicalStringWithWrongCRC))
+	sigBytes, err := rsa.SignPKCS1v15(nil, privKey, crypto.SHA256, hash[:])
+	if err != nil {
+		t.Fatalf("failed signing test payload: %v", err)
+	}
+	sigWithWrongCRC := base64.StdEncoding.EncodeToString(sigBytes)
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sigWithWrongCRC,
+	}
+
+	err = verifier.Verify(context.Background(), headers, webhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: signature with incorrect CRC32 was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Proof_InvalidCertificateNonRSA(t *testing.T) {
+	now := time.Now().UTC()
+
+	// Generate ECDSA P-256 key pair instead of RSA
+	privECDSA, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed generating ecdsa key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(7777),
+		Subject: pkix.Name{
+			CommonName:   "api.sandbox.paypal.com",
+			Organization: []string{"PayPal, Inc."},
+		},
+		NotBefore:             now.Add(-1 * time.Hour),
+		NotAfter:              now.Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privECDSA.PublicKey, privECDSA)
+	if err != nil {
+		t.Fatalf("failed creating ecdsa certificate: %v", err)
+	}
+	ecdsaCert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed parsing ecdsa certificate: %v", err)
+	}
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-ECDSA.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: ecdsaCert},
+	})
+
+	headers := WebhookHeaders{
+		TransmissionID:   "trans-proof-007a",
+		TransmissionTime: now.Format(time.RFC3339),
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  "c2ln",
+	}
+
+	err = verifier.Verify(context.Background(), headers, "WH-123", []byte(`{}`))
+	if err == nil {
+		t.Fatalf("security violation: non-RSA certificate was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidAuthAlgo) || !strings.Contains(err.Error(), "not RSA") {
+		t.Errorf("expected ErrInvalidAuthAlgo with 'not RSA', got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Proof_InvalidCertificateNotYetValid(t *testing.T) {
+	now := time.Now().UTC()
+	// Certificate valid only starting 2 hours in the future
+	cert, privKey := generateTestCertAndKey(t, now.Add(2*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-FUTURE.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-proof-007b"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WH-123"
+	rawBody := []byte(`{"id":"WH-EVT-FUTURE-CERT"}`)
+
+	sig, _ := SignWebhookPayload(privKey, transmissionID, transmissionTime, webhookID, rawBody)
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	err := verifier.Verify(context.Background(), headers, webhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: not-yet-valid certificate was accepted!")
+	}
+	if !errors.Is(err, ErrExpiredCert) && !strings.Contains(err.Error(), "expired or is not yet valid") {
+		t.Errorf("expected ErrExpiredCert, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Proof_UnsupportedAlgorithmRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-PROOF-08.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-proof-008"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WH-123"
+	rawBody := []byte(`{"id":"WH-EVT-08"}`)
+
+	sig, _ := SignWebhookPayload(privKey, transmissionID, transmissionTime, webhookID, rawBody)
+
+	unsupportedAlgos := []string{
+		"SHA1withRSA",
+		"SHA512withRSA",
+		"RSASSA-PSS",
+		"ECDSAwithSHA256",
+		"HMAC-SHA256",
+		"none",
+		"md5",
+		"SHA256", // missing withRSA
+	}
+
+	for _, algo := range unsupportedAlgos {
+		headers := WebhookHeaders{
+			TransmissionID:   transmissionID,
+			TransmissionTime: transmissionTime,
+			CertURL:          certURL,
+			AuthAlgo:         algo,
+			TransmissionSig:  sig,
+		}
+
+		err := verifier.Verify(context.Background(), headers, webhookID, rawBody)
+		if err == nil {
+			t.Errorf("security violation: unsupported algorithm %q was accepted!", algo)
+		}
+		if !errors.Is(err, ErrInvalidAuthAlgo) {
+			t.Errorf("expected ErrInvalidAuthAlgo for algorithm %q, got: %v", algo, err)
+		}
+	}
+}
+
+func TestWebhookVerifier_Proof_CertificateRetrievalFailureHandled(t *testing.T) {
+	// 1. Missing cert in fetcher
+	emptyFetcher := &MockCertFetcher{Certs: make(map[string]*x509.Certificate)}
+	verifier := NewWebhookVerifier(emptyFetcher)
+
+	headers := WebhookHeaders{
+		TransmissionID:   "trans-proof-009",
+		TransmissionTime: time.Now().UTC().Format(time.RFC3339),
+		CertURL:          "https://api.sandbox.paypal.com/v1/notifications/certs/NONEXISTENT.pem",
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  "c2ln",
+	}
+
+	err := verifier.Verify(context.Background(), headers, "WH-123", []byte(`{}`))
+	if err == nil {
+		t.Fatalf("expected error for nonexistent cert, got nil")
+	}
+	if !errors.Is(err, ErrInvalidCertURL) && !strings.Contains(err.Error(), "certificate retrieval failed") {
+		t.Errorf("expected certificate retrieval error wrapping ErrInvalidCertURL, got: %v", err)
+	}
+
+	// 2. Malicious cert URL violating SSRF policy
+	evilHeaders := WebhookHeaders{
+		TransmissionID:   "trans-proof-009b",
+		TransmissionTime: time.Now().UTC().Format(time.RFC3339),
+		CertURL:          "https://evil-attacker.com/certs/cert.pem",
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  "c2ln",
+	}
+
+	errSSRF := verifier.Verify(context.Background(), evilHeaders, "WH-123", []byte(`{}`))
+	if errSSRF == nil {
+		t.Fatalf("security violation: SSRF attacker cert URL was accepted!")
+	}
+	if !errors.Is(errSSRF, ErrSSRFPrevented) {
+		t.Errorf("expected ErrSSRFPrevented, got: %v", errSSRF)
+	}
+}

@@ -112,13 +112,35 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	hasPayPalCreds := s.cfg.PayPalClientID != "" && s.cfg.PayPalClientSecret != ""
 	dbStatus := "connected"
+	storageDriver := "unconfigured"
+	isPersistent := false
 	isReady := true
 
-	if s.repo != nil {
+	if s.repo == nil {
+		dbStatus = "unconfigured"
+		if s.cfg.AppEnv != "test" {
+			isReady = false
+		}
+	} else {
+		storageDriver = s.repo.Driver()
+		isPersistent = (storageDriver == "postgres")
+
 		if err := s.repo.Ping(r.Context()); err != nil {
 			dbStatus = "unavailable"
 			isReady = false
+		} else if isPersistent {
+			dbStatus = "connected"
+		} else {
+			dbStatus = "mock_memory"
+			if s.cfg.AppEnv != "development" && s.cfg.AppEnv != "test" {
+				isReady = false
+			}
 		}
+	}
+
+	stagingReady := isReady && isPersistent
+	if (s.cfg.AppEnv != "development" && s.cfg.AppEnv != "test") && !isPersistent {
+		isReady = false
 	}
 
 	statusCode := http.StatusOK
@@ -132,6 +154,9 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		"status":                 statusStr,
 		"service":                "claimbridge-api",
 		"database":               dbStatus,
+		"storage_driver":         storageDriver,
+		"storage_persistent":     isPersistent,
+		"staging_ready":          stagingReady,
 		"paypal_env":             s.cfg.PayPalEnv,
 		"paypal_creds_available": hasPayPalCreds,
 		"paypal_base_url":        s.cfg.PayPalBaseURL,

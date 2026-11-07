@@ -52,6 +52,10 @@ func (r *PostgresRepository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
+func (r *PostgresRepository) Driver() string {
+	return "postgres"
+}
+
 func (r *PostgresRepository) Pool() *pgxpool.Pool {
 	return r.pool
 }

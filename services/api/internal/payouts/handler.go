@@ -695,6 +695,21 @@ func (h *Handler) handlePayPalWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 5b. Enforce durable persistence requirement (fail-closed if mock storage in staging/production)
+	if h.service.Repository() != nil && h.service.Repository().Driver() != "postgres" {
+		if h.cfg.AppEnv != "development" && h.cfg.AppEnv != "test" {
+			slog.ErrorContext(r.Context(), "PayPal webhook rejected: persistent PostgreSQL storage is required but unavailable",
+				slog.String("app_env", h.cfg.AppEnv),
+				slog.String("driver", h.service.Repository().Driver()),
+			)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error": "webhook rejected: persistent PostgreSQL storage is required; volatile mock repository cannot durably persist events",
+				"code":  "STORAGE_NOT_DURABLE",
+			})
+			return
+		}
+	}
+
 	// 6. Process Webhook
 	res, err := h.service.ProcessPayPalWebhook(r.Context(), headers, rawBody)
 	if err != nil {
@@ -707,7 +722,8 @@ func (h *Handler) handlePayPalWebhook(w http.ResponseWriter, r *http.Request) {
 			errors.Is(err, paypal.ErrInvalidAuthAlgo) ||
 			errors.Is(err, paypal.ErrInvalidCertURL) ||
 			errors.Is(err, paypal.ErrSSRFPrevented) ||
-			errors.Is(err, paypal.ErrExpiredCert) {
+			errors.Is(err, paypal.ErrExpiredCert) ||
+			errors.Is(err, paypal.ErrInvalidTransmissionTime) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error":   "Webhook cryptographic verification failed",
 				"details": err.Error(),
