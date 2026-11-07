@@ -1099,6 +1099,104 @@ func (m *MockRepository) GetPayoutOperationByPayPalIDs(ctx context.Context, payp
 	return nil, ErrPayoutOperationNotFound
 }
 
+func (m *MockRepository) ClaimWebhookEventForProcessing(
+	ctx context.Context,
+	id, claimToken string,
+	leaseExpiresAt time.Time,
+) (*PayPalWebhookEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.FailNextOp {
+		return nil, ErrPayoutOperationNotFound
+	}
+
+	event, exists := m.WebhookEvents[id]
+	if !exists {
+		return nil, ErrWebhookEventNotFound
+	}
+
+	now := time.Now().UTC()
+
+	// Check if already processed
+	if event.ProcessingStatus == "PROCESSED" {
+		return nil, ErrWebhookEventAlreadyProcessed
+	}
+
+	// Check if active lease held
+	if event.ProcessingStatus == "PROCESSING" && event.LeaseExpiresAt != nil && now.Before(*event.LeaseExpiresAt) {
+		return nil, ErrWebhookEventActiveClaim
+	}
+
+	// Check if failed event is in backoff
+	if event.ProcessingStatus == "FAILED" && event.NextRetryAt != nil && now.Before(*event.NextRetryAt) {
+		return nil, ErrWebhookEventClaimConflict
+	}
+
+	// Check if attempts exhausted
+	if event.ProcessingAttempts >= 5 {
+		return nil, ErrWebhookEventExhausted
+	}
+
+	// Atomically acquire processing lease
+	event.ProcessingStatus = "PROCESSING"
+	event.ClaimToken = &claimToken
+	event.LeaseExpiresAt = &leaseExpiresAt
+	event.ProcessingAttempts++
+
+	if byPayPal, ok := m.WebhookEventsByPayPalID[event.PayPalEventID]; ok {
+		*byPayPal = *event
+	}
+
+	copied := *event
+	return &copied, nil
+}
+
+func (m *MockRepository) FinalizeWebhookEventProcessing(
+	ctx context.Context,
+	id, claimToken, status string,
+	processingErr *string,
+	nextRetryAt *time.Time,
+	orgID, opID *string,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.FailNextOp {
+		return ErrPayoutOperationNotFound
+	}
+
+	event, exists := m.WebhookEvents[id]
+	if !exists {
+		return ErrWebhookEventNotFound
+	}
+
+	// Must match active claim token
+	if event.ClaimToken == nil || *event.ClaimToken != claimToken {
+		return ErrWebhookEventLeaseExpired
+	}
+
+	now := time.Now().UTC()
+	event.ProcessingStatus = status
+	event.ProcessingError = processingErr
+	event.NextRetryAt = nextRetryAt
+	event.ProcessedAt = &now
+	event.ClaimToken = nil
+	event.LeaseExpiresAt = nil
+	if orgID != nil {
+		event.OrganizationID = orgID
+	}
+	if opID != nil {
+		event.PayoutOperationID = opID
+	}
+
+	if byPayPal, ok := m.WebhookEventsByPayPalID[event.PayPalEventID]; ok {
+		*byPayPal = *event
+	}
+
+	return nil
+}
+
 func (m *MockRepository) ListPendingWebhookEvents(ctx context.Context, olderThan time.Duration, limit int) ([]PayPalWebhookEvent, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1108,13 +1206,26 @@ func (m *MockRepository) ListPendingWebhookEvents(ctx context.Context, olderThan
 	}
 
 	cutoff := time.Now().UTC().Add(-olderThan)
+	now := time.Now().UTC()
 	if limit <= 0 || limit > 100 {
 		limit = 100
 	}
 
 	var results []PayPalWebhookEvent
 	for _, ev := range m.WebhookEvents {
+		if ev.ProcessingAttempts >= 5 {
+			continue
+		}
+		claimable := false
 		if ev.ProcessingStatus == "RECEIVED" && !ev.CreatedAt.After(cutoff) {
+			claimable = true
+		} else if ev.ProcessingStatus == "FAILED" && (ev.NextRetryAt == nil || !ev.NextRetryAt.After(now)) {
+			claimable = true
+		} else if ev.ProcessingStatus == "PROCESSING" && ev.LeaseExpiresAt != nil && ev.LeaseExpiresAt.Before(now) {
+			claimable = true
+		}
+
+		if claimable {
 			copied := *ev
 			results = append(results, copied)
 			if len(results) >= limit {

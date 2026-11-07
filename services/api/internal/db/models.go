@@ -189,9 +189,13 @@ type PayPalWebhookEvent struct {
 	PayoutBatchID     *string                `json:"payout_batch_id,omitempty"`
 	PayoutItemID      *string                `json:"payout_item_id,omitempty"`
 	SignatureVerified bool                   `json:"signature_verified"`
-	ProcessingStatus  string                 `json:"processing_status"` // RECEIVED, PROCESSED, DUPLICATE, IGNORED, FAILED, FAILED_SIGNATURE
-	ProcessingError   *string                `json:"processing_error,omitempty"`
-	PayloadSnapshot   map[string]interface{} `json:"payload_snapshot"`
+	ProcessingStatus   string                 `json:"processing_status"` // RECEIVED, PROCESSING, PROCESSED, DUPLICATE, IGNORED, FAILED, FAILED_SIGNATURE, DEAD_LETTER
+	ProcessingError    *string                `json:"processing_error,omitempty"`
+	ClaimToken         *string                `json:"claim_token,omitempty"`
+	LeaseExpiresAt     *time.Time             `json:"lease_expires_at,omitempty"`
+	ProcessingAttempts int                    `json:"processing_attempts"`
+	NextRetryAt        *time.Time             `json:"next_retry_at,omitempty"`
+	PayloadSnapshot    map[string]interface{} `json:"payload_snapshot"`
 	OrganizationID    *string                `json:"organization_id,omitempty"`
 	PayoutOperationID *string                `json:"payout_operation_id,omitempty"`
 	CreatedAt         time.Time              `json:"created_at"`

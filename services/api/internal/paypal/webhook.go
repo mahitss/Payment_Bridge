@@ -10,6 +10,9 @@ import (
 )
 
 // Supported PayPal Payout Webhook Event Types
+// Official PayPal documentation: https://developer.paypal.com/payouts/webhooks/
+// Note: Per official PayPal specifications, rejection/denial exists only at the batch level
+// (PAYMENT.PAYOUTSBATCH.DENIED). There is NO PAYMENT.PAYOUTS-ITEM.DENIED event in PayPal Payouts.
 const (
 	// Batch Events
 	EventPayoutsBatchDenied     = "PAYMENT.PAYOUTSBATCH.DENIED"
@@ -26,6 +29,31 @@ const (
 	EventPayoutsItemSucceeded = "PAYMENT.PAYOUTS-ITEM.SUCCEEDED"
 	EventPayoutsItemUnclaimed = "PAYMENT.PAYOUTS-ITEM.UNCLAIMED"
 )
+
+// SupportedWebhookEventTypes lists all 11 official PayPal Payouts webhook event types.
+var SupportedWebhookEventTypes = []string{
+	EventPayoutsBatchDenied,
+	EventPayoutsBatchProcessing,
+	EventPayoutsBatchSuccess,
+	EventPayoutsItemBlocked,
+	EventPayoutsItemCanceled,
+	EventPayoutsItemFailed,
+	EventPayoutsItemHeld,
+	EventPayoutsItemRefunded,
+	EventPayoutsItemReturned,
+	EventPayoutsItemSucceeded,
+	EventPayoutsItemUnclaimed,
+}
+
+// IsSupportedWebhookEventType checks whether an event type is part of the official Payouts event catalogue.
+func IsSupportedWebhookEventType(eventType string) bool {
+	for _, supported := range SupportedWebhookEventTypes {
+		if supported == eventType {
+			return true
+		}
+	}
+	return false
+}
 
 // WebhookEvent represents an incoming PayPal webhook notification envelope.
 type WebhookEvent struct {

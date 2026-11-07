@@ -44,6 +44,9 @@ jobs:
       - name: Run Go Unit Tests
         run: go test -v -race ./...
 
+      - name: Run PayPal Webhook, Payouts & Database Race Detector (Mission 037.2)
+        run: go test -v -race ./internal/paypal ./internal/payouts ./internal/db ./internal/server
+
       - name: Run PostgreSQL Seeder Integration Test
         run: go test -v -race -run TestSeeder_PostgresIntegration ./internal/seeder
 

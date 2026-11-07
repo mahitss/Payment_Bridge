@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"claimbridge/services/api/internal/crypto"
 	"claimbridge/services/api/internal/db"
 	"claimbridge/services/api/internal/paypal"
 )
@@ -113,9 +116,15 @@ func (s *Service) ProcessPayPalWebhook(
 		return nil, errors.New("webhook event missing required event_type")
 	}
 
-	// 4. Idempotency Check & Crash Recovery
-	var webhookRecord *db.PayPalWebhookEvent
-	isDuplicate := false
+	// 4. Idempotency Check & Atomic Processing Ownership
+	var (
+		webhookRecord *db.PayPalWebhookEvent
+		isDuplicate   = false
+		claimToken    = crypto.GenerateUUID()
+		leaseDuration = 30 * time.Second
+		leaseExpires  = time.Now().UTC().Add(leaseDuration)
+	)
+
 	existing, err := s.repo.GetWebhookEventByPayPalEventID(ctx, event.ID)
 	if err == nil && existing != nil {
 		isDuplicate = true
@@ -143,15 +152,37 @@ func (s *Service) ProcessPayPalWebhook(
 			}, nil
 		}
 
-		// Existing event was recorded as RECEIVED or FAILED, meaning server crashed or prior attempt failed.
-		// Resume and complete business processing for this event!
-		slog.WarnContext(ctx, "Resuming unprocessed/interrupted PayPal webhook event after prior crash",
+		// If existing is currently being processed by another active worker, acknowledge duplicate safely
+		if existing.ProcessingStatus == "PROCESSING" && existing.LeaseExpiresAt != nil && time.Now().UTC().Before(*existing.LeaseExpiresAt) {
+			slog.InfoContext(ctx, "Concurrent PayPal webhook delivery acknowledged (active processing lease held)",
+				slog.String("paypal_event_id", event.ID),
+				slog.String("event_type", event.EventType),
+			)
+			return &WebhookProcessResult{
+				Event:       existing,
+				IsDuplicate: true,
+			}, nil
+		}
+
+		// Existing event was recorded as RECEIVED, FAILED, or had an expired PROCESSING lease.
+		// Atomically acquire exclusive processing lease!
+		claimed, claimErr := s.repo.ClaimWebhookEventForProcessing(ctx, existing.ID, claimToken, leaseExpires)
+		if claimErr != nil {
+			if errors.Is(claimErr, db.ErrWebhookEventAlreadyProcessed) || errors.Is(claimErr, db.ErrWebhookEventActiveClaim) {
+				return &WebhookProcessResult{
+					Event:       existing,
+					IsDuplicate: true,
+				}, nil
+			}
+			return nil, fmt.Errorf("failed acquiring webhook event processing lease: %w", claimErr)
+		}
+		slog.WarnContext(ctx, "Resuming unprocessed/interrupted PayPal webhook event after acquiring exclusive lease",
 			slog.String("paypal_event_id", event.ID),
 			slog.String("prior_status", existing.ProcessingStatus),
 		)
-		webhookRecord = existing
+		webhookRecord = claimed
 	} else {
-		// 5. Initial Durable Persistence (Status = RECEIVED)
+		// 5. Initial Durable Persistence with Atomic Processing Ownership
 		var rawSnapshot map[string]interface{}
 		_ = json.Unmarshal(rawBody, &rawSnapshot)
 
@@ -161,20 +192,23 @@ func (s *Service) ProcessPayPalWebhook(
 		}
 
 		webhookRecord = &db.PayPalWebhookEvent{
-			PayPalEventID:     event.ID,
-			EventType:         event.EventType,
-			ResourceType:      event.ResourceType,
-			Summary:           event.Summary,
-			TransmissionID:    headers.TransmissionID,
-			TransmissionTime:  transmissionTimePtr,
-			WebhookID:         webhookID,
-			SignatureVerified: true,
-			ProcessingStatus:  "RECEIVED",
-			PayloadSnapshot:   rawSnapshot,
+			PayPalEventID:      event.ID,
+			EventType:          event.EventType,
+			ResourceType:       event.ResourceType,
+			Summary:            event.Summary,
+			TransmissionID:     headers.TransmissionID,
+			TransmissionTime:   transmissionTimePtr,
+			WebhookID:          webhookID,
+			SignatureVerified:  true,
+			ProcessingStatus:   "PROCESSING",
+			ClaimToken:         &claimToken,
+			LeaseExpiresAt:     &leaseExpires,
+			ProcessingAttempts: 1,
+			PayloadSnapshot:    rawSnapshot,
 		}
 
-		if err := s.repo.CreateWebhookEvent(ctx, webhookRecord); err != nil {
-			if errors.Is(err, db.ErrWebhookEventAlreadyExists) {
+		if createErr := s.repo.CreateWebhookEvent(ctx, webhookRecord); createErr != nil {
+			if errors.Is(createErr, db.ErrWebhookEventAlreadyExists) {
 				isDuplicate = true
 				// Concurrent duplicate delivery caught by DB unique constraint
 				dup, getErr := s.repo.GetWebhookEventByPayPalEventID(ctx, event.ID)
@@ -185,42 +219,68 @@ func (s *Service) ProcessPayPalWebhook(
 							IsDuplicate: true,
 						}, nil
 					}
-					webhookRecord = dup
+					claimed, claimErr := s.repo.ClaimWebhookEventForProcessing(ctx, dup.ID, claimToken, leaseExpires)
+					if claimErr != nil {
+						return &WebhookProcessResult{
+							Event:       dup,
+							IsDuplicate: true,
+						}, nil
+					}
+					webhookRecord = claimed
 				} else {
-					return nil, fmt.Errorf("failed retrieving concurrent duplicate webhook event: %w", err)
+					return nil, fmt.Errorf("failed retrieving concurrent duplicate webhook event: %w", createErr)
 				}
 			} else {
-				return nil, fmt.Errorf("failed to durably record webhook event: %w", err)
+				return nil, fmt.Errorf("failed to durably record webhook event: %w", createErr)
 			}
 		}
 	}
 
 	// 6. Authoritative Reconciliation
 	op, reconErr := s.reconcileWebhookEvent(ctx, &event, webhookRecord)
-	now := time.Now().UTC()
 	if reconErr != nil {
 		errMsg := reconErr.Error()
-		webhookRecord.ProcessingStatus = "FAILED"
+		attempts := webhookRecord.ProcessingAttempts
+		backoff := time.Duration(1<<attempts) * 30 * time.Second
+		nextRetry := time.Now().UTC().Add(backoff)
+		finalStatus := "FAILED"
+		if attempts >= 5 {
+			finalStatus = "DEAD_LETTER"
+		}
+		_ = s.repo.FinalizeWebhookEventProcessing(
+			ctx,
+			webhookRecord.ID,
+			claimToken,
+			finalStatus,
+			&errMsg,
+			&nextRetry,
+			webhookRecord.OrganizationID,
+			webhookRecord.PayoutOperationID,
+		)
+		webhookRecord.ProcessingStatus = finalStatus
 		webhookRecord.ProcessingError = &errMsg
-		webhookRecord.ProcessedAt = &now
-		_ = s.repo.UpdateWebhookEventStatus(ctx, webhookRecord.ID, "FAILED", &errMsg, &now, webhookRecord.OrganizationID, webhookRecord.PayoutOperationID)
 		return &WebhookProcessResult{
 			Event:            webhookRecord,
 			MatchedOperation: op,
 		}, reconErr
 	}
 
-	// 7. Update Event Processing Status
-	webhookRecord.ProcessedAt = &now
-	_ = s.repo.UpdateWebhookEventStatus(
+	// 7. Finalize Event Processing Status
+	finalStatus := webhookRecord.ProcessingStatus
+	if finalStatus == "" || finalStatus == "PROCESSING" {
+		finalStatus = "PROCESSED"
+	}
+	_ = s.repo.FinalizeWebhookEventProcessing(
 		ctx,
 		webhookRecord.ID,
-		webhookRecord.ProcessingStatus,
+		claimToken,
+		finalStatus,
 		webhookRecord.ProcessingError,
-		&now,
+		nil,
 		webhookRecord.OrganizationID,
 		webhookRecord.PayoutOperationID,
 	)
+	webhookRecord.ProcessingStatus = finalStatus
 
 	return &WebhookProcessResult{
 		Event:            webhookRecord,
@@ -367,15 +427,12 @@ func (s *Service) reconcileWebhookEvent(
 
 		case paypal.EventPayoutsItemFailed, paypal.EventPayoutsItemBlocked, paypal.EventPayoutsBatchDenied:
 			// Severe provider discrepancy: failure notification after SUCCEEDED!
-			// Never overwrite settled financial records automatically; transition to RECONCILIATION_REQUIRED
-			slog.ErrorContext(ctx, "CRITICAL: Provider reported failure event on already SUCCEEDED payout operation",
+			// PRESERVE AUTHORITATIVE FINANCIAL STATE: Settled payments must NEVER be downgraded
+			// to RECONCILIATION_REQUIRED, FAILED, or reopened for resubmission.
+			slog.ErrorContext(ctx, "CRITICAL DISCREPANCY: Provider reported failure event on already SUCCEEDED payout operation; preserving financial state and logging incident",
 				slog.String("operation_id", op.ID),
 				slog.String("event_type", event.EventType),
 			)
-			op.Status = "RECONCILIATION_REQUIRED"
-			errMsg := fmt.Sprintf("Critical discrepancy: received %s for already SUCCEEDED operation; manual review required", event.EventType)
-			op.ErrorMessage = &errMsg
-			_ = s.repo.UpdatePayoutOperation(ctx, op)
 
 			_ = s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
 				PayoutOperationID: op.ID,
@@ -388,11 +445,51 @@ func (s *Service) reconcileWebhookEvent(
 
 			_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
 				OrganizationID: &op.OrganizationID,
-				EventType:      "PAYOUT_WEBHOOK_TERMINAL_CONFLICT",
+				EventType:      "PAYOUT_WEBHOOK_CONTRADICTORY_EVENT",
 				Metadata: map[string]interface{}{
-					"operation_id":    op.ID,
-					"paypal_event_id": event.ID,
-					"event_type":      event.EventType,
+					"operation_id":                  op.ID,
+					"paypal_event_id":               event.ID,
+					"event_type":                    event.EventType,
+					"current_financial_status":      "SUCCEEDED",
+					"contradictory_provider_status": "FAILED",
+					"action":                        "PRESERVED_TERMINAL_SUCCESS_LOGGED_INCIDENT",
+				},
+			})
+			record.ProcessingStatus = "PROCESSED"
+			return op, nil
+
+		case paypal.EventPayoutsItemReturned, paypal.EventPayoutsItemRefunded, paypal.EventPayoutsItemHeld:
+			// Post-settlement return/refund/hold: initial payment succeeded and was settled.
+			// Preserve SUCCEEDED financial state to protect claim completion integrity;
+			// update provider status snapshot and log reversal incident.
+			slog.WarnContext(ctx, "Provider reported post-settlement reversal for SUCCEEDED payout operation",
+				slog.String("operation_id", op.ID),
+				slog.String("event_type", event.EventType),
+			)
+			item, _, err := event.ParsePayoutItem()
+			if err == nil && item != nil && item.TransactionStatus != "" {
+				op.PayPalItemStatus = &item.TransactionStatus
+				_ = s.repo.UpdatePayoutOperation(ctx, op)
+			}
+
+			_ = s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
+				PayoutOperationID: op.ID,
+				OrganizationID:    op.OrganizationID,
+				Provider:          "PAYPAL",
+				BatchStatus:       event.EventType,
+				ItemStatus:        op.PayPalItemStatus,
+				RawResponse:       record.PayloadSnapshot,
+			})
+
+			_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
+				OrganizationID: &op.OrganizationID,
+				EventType:      "PAYOUT_WEBHOOK_ITEM_REVERSAL_POST_SETTLEMENT",
+				Metadata: map[string]interface{}{
+					"operation_id":             op.ID,
+					"paypal_event_id":          event.ID,
+					"event_type":               event.EventType,
+					"current_financial_status": "SUCCEEDED",
+					"action":                   "RECORDED_POST_SETTLEMENT_REVERSAL_INCIDENT",
 				},
 			})
 			record.ProcessingStatus = "PROCESSED"
@@ -401,22 +498,47 @@ func (s *Service) reconcileWebhookEvent(
 	}
 
 	if op.Status == "CANCELLED" && event.EventType == paypal.EventPayoutsItemSucceeded {
-		// Payout was marked cancelled locally, but provider reports payment succeeded!
-		slog.ErrorContext(ctx, "CRITICAL: Payout cancelled locally but PayPal reports item SUCCEEDED",
+		// Payout was marked cancelled locally, but provider reports item SUCCEEDED!
+		// Authoritative provider evidence proves funds were disbursed.
+		// Transition operation to SUCCEEDED and case to COMPLETED to truthfully reflect financial
+		// state and eliminate double-payout submission risks.
+		slog.ErrorContext(ctx, "CRITICAL: Payout cancelled locally but PayPal reports item SUCCEEDED; transitioning to SUCCEEDED to prevent double payout",
 			slog.String("operation_id", op.ID),
 			slog.String("event_type", event.EventType),
 		)
-		op.Status = "RECONCILIATION_REQUIRED"
-		errMsg := "Payout was cancelled locally, but provider reports item SUCCEEDED"
-		op.ErrorMessage = &errMsg
+		item, _, err := event.ParsePayoutItem()
+		if err == nil && item != nil {
+			if op.PayPalPayoutItemID == nil && item.PayoutItemID != "" {
+				op.PayPalPayoutItemID = &item.PayoutItemID
+			}
+		}
+		itemSuccessStatus := "SUCCESS"
+		op.PayPalItemStatus = &itemSuccessStatus
+		op.Status = "SUCCEEDED"
+		now := time.Now().UTC()
+		op.CompletedAt = &now
+		op.ErrorMessage = nil
+
+		_ = s.repo.UpdatePayoutCaseStatus(ctx, op.OrganizationID, op.PayoutCaseID, "COMPLETED")
 		_ = s.repo.UpdatePayoutOperation(ctx, op)
+
+		_ = s.repo.CreatePayoutStatusSnapshot(ctx, &db.PayoutStatusSnapshot{
+			PayoutOperationID: op.ID,
+			OrganizationID:    op.OrganizationID,
+			Provider:          "PAYPAL",
+			BatchStatus:       event.EventType,
+			ItemStatus:        op.PayPalItemStatus,
+			RawResponse:       record.PayloadSnapshot,
+		})
+
 		_ = s.repo.RecordAuditEvent(ctx, &db.AuditEvent{
 			OrganizationID: &op.OrganizationID,
-			EventType:      "PAYOUT_WEBHOOK_TERMINAL_CONFLICT",
+			EventType:      "PAYOUT_WEBHOOK_CANCELLED_OPERATION_EXECUTED_BY_PROVIDER",
 			Metadata: map[string]interface{}{
 				"operation_id":    op.ID,
 				"paypal_event_id": event.ID,
 				"event_type":      event.EventType,
+				"action":          "TRANSITIONED_TO_SUCCEEDED_PREVENTED_DOUBLE_PAYOUT",
 			},
 		})
 		record.ProcessingStatus = "PROCESSED"
@@ -857,8 +979,8 @@ func (s *Service) reconcileWebhookEvent(
 	return op, nil
 }
 
-// RecoverPendingWebhookEvents processes any events previously stored in RECEIVED or FAILED status
-// that were interrupted by a server restart or network timeout.
+// RecoverPendingWebhookEvents processes any events previously stored in RECEIVED, FAILED (past backoff),
+// or interrupted PROCESSING status using atomic database-level leasing.
 func (s *Service) RecoverPendingWebhookEvents(ctx context.Context, olderThan time.Duration, maxEvents int) (int, error) {
 	events, err := s.repo.ListPendingWebhookEvents(ctx, olderThan, maxEvents)
 	if err != nil {
@@ -868,7 +990,17 @@ func (s *Service) RecoverPendingWebhookEvents(ctx context.Context, olderThan tim
 	recoveredCount := 0
 	for i := range events {
 		rec := &events[i]
-		rawBytes, mErr := json.Marshal(rec.PayloadSnapshot)
+		claimToken := crypto.GenerateUUID()
+		leaseExpires := time.Now().UTC().Add(30 * time.Second)
+
+		// Atomically acquire exclusive processing lease
+		claimed, claimErr := s.repo.ClaimWebhookEventForProcessing(ctx, rec.ID, claimToken, leaseExpires)
+		if claimErr != nil {
+			// Another worker or concurrent redelivery already claimed or processed it; skip
+			continue
+		}
+
+		rawBytes, mErr := json.Marshal(claimed.PayloadSnapshot)
 		if mErr != nil {
 			continue
 		}
@@ -877,23 +1009,173 @@ func (s *Service) RecoverPendingWebhookEvents(ctx context.Context, olderThan tim
 			continue
 		}
 
-		op, rErr := s.reconcileWebhookEvent(ctx, &evt, rec)
-		now := time.Now().UTC()
+		op, rErr := s.reconcileWebhookEvent(ctx, &evt, claimed)
 		if rErr != nil {
 			errMsg := rErr.Error()
-			_ = s.repo.UpdateWebhookEventStatus(ctx, rec.ID, "FAILED", &errMsg, &now, rec.OrganizationID, rec.PayoutOperationID)
+			attempts := claimed.ProcessingAttempts
+			backoff := time.Duration(1<<attempts) * 30 * time.Second
+			nextRetry := time.Now().UTC().Add(backoff)
+			finalStatus := "FAILED"
+			if attempts >= 5 {
+				finalStatus = "DEAD_LETTER"
+			}
+			_ = s.repo.FinalizeWebhookEventProcessing(
+				ctx,
+				claimed.ID,
+				claimToken,
+				finalStatus,
+				&errMsg,
+				&nextRetry,
+				claimed.OrganizationID,
+				claimed.PayoutOperationID,
+			)
 			continue
 		}
 
-		opID := rec.PayoutOperationID
-		orgID := rec.OrganizationID
+		opID := claimed.PayoutOperationID
+		orgID := claimed.OrganizationID
 		if op != nil {
 			opID = &op.ID
 			orgID = &op.OrganizationID
 		}
-		_ = s.repo.UpdateWebhookEventStatus(ctx, rec.ID, "PROCESSED", nil, &now, orgID, opID)
+		_ = s.repo.FinalizeWebhookEventProcessing(
+			ctx,
+			claimed.ID,
+			claimToken,
+			"PROCESSED",
+			nil,
+			nil,
+			orgID,
+			opID,
+		)
 		recoveredCount++
 	}
 
 	return recoveredCount, nil
+}
+
+// WebhookRecoveryWorker manages the background periodic loop to recover interrupted or pending webhook events.
+type WebhookRecoveryWorker struct {
+	service    *Service
+	interval   time.Duration
+	olderThan  time.Duration
+	batchLimit int
+	stopCh     chan struct{}
+	doneCh     chan struct{}
+	startOnce  sync.Once
+	stopOnce   sync.Once
+	running    atomic.Bool
+}
+
+// NewWebhookRecoveryWorker constructs a recovery worker with bounded batch limits and backoff intervals.
+func (s *Service) NewWebhookRecoveryWorker(interval, olderThan time.Duration, batchLimit int) *WebhookRecoveryWorker {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	if olderThan <= 0 {
+		olderThan = 1 * time.Minute
+	}
+	if batchLimit <= 0 || batchLimit > 100 {
+		batchLimit = 50
+	}
+	return &WebhookRecoveryWorker{
+		service:    s,
+		interval:   interval,
+		olderThan:  olderThan,
+		batchLimit: batchLimit,
+		stopCh:     make(chan struct{}),
+		doneCh:     make(chan struct{}),
+	}
+}
+
+// Start begins background periodic recovery. Protected by sync.Once to run exactly once per API process.
+func (w *WebhookRecoveryWorker) Start(ctx context.Context) error {
+	started := false
+	w.startOnce.Do(func() {
+		started = true
+		w.running.Store(true)
+		go w.run(ctx)
+	})
+	if !started {
+		return errors.New("webhook recovery worker already started")
+	}
+	return nil
+}
+
+// Stop signals the recovery worker to terminate and waits gracefully up to the shutdown context deadline.
+func (w *WebhookRecoveryWorker) Stop(shutdownCtx context.Context) error {
+	var err error
+	w.stopOnce.Do(func() {
+		if !w.running.Load() {
+			return
+		}
+		close(w.stopCh)
+		select {
+		case <-w.doneCh:
+			w.running.Store(false)
+		case <-shutdownCtx.Done():
+			err = shutdownCtx.Err()
+		}
+	})
+	return err
+}
+
+// IsRunning reports whether the worker is actively executing.
+func (w *WebhookRecoveryWorker) IsRunning() bool {
+	return w.running.Load()
+}
+
+func (w *WebhookRecoveryWorker) run(ctx context.Context) {
+	defer close(w.doneCh)
+	slog.Info("PayPal webhook background recovery worker started",
+		slog.Duration("interval", w.interval),
+		slog.Duration("older_than", w.olderThan),
+		slog.Int("batch_limit", w.batchLimit),
+	)
+
+	// Execute initial sweep to catch any events pending from prior process restart
+	w.executeRecoverySweep(ctx)
+
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("PayPal webhook background recovery worker stopping (context cancelled)")
+			return
+		case <-w.stopCh:
+			slog.Info("PayPal webhook background recovery worker stopping (graceful shutdown requested)")
+			return
+		case <-ticker.C:
+			w.executeRecoverySweep(ctx)
+		}
+	}
+}
+
+func (w *WebhookRecoveryWorker) executeRecoverySweep(ctx context.Context) {
+	sweepCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	recovered, err := w.service.RecoverPendingWebhookEvents(sweepCtx, w.olderThan, w.batchLimit)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Warn("PayPal webhook background recovery iteration failed",
+				slog.String("error", err.Error()),
+			)
+		}
+		return
+	}
+	if recovered > 0 {
+		slog.Info("PayPal webhook background recovery sweep completed",
+			slog.Int("recovered_count", recovered),
+		)
+	}
+}
+
+// StartWebhookRecoveryWorker initializes and starts the background worker.
+func (s *Service) StartWebhookRecoveryWorker(ctx context.Context, interval, olderThan time.Duration, batchLimit int) *WebhookRecoveryWorker {
+	worker := s.NewWebhookRecoveryWorker(interval, olderThan, batchLimit)
+	_ = worker.Start(ctx)
+	return worker
 }

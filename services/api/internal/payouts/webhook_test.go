@@ -1044,14 +1044,16 @@ func TestWebhook_OutOfOrder_UnclaimedAfterSucceeded(t *testing.T) {
 	}
 }
 
-func TestWebhook_OutOfOrder_FailedAfterSucceeded_Conflicts(t *testing.T) {
+func TestWebhook_OutOfOrder_FailedAfterSucceeded_PreservesFinancialState(t *testing.T) {
 	env := setupWebhookTestEnv(t)
 	ctx := context.Background()
 
 	orgID := "org-1"
-	_, op := env.createTestOperation(t, orgID, "BATCH-OO-3", "ITEM-OO-3", "SB-OO3", "SI-OO3", false)
+	pCase, op := env.createTestOperation(t, orgID, "BATCH-OO-3", "ITEM-OO-3", "SB-OO3", "SI-OO3", false)
 	op.Status = "SUCCEEDED"
 	_ = env.repo.UpdatePayoutOperation(ctx, op)
+	pCase.Status = "COMPLETED"
+	_ = env.repo.UpdatePayoutCaseStatus(ctx, orgID, pCase.ID, "COMPLETED")
 
 	// Conflicting failure arrives after operation already settled
 	payload := map[string]interface{}{
@@ -1071,22 +1073,28 @@ func TestWebhook_OutOfOrder_FailedAfterSucceeded_Conflicts(t *testing.T) {
 	}
 
 	opAfter, _ := env.repo.GetPayoutOperationByID(ctx, orgID, op.ID)
-	// Must NOT silently overwrite to FAILED; must enter RECONCILIATION_REQUIRED
-	if opAfter.Status != "RECONCILIATION_REQUIRED" {
-		t.Errorf("expected conflict to transition to RECONCILIATION_REQUIRED, got: %s", opAfter.Status)
+	// Authoritative Financial State Rule: Must NEVER downgrade settled SUCCEEDED payout to RECONCILIATION_REQUIRED or FAILED!
+	if opAfter.Status != "SUCCEEDED" {
+		t.Errorf("CRITICAL VIOLATION: contradictory failure downgraded settled SUCCEEDED payout to %s", opAfter.Status)
+	}
+	caseAfter, _ := env.repo.GetPayoutCaseByID(ctx, orgID, pCase.ID)
+	if caseAfter.Status != "COMPLETED" {
+		t.Errorf("CRITICAL VIOLATION: case status must remain COMPLETED, got %s", caseAfter.Status)
 	}
 }
 
-func TestWebhook_OutOfOrder_SucceededAfterCancelled_Conflicts(t *testing.T) {
+func TestWebhook_OutOfOrder_SucceededAfterCancelled_TransitionsToSucceeded(t *testing.T) {
 	env := setupWebhookTestEnv(t)
 	ctx := context.Background()
 
 	orgID := "org-1"
-	_, op := env.createTestOperation(t, orgID, "BATCH-OO-4", "ITEM-OO-4", "SB-OO4", "SI-OO4", false)
+	pCase, op := env.createTestOperation(t, orgID, "BATCH-OO-4", "ITEM-OO-4", "SB-OO4", "SI-OO4", false)
 	op.Status = "CANCELLED"
 	_ = env.repo.UpdatePayoutOperation(ctx, op)
+	pCase.Status = "CANCELLED"
+	_ = env.repo.UpdatePayoutCaseStatus(ctx, orgID, pCase.ID, "CANCELLED")
 
-	// Success arrives after cancellation!
+	// Success arrives after cancellation! Provider actually executed the payout!
 	payload := map[string]interface{}{
 		"id":         "WH-EVT-CONFLICT-SUCC",
 		"event_type": paypal.EventPayoutsItemSucceeded,
@@ -1104,8 +1112,14 @@ func TestWebhook_OutOfOrder_SucceededAfterCancelled_Conflicts(t *testing.T) {
 	}
 
 	opAfter, _ := env.repo.GetPayoutOperationByID(ctx, orgID, op.ID)
-	if opAfter.Status != "RECONCILIATION_REQUIRED" {
-		t.Errorf("expected cancelled item reporting success to require reconciliation, got %s", opAfter.Status)
+	// Authoritative provider evidence confirms funds left the account.
+	// Transitioning to SUCCEEDED truthfully reflects financial state and prevents duplicate resubmission!
+	if opAfter.Status != "SUCCEEDED" {
+		t.Errorf("expected cancelled item with provider success confirmation to transition to SUCCEEDED, got %s", opAfter.Status)
+	}
+	caseAfter, _ := env.repo.GetPayoutCaseByID(ctx, orgID, pCase.ID)
+	if caseAfter.Status != "COMPLETED" {
+		t.Errorf("expected case to transition to COMPLETED to prevent duplicate payouts, got %s", caseAfter.Status)
 	}
 }
 
@@ -1144,5 +1158,324 @@ func TestWebhook_OutOfOrder_SucceededAfterFailed_Recovery(t *testing.T) {
 	caseAfter, _ := env.repo.GetPayoutCaseByID(ctx, orgID, pCase.ID)
 	if caseAfter.Status != "COMPLETED" {
 		t.Errorf("expected case to recover to COMPLETED, got %s", caseAfter.Status)
+	}
+}
+
+func TestWebhook_OutOfOrder_ReturnedAfterSucceeded_PreservesSucceededStatus(t *testing.T) {
+	env := setupWebhookTestEnv(t)
+	ctx := context.Background()
+
+	orgID := "org-1"
+	pCase, op := env.createTestOperation(t, orgID, "BATCH-RET-1", "ITEM-RET-1", "SB-RET1", "SI-RET1", false)
+	op.Status = "SUCCEEDED"
+	_ = env.repo.UpdatePayoutOperation(ctx, op)
+	pCase.Status = "COMPLETED"
+	_ = env.repo.UpdatePayoutCaseStatus(ctx, orgID, pCase.ID, "COMPLETED")
+
+	// Post-settlement return arrives
+	payload := map[string]interface{}{
+		"id":         "WH-EVT-RET-001",
+		"event_type": paypal.EventPayoutsItemReturned,
+		"resource": map[string]interface{}{
+			"payout_item_id":     "ITEM-RET-1",
+			"transaction_status": "RETURNED",
+		},
+	}
+	rawBody, _ := json.Marshal(payload)
+	headers, _ := env.sign(t, "t-ret1", "2026-11-07T02:00:00Z", rawBody)
+
+	res, err := env.service.ProcessPayPalWebhook(ctx, headers, rawBody)
+	if err != nil {
+		t.Fatalf("webhook error: %v", err)
+	}
+	if res.Event.ProcessingStatus != "PROCESSED" {
+		t.Errorf("expected event status PROCESSED, got %s", res.Event.ProcessingStatus)
+	}
+
+	opAfter, _ := env.repo.GetPayoutOperationByID(ctx, orgID, op.ID)
+	// Financial state remains SUCCEEDED (settlement history preserved)
+	if opAfter.Status != "SUCCEEDED" {
+		t.Errorf("post-settlement return must preserve op status SUCCEEDED, got %s", opAfter.Status)
+	}
+	// Item status accurately tracks provider state
+	if opAfter.PayPalItemStatus == nil || *opAfter.PayPalItemStatus != "RETURNED" {
+		t.Errorf("expected provider item status RETURNED, got %v", opAfter.PayPalItemStatus)
+	}
+	caseAfter, _ := env.repo.GetPayoutCaseByID(ctx, orgID, pCase.ID)
+	if caseAfter.Status != "COMPLETED" {
+		t.Errorf("case status must remain COMPLETED, got %s", caseAfter.Status)
+	}
+}
+
+func TestWebhook_UnsupportedItemDeniedEvent_SafelyIgnored(t *testing.T) {
+	env := setupWebhookTestEnv(t)
+	ctx := context.Background()
+
+	orgID := "org-1"
+	pCase, op := env.createTestOperation(t, orgID, "BATCH-CAT-1", "ITEM-CAT-1", "SB-CAT1", "SI-CAT1", false)
+
+	// PAYMENT.PAYOUTS-ITEM.DENIED is unsupported per official PayPal Payouts event catalogue.
+	// Only PAYMENT.PAYOUTSBATCH.DENIED exists in PayPal's API.
+	payload := map[string]interface{}{
+		"id":         "WH-EVT-UNSUPPORTED-ITEM-DENIED",
+		"event_type": "PAYMENT.PAYOUTS-ITEM.DENIED",
+		"resource": map[string]interface{}{
+			"payout_item_id":     "ITEM-CAT-1",
+			"transaction_status": "DENIED",
+		},
+	}
+	rawBody, _ := json.Marshal(payload)
+	headers, _ := env.sign(t, "t-cat1", "2026-11-07T02:00:00Z", rawBody)
+
+	res, err := env.service.ProcessPayPalWebhook(ctx, headers, rawBody)
+	if err != nil {
+		t.Fatalf("unsupported event should be safely handled without error, got: %v", err)
+	}
+	if res.Event.ProcessingStatus != "PROCESSED" {
+		t.Errorf("expected status PROCESSED, got %s", res.Event.ProcessingStatus)
+	}
+
+	// Invariant: No financial mutation must occur
+	opAfter, _ := env.repo.GetPayoutOperationByID(ctx, orgID, op.ID)
+	if opAfter.Status != "SUBMITTED" {
+		t.Errorf("unsupported event must NOT mutate operation status, got %s", opAfter.Status)
+	}
+	caseAfter, _ := env.repo.GetPayoutCaseByID(ctx, orgID, pCase.ID)
+	if caseAfter.Status != "SUBMITTED" {
+		t.Errorf("unsupported event must NOT mutate case status, got %s", caseAfter.Status)
+	}
+
+	// Verify catalogue helper
+	if paypal.IsSupportedWebhookEventType("PAYMENT.PAYOUTS-ITEM.DENIED") {
+		t.Errorf("PAYMENT.PAYOUTS-ITEM.DENIED must NOT be recognized as supported event")
+	}
+	if !paypal.IsSupportedWebhookEventType(paypal.EventPayoutsBatchDenied) {
+		t.Errorf("PAYMENT.PAYOUTSBATCH.DENIED must be recognized as supported event")
+	}
+}
+
+func TestWebhook_AtomicClaiming_ConcurrentExistingReceived(t *testing.T) {
+	env := setupWebhookTestEnv(t)
+	ctx := context.Background()
+
+	orgID := "org-1"
+	_, op := env.createTestOperation(t, orgID, "BATCH-CONC-REC", "ITEM-CONC-REC", "SB-CR", "SI-CR", false)
+
+	payload := map[string]interface{}{
+		"id":         "WH-EVT-CONC-REC",
+		"event_type": paypal.EventPayoutsItemSucceeded,
+		"resource": map[string]interface{}{
+			"payout_item_id":     "ITEM-CONC-REC",
+			"transaction_status": "SUCCESS",
+		},
+	}
+	rawBody, _ := json.Marshal(payload)
+	headers, _ := env.sign(t, "t-crec", "2026-11-07T02:00:00Z", rawBody)
+
+	// Pre-seed event as RECEIVED (simulating prior delivery before crash)
+	var rawSnapshot map[string]interface{}
+	_ = json.Unmarshal(rawBody, &rawSnapshot)
+	_ = env.repo.CreateWebhookEvent(ctx, &db.PayPalWebhookEvent{
+		PayPalEventID:     "WH-EVT-CONC-REC",
+		EventType:         paypal.EventPayoutsItemSucceeded,
+		ResourceType:      "payouts_item",
+		TransmissionID:    headers.TransmissionID,
+		WebhookID:         env.cfg.PayPalWebhookID,
+		SignatureVerified: true,
+		ProcessingStatus:  "RECEIVED",
+		PayloadSnapshot:   rawSnapshot,
+		CreatedAt:         time.Now().UTC().Add(-2 * time.Minute),
+	})
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	results := make([]*WebhookProcessResult, 2)
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx], errs[idx] = env.service.ProcessPayPalWebhook(ctx, headers, rawBody)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("routine %d failed: %v", i, err)
+		}
+	}
+
+	// Verify operation status transitioned to SUCCEEDED exactly once
+	opAfter, _ := env.repo.GetPayoutOperationByID(ctx, orgID, op.ID)
+	if opAfter.Status != "SUCCEEDED" {
+		t.Errorf("expected operation SUCCEEDED, got %s", opAfter.Status)
+	}
+}
+
+func TestWebhook_AtomicClaiming_ExpiredLeaseRecovery(t *testing.T) {
+	env := setupWebhookTestEnv(t)
+	ctx := context.Background()
+
+	orgID := "org-1"
+	_, op := env.createTestOperation(t, orgID, "BATCH-EXP-1", "ITEM-EXP-1", "SB-EXP", "SI-EXP", false)
+
+	payload := map[string]interface{}{
+		"id":         "WH-EVT-EXP-LEASE",
+		"event_type": paypal.EventPayoutsItemSucceeded,
+		"resource": map[string]interface{}{
+			"payout_item_id":     "ITEM-EXP-1",
+			"transaction_status": "SUCCESS",
+		},
+	}
+	rawBody, _ := json.Marshal(payload)
+	headers, _ := env.sign(t, "t-exp", "2026-11-07T02:00:00Z", rawBody)
+
+	// Simulate event claimed by worker that crashed 2 minutes ago (lease expired)
+	token := "expired-worker-token"
+	expiredLease := time.Now().UTC().Add(-1 * time.Minute)
+	var rawSnapshot map[string]interface{}
+	_ = json.Unmarshal(rawBody, &rawSnapshot)
+	_ = env.repo.CreateWebhookEvent(ctx, &db.PayPalWebhookEvent{
+		PayPalEventID:      "WH-EVT-EXP-LEASE",
+		EventType:          paypal.EventPayoutsItemSucceeded,
+		ResourceType:       "payouts_item",
+		TransmissionID:     headers.TransmissionID,
+		WebhookID:          env.cfg.PayPalWebhookID,
+		SignatureVerified:  true,
+		ProcessingStatus:   "PROCESSING",
+		ClaimToken:         &token,
+		LeaseExpiresAt:     &expiredLease,
+		ProcessingAttempts: 1,
+		PayloadSnapshot:    rawSnapshot,
+		CreatedAt:          time.Now().UTC().Add(-3 * time.Minute),
+	})
+
+	// New redelivery arrives: should detect expired lease, atomically reclaim, and finalize!
+	res, err := env.service.ProcessPayPalWebhook(ctx, headers, rawBody)
+	if err != nil {
+		t.Fatalf("redelivery should recover expired lease, got: %v", err)
+	}
+	if res.Event.ProcessingStatus != "PROCESSED" {
+		t.Errorf("expected status PROCESSED after lease recovery, got %s", res.Event.ProcessingStatus)
+	}
+
+	opAfter, _ := env.repo.GetPayoutOperationByID(ctx, orgID, op.ID)
+	if opAfter.Status != "SUCCEEDED" {
+		t.Errorf("expected op SUCCEEDED after lease recovery, got %s", opAfter.Status)
+	}
+}
+
+func TestWebhook_RetryBackoff_AndDeadLetter(t *testing.T) {
+	env := setupWebhookTestEnv(t)
+	ctx := context.Background()
+
+	// Create event with 4 failed attempts
+	failedStatus := "FAILED"
+	errMsg := "transient database failure"
+	ev := &db.PayPalWebhookEvent{
+		PayPalEventID:      "WH-EVT-RETRY-MAX",
+		EventType:          paypal.EventPayoutsItemSucceeded,
+		ResourceType:       "payouts_item",
+		TransmissionID:     "t-max",
+		WebhookID:          env.cfg.PayPalWebhookID,
+		SignatureVerified:  true,
+		ProcessingStatus:   failedStatus,
+		ProcessingError:    &errMsg,
+		ProcessingAttempts: 4,
+		PayloadSnapshot:    map[string]interface{}{"id": "WH-EVT-RETRY-MAX"},
+		CreatedAt:          time.Now().UTC().Add(-10 * time.Minute),
+	}
+	_ = env.repo.CreateWebhookEvent(ctx, ev)
+
+	// Simulating 5th failure: should transition to DEAD_LETTER
+	token := "attempt-5-token"
+	lease := time.Now().UTC().Add(30 * time.Second)
+	claimed, err := env.repo.ClaimWebhookEventForProcessing(ctx, ev.ID, token, lease)
+	if err != nil {
+		t.Fatalf("failed claiming event: %v", err)
+	}
+	if claimed.ProcessingAttempts != 5 {
+		t.Errorf("expected attempts 5, got %d", claimed.ProcessingAttempts)
+	}
+
+	deadErr := "fatal error on attempt 5"
+	finErr := env.repo.FinalizeWebhookEventProcessing(ctx, claimed.ID, token, "DEAD_LETTER", &deadErr, nil, nil, nil)
+	if finErr != nil {
+		t.Fatalf("failed finalizing to DEAD_LETTER: %v", finErr)
+	}
+
+	updated, _ := env.repo.GetWebhookEventByPayPalEventID(ctx, "WH-EVT-RETRY-MAX")
+	if updated.ProcessingStatus != "DEAD_LETTER" {
+		t.Errorf("expected DEAD_LETTER, got %s", updated.ProcessingStatus)
+	}
+
+	// Verify DEAD_LETTER cannot be claimed
+	_, claimErr := env.repo.ClaimWebhookEventForProcessing(ctx, updated.ID, "token-6", lease)
+	if claimErr == nil {
+		t.Errorf("expected error claiming DEAD_LETTER event")
+	}
+}
+
+func TestWebhookRecoveryWorker_Lifecycle(t *testing.T) {
+	env := setupWebhookTestEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	orgID := "org-1"
+	_, op := env.createTestOperation(t, orgID, "BATCH-LIFECYCLE-1", "ITEM-LIFECYCLE-1", "SB-LC", "SI-LC", false)
+
+	// Seed stuck RECEIVED event
+	payload := map[string]interface{}{
+		"id":         "WH-EVT-LC-001",
+		"event_type": paypal.EventPayoutsItemSucceeded,
+		"resource": map[string]interface{}{
+			"payout_item_id":     "ITEM-LIFECYCLE-1",
+			"transaction_status": "SUCCESS",
+		},
+	}
+	_ = env.repo.CreateWebhookEvent(ctx, &db.PayPalWebhookEvent{
+		PayPalEventID:    "WH-EVT-LC-001",
+		EventType:        paypal.EventPayoutsItemSucceeded,
+		ProcessingStatus: "RECEIVED",
+		PayloadSnapshot:  payload,
+		CreatedAt:        time.Now().UTC().Add(-2 * time.Minute),
+	})
+
+	worker := env.service.NewWebhookRecoveryWorker(100*time.Millisecond, 10*time.Millisecond, 10)
+	if worker.IsRunning() {
+		t.Errorf("worker must not be running before Start")
+	}
+
+	// 1. Start exactly once
+	if err := worker.Start(ctx); err != nil {
+		t.Fatalf("worker Start failed: %v", err)
+	}
+	if !worker.IsRunning() {
+		t.Errorf("worker must be running after Start")
+	}
+	// Calling Start a second time must return error
+	if err := worker.Start(ctx); err == nil {
+		t.Errorf("second Start call must return error")
+	}
+
+	// Allow initial sweep to execute
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify stuck event was recovered
+	opAfter, _ := env.repo.GetPayoutOperationByID(ctx, orgID, op.ID)
+	if opAfter.Status != "SUCCEEDED" {
+		t.Errorf("expected worker to recover stuck event to SUCCEEDED, got %s", opAfter.Status)
+	}
+
+	// 2. Graceful stop
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutdownCancel()
+
+	if err := worker.Stop(shutdownCtx); err != nil {
+		t.Fatalf("worker Stop failed: %v", err)
+	}
+	if worker.IsRunning() {
+		t.Errorf("worker must not be running after Stop")
 	}
 }

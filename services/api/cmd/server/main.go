@@ -123,6 +123,16 @@ func main() {
 	payoutsService := payouts.NewService(cfg, repo, policyEngine, paypalClient)
 	payoutsHandler := payouts.NewHandler(cfg, payoutsService)
 
+	// Start PayPal Webhook background recovery worker (periodic leasing worker)
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+	webhookRecoveryWorker := payoutsService.StartWebhookRecoveryWorker(
+		bgCtx,
+		cfg.WebhookRecoveryInterval,
+		cfg.WebhookRecoveryOlderThan,
+		cfg.WebhookRecoveryBatchSize,
+	)
+
 	// 9. Initialize AI Provider & Investigations Handler
 	aiProvider, err := ai.NewProvider(cfg)
 	if err != nil {
@@ -173,10 +183,20 @@ func main() {
 	}()
 
 	<-stop
-	slog.Info("Shutting down HTTP Server gracefully...")
+	slog.Info("Shutting down HTTP Server and background workers gracefully...")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+
+	// Stop background webhook recovery worker and wait for in-flight tasks
+	if webhookRecoveryWorker != nil {
+		if wErr := webhookRecoveryWorker.Stop(shutdownCtx); wErr != nil {
+			slog.Warn("Webhook recovery worker shutdown timed out", slog.String("error", wErr.Error()))
+		} else {
+			slog.Info("Webhook recovery worker stopped safely.")
+		}
+	}
+	bgCancel()
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("Server forced to shutdown", slog.String("error", err.Error()))
