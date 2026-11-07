@@ -62,7 +62,15 @@ func main() {
 	var repo db.Repository
 	pgRepo, err := db.NewPostgresRepository(initCtx, cfg.DatabaseURL)
 	if err != nil {
-		slog.Warn("PostgreSQL unavailable at startup; using memory repository for development",
+		if cfg.AppEnv != "development" || cfg.DatabaseAutoMigrate {
+			slog.Error("PostgreSQL connection required but unavailable (Fail-Closed: persistent storage required)",
+				slog.String("app_env", cfg.AppEnv),
+				slog.Bool("database_automigrate", cfg.DatabaseAutoMigrate),
+				slog.String("error", err.Error()),
+			)
+			os.Exit(1)
+		}
+		slog.Warn("PostgreSQL unavailable at startup; using memory repository for local development only (NOT staging-ready)",
 			slog.String("error", err.Error()),
 		)
 		mockRepo := db.NewMockRepository()

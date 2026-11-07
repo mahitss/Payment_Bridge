@@ -61,6 +61,10 @@ func (m *MockRepository) Ping(ctx context.Context) error {
 	return nil
 }
 
+func (m *MockRepository) Driver() string {
+	return "mock_memory"
+}
+
 func (m *MockRepository) CreateUser(ctx context.Context, user *User) (*User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

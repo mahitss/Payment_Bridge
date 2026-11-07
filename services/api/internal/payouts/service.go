@@ -104,6 +104,11 @@ func NewService(cfg *config.Config, repo db.Repository, policyEngine *policy.Eng
 	}
 }
 
+// Repository returns the underlying database repository.
+func (s *Service) Repository() db.Repository {
+	return s.repo
+}
+
 // CheckConnection probes PayPal Sandbox authentication.
 func (s *Service) CheckConnection(ctx context.Context) *paypal.ConnectionStatus {
 	return s.paypalClient.CheckConnection(ctx)

@@ -210,6 +210,81 @@ func TestServer_Readyz_DatabaseHealth(t *testing.T) {
 	}
 }
 
+func TestServer_Readyz_StorageDriverReporting(t *testing.T) {
+	// 1. In development, mockRepo must report "mock_memory" and storage_persistent: false
+	cfgDev := &config.Config{
+		AppEnv:               "development",
+		Port:                 "8080",
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        "https://api-m.sandbox.paypal.com",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	srvDev := NewServer(cfgDev, policy.NewEngine(""), nil, nil)
+	mockRepo := db.NewMockRepository()
+	srvDev.SetRepository(mockRepo)
+
+	tsDev := httptest.NewServer(srvDev.Handler())
+	defer tsDev.Close()
+
+	resp, err := http.Get(tsDev.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("readyz failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var dataDev map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&dataDev); err != nil {
+		t.Fatalf("failed decoding readyz: %v", err)
+	}
+
+	if dataDev["database"] != "mock_memory" {
+		t.Errorf("expected database to be 'mock_memory', got: %v", dataDev["database"])
+	}
+	if dataDev["storage_persistent"] != false {
+		t.Errorf("expected storage_persistent false for mock, got: %v", dataDev["storage_persistent"])
+	}
+	if dataDev["staging_ready"] != false {
+		t.Errorf("expected staging_ready false for mock, got: %v", dataDev["staging_ready"])
+	}
+
+	// 2. In sandbox/staging environment, mock repository must be UNHEALTHY (HTTP 503 Service Unavailable)
+	cfgSandbox := &config.Config{
+		AppEnv:               "sandbox",
+		Port:                 "8080",
+		PayPalEnv:            "sandbox",
+		PayPalBaseURL:        "https://api-m.sandbox.paypal.com",
+		PayPalRequestTimeout: 5 * time.Second,
+	}
+
+	srvSandbox := NewServer(cfgSandbox, policy.NewEngine(""), nil, nil)
+	srvSandbox.SetRepository(mockRepo)
+
+	tsSandbox := httptest.NewServer(srvSandbox.Handler())
+	defer tsSandbox.Close()
+
+	respSandbox, err := http.Get(tsSandbox.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("readyz failed: %v", err)
+	}
+	defer respSandbox.Body.Close()
+
+	if respSandbox.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected HTTP 503 in sandbox mode when using mockRepo, got: %d", respSandbox.StatusCode)
+	}
+
+	var dataSandbox map[string]interface{}
+	if err := json.NewDecoder(respSandbox.Body).Decode(&dataSandbox); err != nil {
+		t.Fatalf("failed decoding readyz: %v", err)
+	}
+	if dataSandbox["status"] != "degraded" {
+		t.Errorf("expected status 'degraded', got: %v", dataSandbox["status"])
+	}
+	if dataSandbox["staging_ready"] != false {
+		t.Errorf("expected staging_ready false, got: %v", dataSandbox["staging_ready"])
+	}
+}
+
 func TestServer_BodyLimitExceeded(t *testing.T) {
 	cfg := &config.Config{
 		AppEnv:               "test",
