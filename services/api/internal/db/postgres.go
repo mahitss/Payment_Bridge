@@ -1403,3 +1403,162 @@ func (r *PostgresRepository) ListInvestigationsByCaseID(ctx context.Context, org
 	}
 	return list, nil
 }
+
+// PayPal Webhook Events
+
+func (r *PostgresRepository) CreateWebhookEvent(ctx context.Context, event *PayPalWebhookEvent) error {
+	rawJSON, _ := json.Marshal(event.PayloadSnapshot)
+	query := `
+		INSERT INTO paypal_webhook_events (
+			paypal_event_id, event_type, resource_type, summary, transmission_id,
+			transmission_time, webhook_id, payout_batch_id, payout_item_id,
+			signature_verified, processing_status, processing_error, payload_snapshot,
+			organization_id, payout_operation_id, created_at, processed_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), $16
+		)
+		RETURNING id, created_at
+	`
+	err := r.pool.QueryRow(ctx, query,
+		event.PayPalEventID, event.EventType, event.ResourceType, event.Summary,
+		event.TransmissionID, event.TransmissionTime, event.WebhookID,
+		event.PayoutBatchID, event.PayoutItemID, event.SignatureVerified,
+		event.ProcessingStatus, event.ProcessingError, rawJSON,
+		event.OrganizationID, event.PayoutOperationID, event.ProcessedAt,
+	).Scan(&event.ID, &event.CreatedAt)
+
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+			return ErrWebhookEventAlreadyExists
+		}
+		return fmt.Errorf("failed to create paypal webhook event: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) GetWebhookEventByPayPalEventID(ctx context.Context, paypalEventID string) (*PayPalWebhookEvent, error) {
+	query := `
+		SELECT id, paypal_event_id, event_type, resource_type, summary, transmission_id,
+		       transmission_time, webhook_id, payout_batch_id, payout_item_id,
+		       signature_verified, processing_status, processing_error, payload_snapshot,
+		       organization_id, payout_operation_id, created_at, processed_at
+		FROM paypal_webhook_events
+		WHERE paypal_event_id = $1
+	`
+	var e PayPalWebhookEvent
+	var rawJSON []byte
+	err := r.pool.QueryRow(ctx, query, paypalEventID).Scan(
+		&e.ID, &e.PayPalEventID, &e.EventType, &e.ResourceType, &e.Summary,
+		&e.TransmissionID, &e.TransmissionTime, &e.WebhookID, &e.PayoutBatchID,
+		&e.PayoutItemID, &e.SignatureVerified, &e.ProcessingStatus, &e.ProcessingError,
+		&rawJSON, &e.OrganizationID, &e.PayoutOperationID, &e.CreatedAt, &e.ProcessedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrWebhookEventNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get webhook event: %w", err)
+	}
+	if len(rawJSON) > 0 {
+		_ = json.Unmarshal(rawJSON, &e.PayloadSnapshot)
+	}
+	return &e, nil
+}
+
+func (r *PostgresRepository) UpdateWebhookEventStatus(ctx context.Context, id, status string, processingError *string, processedAt *time.Time, orgID, opID *string) error {
+	query := `
+		UPDATE paypal_webhook_events
+		SET processing_status = $2,
+		    processing_error = $3,
+		    processed_at = $4,
+		    organization_id = COALESCE($5, organization_id),
+		    payout_operation_id = COALESCE($6, payout_operation_id)
+		WHERE id = $1
+	`
+	tag, err := r.pool.Exec(ctx, query, id, status, processingError, processedAt, orgID, opID)
+	if err != nil {
+		return fmt.Errorf("failed to update webhook event status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrWebhookEventNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) GetPayoutOperationByPayPalIDs(ctx context.Context, paypalBatchID, paypalItemID, senderBatchID, senderItemID string) (*PayoutOperation, error) {
+	if strings.TrimSpace(paypalItemID) != "" {
+		query := fmt.Sprintf(`SELECT %s FROM payout_operations WHERE paypal_payout_item_id = $1`, payoutOperationColumns)
+		var op PayoutOperation
+		err := scanPayoutOperation(r.pool.QueryRow(ctx, query, strings.TrimSpace(paypalItemID)), &op)
+		if err == nil {
+			return &op, nil
+		}
+	}
+	if strings.TrimSpace(senderItemID) != "" {
+		query := fmt.Sprintf(`SELECT %s FROM payout_operations WHERE sender_item_id = $1`, payoutOperationColumns)
+		var op PayoutOperation
+		err := scanPayoutOperation(r.pool.QueryRow(ctx, query, strings.TrimSpace(senderItemID)), &op)
+		if err == nil {
+			return &op, nil
+		}
+	}
+	if strings.TrimSpace(paypalBatchID) != "" {
+		query := fmt.Sprintf(`SELECT %s FROM payout_operations WHERE paypal_payout_batch_id = $1`, payoutOperationColumns)
+		var op PayoutOperation
+		err := scanPayoutOperation(r.pool.QueryRow(ctx, query, strings.TrimSpace(paypalBatchID)), &op)
+		if err == nil {
+			return &op, nil
+		}
+	}
+	if strings.TrimSpace(senderBatchID) != "" {
+		query := fmt.Sprintf(`SELECT %s FROM payout_operations WHERE sender_batch_id = $1`, payoutOperationColumns)
+		var op PayoutOperation
+		err := scanPayoutOperation(r.pool.QueryRow(ctx, query, strings.TrimSpace(senderBatchID)), &op)
+		if err == nil {
+			return &op, nil
+		}
+	}
+	return nil, ErrPayoutOperationNotFound
+}
+
+func (r *PostgresRepository) ListPendingWebhookEvents(ctx context.Context, olderThan time.Duration, limit int) ([]PayPalWebhookEvent, error) {
+	cutoff := time.Now().UTC().Add(-olderThan)
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	query := `
+		SELECT id, paypal_event_id, event_type, resource_type, summary, transmission_id,
+		       transmission_time, webhook_id, payout_batch_id, payout_item_id,
+		       signature_verified, processing_status, processing_error, payload_snapshot,
+		       organization_id, payout_operation_id, created_at, processed_at
+		FROM paypal_webhook_events
+		WHERE processing_status = 'RECEIVED' AND created_at <= $1
+		ORDER BY created_at ASC
+		LIMIT $2
+	`
+	rows, err := r.pool.Query(ctx, query, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying pending webhook events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []PayPalWebhookEvent
+	for rows.Next() {
+		var e PayPalWebhookEvent
+		var rawJSON []byte
+		err := rows.Scan(
+			&e.ID, &e.PayPalEventID, &e.EventType, &e.ResourceType, &e.Summary,
+			&e.TransmissionID, &e.TransmissionTime, &e.WebhookID, &e.PayoutBatchID,
+			&e.PayoutItemID, &e.SignatureVerified, &e.ProcessingStatus, &e.ProcessingError,
+			&rawJSON, &e.OrganizationID, &e.PayoutOperationID, &e.CreatedAt, &e.ProcessedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed scanning pending webhook event: %w", err)
+		}
+		if len(rawJSON) > 0 {
+			_ = json.Unmarshal(rawJSON, &e.PayloadSnapshot)
+		}
+		events = append(events, e)
+	}
+	return events, nil
+}

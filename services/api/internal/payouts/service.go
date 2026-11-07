@@ -87,18 +87,20 @@ type EvidenceResolution struct {
 
 // Service encapsulates business logic for Payout Cases, Operations, and PayPal Sandbox integration.
 type Service struct {
-	cfg          *config.Config
-	repo         db.Repository
-	policyEngine *policy.Engine
-	paypalClient *paypal.Client
+	cfg             *config.Config
+	repo            db.Repository
+	policyEngine    *policy.Engine
+	paypalClient    *paypal.Client
+	webhookVerifier *paypal.WebhookVerifier
 }
 
 func NewService(cfg *config.Config, repo db.Repository, policyEngine *policy.Engine, paypalClient *paypal.Client) *Service {
 	return &Service{
-		cfg:          cfg,
-		repo:         repo,
-		policyEngine: policyEngine,
-		paypalClient: paypalClient,
+		cfg:             cfg,
+		repo:            repo,
+		policyEngine:    policyEngine,
+		paypalClient:    paypalClient,
+		webhookVerifier: paypal.NewWebhookVerifier(),
 	}
 }
 

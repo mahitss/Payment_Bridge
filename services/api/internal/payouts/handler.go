@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"claimbridge/services/api/internal/auth"
 	"claimbridge/services/api/internal/config"
@@ -32,6 +34,9 @@ func NewHandler(cfg *config.Config, service *Service) *Handler {
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Connection & Status
 	mux.HandleFunc("GET /api/v1/paypal/connection-status", h.handleConnectionStatus)
+
+	// Webhooks (Unauthenticated at session layer; cryptographically verified)
+	mux.HandleFunc("POST /api/v1/paypal/webhooks", h.handlePayPalWebhook)
 
 	// Payout Cases
 	mux.HandleFunc("GET /api/v1/payout-cases", h.handleListPayoutCases)
@@ -638,6 +643,102 @@ func (h *Handler) handleResolveEvidence(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, resolution)
+}
+
+func (h *Handler) handlePayPalWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// 1. Content-Type validation
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Content-Type must be application/json"})
+		return
+	}
+
+	// 2. Body limit check (512 KB maximum)
+	r.Body = http.MaxBytesReader(w, r.Body, 512*1024)
+	rawBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed reading request body or body exceeds 512KB limit"})
+		return
+	}
+
+	// 3. Extract required PayPal webhook headers
+	headers := paypal.WebhookHeaders{
+		TransmissionID:   r.Header.Get("PAYPAL-TRANSMISSION-ID"),
+		TransmissionTime: r.Header.Get("PAYPAL-TRANSMISSION-TIME"),
+		CertURL:          r.Header.Get("PAYPAL-CERT-URL"),
+		AuthAlgo:         r.Header.Get("PAYPAL-AUTH-ALGO"),
+		TransmissionSig:  r.Header.Get("PAYPAL-TRANSMISSION-SIG"),
+	}
+
+	// 4. Validate header presence
+	if strings.TrimSpace(headers.TransmissionID) == "" ||
+		strings.TrimSpace(headers.TransmissionTime) == "" ||
+		strings.TrimSpace(headers.CertURL) == "" ||
+		strings.TrimSpace(headers.AuthAlgo) == "" ||
+		strings.TrimSpace(headers.TransmissionSig) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Missing required PayPal webhook signature headers",
+		})
+		return
+	}
+
+	// 5. Enforce webhook ID configuration
+	if strings.TrimSpace(h.cfg.PayPalWebhookID) == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "PayPal webhook integration is not configured on this server",
+		})
+		return
+	}
+
+	// 6. Process Webhook
+	res, err := h.service.ProcessPayPalWebhook(r.Context(), headers, rawBody)
+	if err != nil {
+		if errors.Is(err, ErrWebhookUnconfigured) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, paypal.ErrInvalidWebhookSignature) ||
+			errors.Is(err, paypal.ErrMissingWebhookHeaders) ||
+			errors.Is(err, paypal.ErrInvalidAuthAlgo) ||
+			errors.Is(err, paypal.ErrInvalidCertURL) ||
+			errors.Is(err, paypal.ErrSSRFPrevented) ||
+			errors.Is(err, paypal.ErrExpiredCert) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error":   "Webhook cryptographic verification failed",
+				"details": err.Error(),
+			})
+			return
+		}
+		if strings.Contains(err.Error(), "malformed") || strings.Contains(err.Error(), "missing required") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		slog.ErrorContext(r.Context(), "Webhook processing failed", slog.String("error", err.Error()))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "Failed to process webhook event",
+		})
+		return
+	}
+
+	// 7. Output responses
+	if res.IsDuplicate {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"status":          "duplicate_acknowledged",
+			"paypal_event_id": res.Event.PayPalEventID,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":          "processed",
+		"paypal_event_id": res.Event.PayPalEventID,
+		"event_type":      res.Event.EventType,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {

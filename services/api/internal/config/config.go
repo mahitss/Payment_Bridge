@@ -45,6 +45,7 @@ type Config struct {
 	PayPalEnv              string
 	PayPalClientID         string
 	PayPalClientSecret     string
+	PayPalWebhookID        string
 	PayPalBaseURL          string
 	PayPalRequestTimeout   time.Duration
 	PolicyEngineBinaryPath string
@@ -133,6 +134,7 @@ func LoadFromEnv() (*Config, error) {
 		PayPalEnv:              payPalEnv,
 		PayPalClientID:         os.Getenv("PAYPAL_CLIENT_ID"),
 		PayPalClientSecret:     os.Getenv("PAYPAL_CLIENT_SECRET"),
+		PayPalWebhookID:        strings.TrimSpace(getEnv("PAYPAL_WEBHOOK_ID", "")),
 		PayPalBaseURL:          OfficialPayPalSandboxBaseURL,
 		PayPalRequestTimeout:   time.Duration(timeoutSec) * time.Second,
 		PolicyEngineBinaryPath: getEnv("POLICY_ENGINE_BIN", ""),
@@ -173,6 +175,14 @@ func (c *Config) ValidatePayPalCredentials() error {
 	}
 	if err := ValidatePayPalSandboxEndpoint(c.PayPalBaseURL); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ValidatePayPalWebhookConfig checks if a dedicated PayPal Webhook ID is configured.
+func (c *Config) ValidatePayPalWebhookConfig() error {
+	if strings.TrimSpace(c.PayPalWebhookID) == "" {
+		return errors.New("PAYPAL_WEBHOOK_ID is not configured in environment")
 	}
 	return nil
 }

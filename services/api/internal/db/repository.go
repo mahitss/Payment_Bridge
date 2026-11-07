@@ -31,6 +31,8 @@ var (
 	ErrOperationNotApproved          = errors.New("operation requires approval before submission")
 	ErrOperationCannotBeSubmitted    = errors.New("operation cannot be submitted from current status")
 	ErrOperationAlreadySubmitted     = errors.New("operation is already in-flight or submitted")
+	ErrWebhookEventAlreadyExists     = errors.New("webhook event with this paypal_event_id already exists")
+	ErrWebhookEventNotFound          = errors.New("webhook event not found")
 )
 
 // Repository encapsulates data access operations for ClaimBridge.
@@ -87,6 +89,13 @@ type Repository interface {
 	// Status Snapshots
 	CreatePayoutStatusSnapshot(ctx context.Context, snapshot *PayoutStatusSnapshot) error
 	ListPayoutStatusSnapshots(ctx context.Context, orgID, opID string) ([]PayoutStatusSnapshot, error)
+
+	// Webhook Events
+	CreateWebhookEvent(ctx context.Context, event *PayPalWebhookEvent) error
+	GetWebhookEventByPayPalEventID(ctx context.Context, paypalEventID string) (*PayPalWebhookEvent, error)
+	UpdateWebhookEventStatus(ctx context.Context, id, status string, processingError *string, processedAt *time.Time, orgID, opID *string) error
+	GetPayoutOperationByPayPalIDs(ctx context.Context, paypalBatchID, paypalItemID, senderBatchID, senderItemID string) (*PayoutOperation, error)
+	ListPendingWebhookEvents(ctx context.Context, olderThan time.Duration, limit int) ([]PayPalWebhookEvent, error)
 
 	// Investigations
 	CreateInvestigation(ctx context.Context, inv *PayoutInvestigation) error
