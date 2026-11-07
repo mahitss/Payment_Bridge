@@ -722,7 +722,8 @@ func (h *Handler) handlePayPalWebhook(w http.ResponseWriter, r *http.Request) {
 			errors.Is(err, paypal.ErrInvalidAuthAlgo) ||
 			errors.Is(err, paypal.ErrInvalidCertURL) ||
 			errors.Is(err, paypal.ErrSSRFPrevented) ||
-			errors.Is(err, paypal.ErrExpiredCert) {
+			errors.Is(err, paypal.ErrExpiredCert) ||
+			errors.Is(err, paypal.ErrInvalidTransmissionTime) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error":   "Webhook cryptographic verification failed",
 				"details": err.Error(),

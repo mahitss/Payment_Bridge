@@ -281,13 +281,13 @@ func (v *WebhookVerifier) Verify(ctx context.Context, headers WebhookHeaders, we
 	// 5. Retrieve and validate certificate
 	cert, err := v.fetcher.FetchCert(ctx, headers.CertURL)
 	if err != nil {
-		return fmt.Errorf("certificate retrieval failed: %w", err)
+		return fmt.Errorf("%w: certificate retrieval failed: %w", ErrInvalidCertURL, err)
 	}
 
 	// 6. Extract RSA public key
 	rsaPub, ok := cert.PublicKey.(*rsa.PublicKey)
 	if !ok {
-		return errors.New("certificate public key is not RSA")
+		return fmt.Errorf("%w: certificate public key is not RSA", ErrInvalidAuthAlgo)
 	}
 
 	// 7. Decode base64 signature
