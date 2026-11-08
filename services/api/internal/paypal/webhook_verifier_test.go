@@ -13,7 +13,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"math/big"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -935,5 +937,239 @@ func TestWebhookVerifier_Proof_CertificateRetrievalFailureHandled(t *testing.T) 
 	}
 	if !errors.Is(errSSRF, ErrSSRFPrevented) {
 		t.Errorf("expected ErrSSRFPrevented, got: %v", errSSRF)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Mission 040.5 — Independent Controlled Cryptographic Verification Proofs
+// -----------------------------------------------------------------------------
+
+// independentSignPayload independently calculates CRC32, formats the canonical string, and signs it
+// without referencing any production helper functions.
+func independentSignPayload(t *testing.T, privKey *rsa.PrivateKey, transmissionID, transmissionTime, webhookID string, rawBody []byte) (string, uint32) {
+	t.Helper()
+	// 1. Independent IEEE 802.3 CRC32 calculation
+	crcValue := crc32.ChecksumIEEE(rawBody)
+	crcDecimalStr := strconv.FormatUint(uint64(crcValue), 10)
+
+	// 2. Independent canonical string construction: transmissionId|timeStamp|webhookId|crc32
+	canonicalMsg := transmissionID + "|" + transmissionTime + "|" + webhookID + "|" + crcDecimalStr
+
+	// 3. Independent SHA-256 digest
+	digest := sha256.Sum256([]byte(canonicalMsg))
+
+	// 4. Independent PKCS#1 v1.5 signing
+	sig, err := rsa.SignPKCS1v15(rand.Reader, privKey, crypto.SHA256, digest[:])
+	if err != nil {
+		t.Fatalf("failed independent signing: %v", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(sig), crcValue
+}
+
+func TestWebhookVerifier_Mission040_5_Independent_ValidSignatureAccepted(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-INDEP-01.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-indep-001"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WEBHOOK_ID"
+	rawBody := []byte(`{"id":"WH-SIM-001","event_type":"PAYMENT.PAYOUTSBATCH.PROCESSING"}`)
+
+	sig, independentCRC := independentSignPayload(t, privKey, transmissionID, transmissionTime, webhookID, rawBody)
+
+	// Assert independent CRC32 matches production ComputeCRC32
+	prodCRC := ComputeCRC32(rawBody)
+	if prodCRC != strconv.FormatUint(uint64(independentCRC), 10) {
+		t.Fatalf("CRC32 mismatch: independent %d vs production %s", independentCRC, prodCRC)
+	}
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	if err := verifier.Verify(context.Background(), headers, webhookID, rawBody); err != nil {
+		t.Fatalf("expected independent signature to verify successfully, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Mission040_5_Independent_ModifiedBodyRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-INDEP-02.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-indep-002"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WEBHOOK_ID"
+	originalBody := []byte(`{"id":"WH-SIM-002","amount":"10.00"}`)
+	tamperedBody := []byte(`{"id":"WH-SIM-002","amount":"99.00"}`)
+
+	sig, _ := independentSignPayload(t, privKey, transmissionID, transmissionTime, webhookID, originalBody)
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	err := verifier.Verify(context.Background(), headers, webhookID, tamperedBody)
+	if err == nil {
+		t.Fatalf("security violation: modified body accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Mission040_5_Independent_WrongWebhookIDRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-INDEP-03.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-indep-003"
+	transmissionTime := now.Format(time.RFC3339)
+	signedWebhookID := "71R95625WE243291S" // Signed with real registered ID
+	verifiedWebhookID := "WEBHOOK_ID"       // Verified with simulator dummy ID
+	rawBody := []byte(`{"id":"WH-SIM-003"}`)
+
+	sig, _ := independentSignPayload(t, privKey, transmissionID, transmissionTime, signedWebhookID, rawBody)
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	err := verifier.Verify(context.Background(), headers, verifiedWebhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: signature signed with %q was accepted when verifying with %q!", signedWebhookID, verifiedWebhookID)
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Mission040_5_Independent_WrongTimestampRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-INDEP-04.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-indep-004"
+	signedTime := now.Add(-5 * time.Minute).Format(time.RFC3339)
+	headerTime := now.Format(time.RFC3339)
+	webhookID := "WEBHOOK_ID"
+	rawBody := []byte(`{"id":"WH-SIM-004"}`)
+
+	sig, _ := independentSignPayload(t, privKey, transmissionID, signedTime, webhookID, rawBody)
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: headerTime, // Header differs from what was signed
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	err := verifier.Verify(context.Background(), headers, webhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: mismatched timestamp was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Mission040_5_Independent_WrongTransmissionIDRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-INDEP-05.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	signedTransID := "trans-signed-005"
+	headerTransID := "trans-tampered-005"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WEBHOOK_ID"
+	rawBody := []byte(`{"id":"WH-SIM-005"}`)
+
+	sig, _ := independentSignPayload(t, privKey, signedTransID, transmissionTime, webhookID, rawBody)
+
+	headers := WebhookHeaders{
+		TransmissionID:   headerTransID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sig,
+	}
+
+	err := verifier.Verify(context.Background(), headers, webhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: mismatched transmission ID was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
+	}
+}
+
+func TestWebhookVerifier_Mission040_5_Independent_ModifiedSignatureRejected(t *testing.T) {
+	now := time.Now().UTC()
+	cert, privKey := generateTestCertAndKey(t, now.Add(-1*time.Hour), now.Add(24*time.Hour))
+
+	certURL := "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-INDEP-06.pem"
+	verifier := NewWebhookVerifier(&MockCertFetcher{
+		Certs: map[string]*x509.Certificate{certURL: cert},
+	})
+
+	transmissionID := "trans-indep-006"
+	transmissionTime := now.Format(time.RFC3339)
+	webhookID := "WEBHOOK_ID"
+	rawBody := []byte(`{"id":"WH-SIM-006"}`)
+
+	sig, _ := independentSignPayload(t, privKey, transmissionID, transmissionTime, webhookID, rawBody)
+
+	// Tamper with the base64 signature by replacing last 4 characters
+	tamperedSig := sig[:len(sig)-4] + "AAAA"
+
+	headers := WebhookHeaders{
+		TransmissionID:   transmissionID,
+		TransmissionTime: transmissionTime,
+		CertURL:          certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  tamperedSig,
+	}
+
+	err := verifier.Verify(context.Background(), headers, webhookID, rawBody)
+	if err == nil {
+		t.Fatalf("security violation: corrupted signature was accepted!")
+	}
+	if !errors.Is(err, ErrInvalidWebhookSignature) {
+		t.Errorf("expected ErrInvalidWebhookSignature, got: %v", err)
 	}
 }
