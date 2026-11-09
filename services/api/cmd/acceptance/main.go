@@ -58,6 +58,7 @@ func main() {
 				"access_token": "fake-sandbox-token-acceptance",
 				"token_type":   "Bearer",
 				"app_id":       "APP-SANDBOX-ACCEPTANCE",
+				"scope":        "https://uri.paypal.com/payments/payouts",
 				"expires_in":   3600,
 			})
 		case r.URL.Path == "/v1/payments/payouts" && r.Method == http.MethodPost:
@@ -946,6 +947,7 @@ func main() {
 				"access_token": "fake-sandbox-token-acceptance",
 				"token_type":   "Bearer",
 				"app_id":       "APP-SANDBOX-ACCEPTANCE",
+				"scope":        "https://uri.paypal.com/payments/payouts",
 				"expires_in":   3600,
 			})
 		case r.URL.Path == "/v1/payments/payouts" && r.Method == http.MethodPost:
