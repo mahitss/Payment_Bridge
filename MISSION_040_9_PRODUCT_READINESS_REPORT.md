@@ -3,7 +3,8 @@
 **Project:** ClaimBridge — Payment_Bridge  
 **Repository:** [https://github.com/mahitss/Payment_Bridge](https://github.com/mahitss/Payment_Bridge)  
 **Branch:** `feat/paypal-sandbox-preflight-and-config`  
-**Verified Local & Remote HEAD:** `64f96ce21c552a9893d2b947a46980e1f9dd7e02`  
+**Audit Baseline Commit:** `64f96ce21c552a9893d2b947a46980e1f9dd7e02`
+**Mission 040.9 Commit SHA:** `cf799e3aa3b0c1c5c1cba9e4dd688e344ef64792`
 **Pull Request:** [#27 (OPEN — NOT MERGED)](https://github.com/mahitss/Payment_Bridge/pull/27)  
 **Audit Date:** 2026-11-10  
 
@@ -70,7 +71,7 @@ ClaimBridge enforces strict separation between testing contexts:
 1. **Simulator Mode:** PayPal simulator signs over literal `webhook_id = "WEBHOOK_ID"`.
 2. **Registered Webhook Mode:** Genuine PayPal provider events sign over `webhook_id = "71R95625WE243291S"`.
 
-The test suite [`TestWebhook_Mission040_7_DualContext_SimulatorAndRegistered`](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/services/api/internal/payouts/webhook_test.go#L1519) and live endpoint probes prove:
+The test suite [`TestWebhook_Mission040_7_DualContext_SimulatorAndRegistered`](services/api/internal/payouts/webhook_test.go#L1519) and live endpoint probes prove:
 - **Cross-Context Defense:** A simulator event presented to a registered endpoint is rejected with `crypto/rsa: verification error`. Fake mock events cannot impersonate genuine provider notifications.
 - **Tampering Resistance:** Modifying even 1 byte of the payload, altering the transmission ID, or skewing the timestamp beyond 10 minutes causes immediate cryptographic failure.
 - **SSRF Prevention:** Certificate URLs from untrusted hosts (e.g. `evil.com`, `169.254.169.254`) or using plain HTTP are rejected fail-closed before any network fetch.
@@ -133,15 +134,15 @@ High-resolution 1080p visual walkthrough evidence was captured across all key vi
 
 | Scene | Artifact Description | File Link |
 | :--- | :--- | :--- |
-| **01** | Landing Page & System Diagnostic Probe | [01_landing_diagnostic_probe.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/01_landing_diagnostic_probe.png) |
-| **02** | Operator Dashboard & Portfolio Metrics | [02_dashboard_overview.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/02_dashboard_overview.png) |
-| **03** | Payout Settlement Cases Table | [03_payouts_case_list.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/03_payouts_case_list.png) |
-| **04** | Case Detail & Provenance Warning Banner | [04_investigation_case_detail.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/04_investigation_case_detail.png) |
-| **05** | AI Findings & Grounded Evidence Inspector | [05_ai_findings_and_evidence.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/05_ai_findings_and_evidence.png) |
-| **06** | Deterministic Policy Evaluation & Remediation | [06_policy_decision_remediation.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/06_policy_decision_remediation.png) |
-| **07** | Dual-Custody Approval Workflow & Self-Approval Prevention | [07_approval_workflow_dual_custody.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/07_approval_workflow_dual_custody.png) |
-| **08** | Immutable Audit Trail & Event Timeline | [08_audit_trail_evidence.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/08_audit_trail_evidence.png) |
-| **09** | PayPal Sandbox Integration & Security Status Card | [09_sandbox_integration_status.png](file:///C:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/mission_040_9_screenshots/09_sandbox_integration_status.png) |
+| **01** | Landing Page & System Diagnostic Probe | [01_landing_diagnostic_probe.png](docs/assets/mission_040_9_screenshots/01_landing_diagnostic_probe.png) |
+| **02** | Operator Dashboard & Portfolio Metrics | [02_dashboard_overview.png](docs/assets/mission_040_9_screenshots/02_dashboard_overview.png) |
+| **03** | Payout Settlement Cases Table | [03_payouts_case_list.png](docs/assets/mission_040_9_screenshots/03_payouts_case_list.png) |
+| **04** | Case Detail & Provenance Warning Banner | [04_investigation_case_detail.png](docs/assets/mission_040_9_screenshots/04_investigation_case_detail.png) |
+| **05** | AI Findings & Grounded Evidence Inspector | [05_ai_findings_and_evidence.png](docs/assets/mission_040_9_screenshots/05_ai_findings_and_evidence.png) |
+| **06** | Deterministic Policy Evaluation & Remediation | [06_policy_decision_remediation.png](docs/assets/mission_040_9_screenshots/06_policy_decision_remediation.png) |
+| **07** | Dual-Custody Approval Workflow & Self-Approval Prevention | [07_approval_workflow_dual_custody.png](docs/assets/mission_040_9_screenshots/07_approval_workflow_dual_custody.png) |
+| **08** | Immutable Audit Trail & Event Timeline | [08_audit_trail_evidence.png](docs/assets/mission_040_9_screenshots/08_audit_trail_evidence.png) |
+| **09** | PayPal Sandbox Integration & Security Status Card | [09_sandbox_integration_status.png](docs/assets/mission_040_9_screenshots/09_sandbox_integration_status.png) |
 
 ---
 
@@ -161,4 +162,4 @@ High-resolution 1080p visual walkthrough evidence was captured across all key vi
 - ✅ **Technical Honesty:** Distinguishes working application functionality (`VERIFIED_LOCAL`, `VERIFIED_REAL`) from third-party limitations (`BLOCKED_EXTERNAL`).
 - ✅ **Evidence-Backed Claims:** Read-only PayPal REST API lookup, live local API & gateway probe passes, SQL row preservation, and 9 Playwright screenshots.
 - ✅ **Financial Safety Maintained:** Zero real payouts executed; six historical records 100% intact.
-- ✅ **Git & PR Guardrails:** PR #27 remains **OPEN and UNMERGED**. Local and remote HEAD remain in exact parity at `64f96ce21c552a9893d2b947a46980e1f9dd7e02`.
+- ✅ **Git & PR Guardrails:** PR #27 remains **OPEN and UNMERGED**. Audit evidence committed at `cf799e3aa3b0c1c5c1cba9e4dd688e344ef64792` on branch `feat/paypal-sandbox-preflight-and-config`.
