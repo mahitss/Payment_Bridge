@@ -1515,3 +1515,187 @@ func TestWebhookRecoveryWorker_Lifecycle(t *testing.T) {
 		t.Errorf("worker must not be running after Stop")
 	}
 }
+
+func TestWebhook_Mission040_7_DualContext_SimulatorAndRegistered(t *testing.T) {
+	env := setupWebhookTestEnv(t)
+	ctx := context.Background()
+
+	const (
+		simulatorWebhookID  = "WEBHOOK_ID"
+		registeredWebhookID = "71R95625WE243291S"
+	)
+
+	// Context A: Simulator Service Configuration
+	cfgSim := *env.cfg
+	cfgSim.PayPalWebhookID = simulatorWebhookID
+	serviceSim := NewService(&cfgSim, env.repo, nil, nil)
+	serviceSim.SetWebhookVerifier(env.verifier)
+
+	// Context B: Registered Webhook Service Configuration
+	cfgReg := *env.cfg
+	cfgReg.PayPalWebhookID = registeredWebhookID
+	serviceReg := NewService(&cfgReg, env.repo, nil, nil)
+	serviceReg.SetWebhookVerifier(env.verifier)
+
+	// Create matching local operations so the verified webhooks reconcile to PROCESSED
+	orgID := "org-m0407"
+	simBatchID := "SIM-BATCH-001"
+	simItemID := "SIM-ITEM-001"
+	_, opSim := env.createTestOperation(t, orgID, simBatchID, simItemID, "SB-SIM-001", "SI-SIM-001", false)
+
+	regBatchID := "REG-BATCH-001"
+	regItemID := "REG-ITEM-001"
+	_, opReg := env.createTestOperation(t, orgID, regBatchID, regItemID, "SB-REG-001", "SI-REG-001", false)
+
+	// Setup payload for batch processing event (Simulator)
+	payload := map[string]interface{}{
+		"id":            "WH-M0407-SIM-001",
+		"event_version": "1.0",
+		"create_time":   "2026-11-09T08:00:00Z",
+		"resource_type": "payouts_item",
+		"event_type":    paypal.EventPayoutsItemSucceeded,
+		"summary":       "Payouts item succeeded simulated",
+		"resource": map[string]interface{}{
+			"payout_item_id":     simItemID,
+			"payout_batch_id":    simBatchID,
+			"transaction_id":     "TX-SIM-001",
+			"transaction_status": "SUCCESS",
+			"sender_item_id":     "SI-SIM-001",
+		},
+	}
+	rawBody, _ := json.Marshal(payload)
+	transID := "trans-sim-001"
+	transTime := "2026-11-09T08:00:01Z"
+
+	// 1. Sign using Simulator Webhook ID ("WEBHOOK_ID")
+	sigSim, err := paypal.SignWebhookPayload(env.privKey, transID, transTime, simulatorWebhookID, rawBody)
+	if err != nil {
+		t.Fatalf("failed signing simulator payload: %v", err)
+	}
+	headersSim := paypal.WebhookHeaders{
+		TransmissionID:   transID,
+		TransmissionTime: transTime,
+		CertURL:          env.certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sigSim,
+	}
+
+	// 1a. Simulator event accepted by Simulator Service Context
+	resSim, err := serviceSim.ProcessPayPalWebhook(ctx, headersSim, rawBody)
+	if err != nil {
+		t.Fatalf("expected simulator event to be accepted by simulator context, got: %v", err)
+	}
+	if resSim.Event.ProcessingStatus != "PROCESSED" {
+		t.Errorf("expected PROCESSED, got %s", resSim.Event.ProcessingStatus)
+	}
+	if resSim.MatchedOperation == nil || resSim.MatchedOperation.ID != opSim.ID {
+		t.Errorf("expected matched operation %s, got %v", opSim.ID, resSim.MatchedOperation)
+	}
+
+	// 1b. Fail-closed: Simulator signature REJECTED by Registered Service Context
+	// (Replicates and explains Mission 040.3/040.4 forensic finding)
+	_, errRegReject := serviceReg.ProcessPayPalWebhook(ctx, headersSim, rawBody)
+	if errRegReject == nil {
+		t.Fatalf("expected registered context to reject simulator signature, got nil")
+	}
+
+	// 2. Sign using Registered Webhook ID ("71R95625WE243291S")
+	payloadReg := map[string]interface{}{
+		"id":            "WH-M0407-REG-001",
+		"event_version": "1.0",
+		"create_time":   "2026-11-09T08:01:00Z",
+		"resource_type": "payouts_item",
+		"event_type":    paypal.EventPayoutsItemSucceeded,
+		"summary":       "Genuine registered webhook event",
+		"resource": map[string]interface{}{
+			"payout_item_id":     regItemID,
+			"payout_batch_id":    regBatchID,
+			"transaction_id":     "TX-REG-001",
+			"transaction_status": "SUCCESS",
+			"sender_item_id":     "SI-REG-001",
+		},
+	}
+	rawBodyReg, _ := json.Marshal(payloadReg)
+	transIDReg := "trans-reg-001"
+	transTimeReg := "2026-11-09T08:01:01Z"
+
+	sigReg, err := paypal.SignWebhookPayload(env.privKey, transIDReg, transTimeReg, registeredWebhookID, rawBodyReg)
+	if err != nil {
+		t.Fatalf("failed signing registered payload: %v", err)
+	}
+	headersReg := paypal.WebhookHeaders{
+		TransmissionID:   transIDReg,
+		TransmissionTime: transTimeReg,
+		CertURL:          env.certURL,
+		AuthAlgo:         "SHA256withRSA",
+		TransmissionSig:  sigReg,
+	}
+
+	// 2a. Registered event accepted by Registered Service Context
+	resReg, err := serviceReg.ProcessPayPalWebhook(ctx, headersReg, rawBodyReg)
+	if err != nil {
+		t.Fatalf("expected registered event to be accepted by registered context, got: %v", err)
+	}
+	if resReg.Event.ProcessingStatus != "PROCESSED" {
+		t.Errorf("expected PROCESSED, got %s", resReg.Event.ProcessingStatus)
+	}
+	if resReg.MatchedOperation == nil || resReg.MatchedOperation.ID != opReg.ID {
+		t.Errorf("expected matched operation %s, got %v", opReg.ID, resReg.MatchedOperation)
+	}
+
+	// 2b. Fail-closed: Registered signature REJECTED by Simulator Service Context
+	_, errSimReject := serviceSim.ProcessPayPalWebhook(ctx, headersReg, rawBodyReg)
+	if errSimReject == nil {
+		t.Fatalf("expected simulator context to reject registered signature, got nil")
+	}
+
+	// 3. Tampering resistance in both contexts
+	// 3a. Modified payload
+	tamperedBody := append(rawBodyReg, byte(' '))
+	if _, err := serviceReg.ProcessPayPalWebhook(ctx, headersReg, tamperedBody); err == nil {
+		t.Errorf("expected modified payload rejection")
+	}
+
+	// 3b. Modified transmission ID
+	headersTamperedID := headersReg
+	headersTamperedID.TransmissionID = "trans-tampered"
+	if _, err := serviceReg.ProcessPayPalWebhook(ctx, headersTamperedID, rawBodyReg); err == nil {
+		t.Errorf("expected modified transmission ID rejection")
+	}
+
+	// 3c. Modified timestamp
+	headersTamperedTime := headersReg
+	headersTamperedTime.TransmissionTime = "2026-11-09T08:01:02Z"
+	if _, err := serviceReg.ProcessPayPalWebhook(ctx, headersTamperedTime, rawBodyReg); err == nil {
+		t.Errorf("expected modified transmission time rejection")
+	}
+
+	// 3d. Modified signature bytes
+	headersTamperedSig := headersReg
+	headersTamperedSig.TransmissionSig = sigSim // wrong sig
+	if _, err := serviceReg.ProcessPayPalWebhook(ctx, headersTamperedSig, rawBodyReg); err == nil {
+		t.Errorf("expected wrong signature rejection")
+	}
+
+	// 4. Replay Protection & Idempotency
+	resReplay, err := serviceReg.ProcessPayPalWebhook(ctx, headersReg, rawBodyReg)
+	if err != nil {
+		t.Fatalf("expected replay to be handled gracefully, got error: %v", err)
+	}
+	if !resReplay.IsDuplicate {
+		t.Errorf("expected IsDuplicate = true on replayed event")
+	}
+
+	// 5. SSRF / Invalid Cert URL rejection
+	headersSSRF := headersReg
+	headersSSRF.CertURL = "https://evil.com/cert.pem"
+	if _, err := serviceReg.ProcessPayPalWebhook(ctx, headersSSRF, rawBodyReg); err == nil {
+		t.Errorf("expected SSRF non-paypal domain rejection")
+	}
+
+	headersHTTP := headersReg
+	headersHTTP.CertURL = "http://api.sandbox.paypal.com/cert.pem"
+	if _, err := serviceReg.ProcessPayPalWebhook(ctx, headersHTTP, rawBodyReg); err == nil {
+		t.Errorf("expected non-https scheme rejection")
+	}
+}
