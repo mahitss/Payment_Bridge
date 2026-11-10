@@ -1,8 +1,8 @@
 # ClaimBridge — Hackathon Judge Evaluation Runbook
 
-**Mission 024 Authoritative Evaluator Guide & Release Baseline**  
-**Repository:** [https://github.com/mahitss/Payment_Bridge](https://github.com/mahitss/Payment_Bridge)  
-**CI Baseline:** Main-Head Validation [Workflow Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) (Commit `b681c87`, 6/6 Jobs Green) | Feature Branch Baseline [Workflow Run 40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) (Commit `7fbd031`, 6/6 Jobs Green) | Audited Source Baseline [Workflow Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`, 6/6 Jobs Green) | Historical Validation [Workflow Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`, 6/6 Jobs Green)  
+**Mission 043 Authoritative Evaluator Guide & Final Release Baseline**<br>
+**Repository:** [https://github.com/mahitss/Payment_Bridge](https://github.com/mahitss/Payment_Bridge)<br>
+**CI Baseline:** Authoritative Main Baseline [Workflow Run 42698544776](https://github.com/mahitss/Payment_Bridge/actions/runs/42698544776) (Commit `4c1e5dd1cf70ac88a8692fe9f108da4cd0e57af9`, Post-PR #28 Merge, 6/6 Jobs Green, SUCCESS) | PR #28 Release Candidate [Workflow Run 42695179236](https://github.com/mahitss/Payment_Bridge/actions/runs/42695179236) (Commit `b83cfb2`, 6/6 Jobs Green, SUCCESS) | Historical Baselines (Reference Only): Main Validation [Workflow Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) (Commit `b681c87`), Feature Branch [Workflow Run 40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) (Commit `7fbd031`), Audited Baseline [Workflow Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`), Historical [Workflow Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`)
 
 ---
 
@@ -31,7 +31,7 @@ docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml
 5. Builds and launches **Next.js Web Frontend** (`claimbridge-web`) on `http://localhost:3000` with `NEXT_PUBLIC_DEMO_MODE=true`.
 
 > [!NOTE]
-> **Environment Validation Status:** In this local evaluation environment, Docker Compose configuration and service definitions were verified by static and container specification inspection. In CI, the full stack is continuously built, seeded, and tested via Playwright end-to-end automation in Job `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`) (27/27 tests passed in Run 40119075389, Run 40119057661, Run 39633059170, and Run 39600293507). No external PayPal credentials or Ollama daemons are required to run this offline evaluator.
+> **Environment Validation Status:** In this local evaluation environment, Docker Compose configuration and service definitions were verified by static and container specification inspection. In CI, the full stack is continuously built, seeded, and tested via Playwright end-to-end automation in Job `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`) (38 Playwright tests passed across 9 spec files in authoritative post-merge Run 42698544776 and release candidate Run 42695179236; historical runs: Run 40119075389, Run 40119057661, Run 39633059170, and Run 39600293507). No external PayPal credentials or Ollama daemons are required to run this offline evaluator.
 
 ---
 
@@ -189,7 +189,7 @@ Derived from real testing scenarios and container dependencies:
 
 | Capability | Status | Evidence / Verification Method |
 | :--- | :--- | :--- |
-| Docker Compose Full Stack | **VERIFIED** | CI Job `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`) (27/27 Playwright tests passed in Run 40119075389, Run 40119057661, Run 39633059170, and Run 39600293507). |
+| Docker Compose Full Stack | **VERIFIED** | CI Job `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`) (38 Playwright tests passed across 9 spec files in authoritative Run 42698544776 and Run 42695179236; 27 tests in historical Run 40119075389). |
 | PayPal UNCLAIMED Cancellation Contract | **CONTRACT_VERIFIED (HARNESS)** | Acceptance Scenarios 22, 28 (test double & policy rule). Live PayPal Sandbox cancellation remains externally unverified; synthetic fixtures are protected from mutation. Zero real money was moved or cancelled. |
 | Idempotent Database Seeder | **VERIFIED** | Integration test `seeder_postgres_test.go` + CI compose build. |
 | Dual-Custody Approval Policy | **VERIFIED** | Acceptance Scenario 08, 09, 10 + Playwright E2E spec. |
@@ -201,7 +201,7 @@ Derived from real testing scenarios and container dependencies:
 | Real PayPal Sandbox OAuth Exchange | **IMPLEMENTED_NOT_VERIFIED** | Implemented with URL whitelist; live token exchange blocked without credentials. |
 | Live PayPal Batch Payout Dispatch | **IMPLEMENTED_NOT_VERIFIED** | Code complete; requires valid PayPal Sandbox client credentials. |
 | Genuine Ollama Model Inference | **VERIFIED_LOCAL_RUNTIME (SINGLE CPU MACHINE)** | Verified on a local CPU development environment using Ollama with Qwen3.5 4B (`qwen3.5:4b`) on synthetic case `DEMO-W9821` (HTTP 201 Created, ~60.6s, UI displayed *"Investigation completed with grounded evidence."*). **Hardware Caveat:** Verified on one specific local CPU runtime; not a performance guarantee for arbitrary CPU machines. CI continues to run against deterministic mock test doubles without requiring an active Ollama daemon. |
-| Public Narrated Video Publication | **PENDING** | Raw WebM artifact generated in CI (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, latest Main-Head Validation Run 40119075389 Artifact ID `12569654956`, expiring November 7, 2026); human narration, export, and upload pending. |
+| Public Narrated Video Publication | **PENDING** | Raw WebM artifact generated in CI (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, authoritative Main-Head Validation Run 42698544776 Artifact ID `13710278711`, ~10.33 MB, 14-day retention active through November 23, 2026; PR #28 Artifact ID `13708563927`; Historical Artifact ID `12569654956` expired November 7, 2026); human narration, export, and upload pending. |
 
 ---
 
@@ -212,4 +212,4 @@ Derived from real testing scenarios and container dependencies:
 - **Verification & Evidence Matrix:** [docs/submission/VERIFICATION_MATRIX.md](VERIFICATION_MATRIX.md)
 - **Operational Sandbox Setup Guide:** [docs/operational-instructions.md](../operational-instructions.md)
 - **Project Release Status:** [docs/release/PROJECT_STATUS.md](../release/PROJECT_STATUS.md)
-- **Verified CI Workflow Runs:** Main-Head Validation [GitHub Actions Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) (Commit `b681c87`) | Feature Branch Baseline [GitHub Actions Run 40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) (Commit `7fbd031`) | Audited Baseline [GitHub Actions Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`) | Historical Validation [GitHub Actions Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`)
+- **Verified CI Workflow Runs:** Authoritative Main Baseline [GitHub Actions Run 42698544776](https://github.com/mahitss/Payment_Bridge/actions/runs/42698544776) (Commit `4c1e5dd`, 6/6 jobs green) | PR #28 Release Candidate [GitHub Actions Run 42695179236](https://github.com/mahitss/Payment_Bridge/actions/runs/42695179236) (Commit `b83cfb2`, 6/6 jobs green) | Historical Runs (Reference Only): Main Validation [Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) (Commit `b681c87`), Feature Branch [Run 40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) (Commit `7fbd031`), Audited Baseline [Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) (Commit `c6a261a`), Historical Validation [Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) (Commit `9b0b6c7`).

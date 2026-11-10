@@ -40,10 +40,13 @@ Every successful GitHub Actions CI execution against the Docker Compose evaluato
   - Emits machine-readable JSON and renders formatted Markdown table to `$GITHUB_STEP_SUMMARY`.
 - **Artifact Name:** `claimbridge-offline-demo-recording`
 - **File Inside Artifact:** `claimbridge-demo-walkthrough.webm`
-- **Main-Head Validation Artifact ID:** `12569654956` (Run [40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389), commit `b681c87`, size: 10,743,399 bytes, expires November 7, 2026)
-- **Feature Branch Artifact ID:** `12569609901` (Run [40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661), commit `7fbd031`, size: 10,013,060 bytes, expires November 7, 2026)
-- **Audited Baseline Artifact ID:** `12345583865` (Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507), commit `c6a261a`, size: 10,198,755 bytes, expires November 4, 2026)
-- **Historical Validation Artifact ID:** `12359179229` (Run [39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170), commit `9b0b6c7`, size: 10,560,935 bytes, measured 153.2s, expires November 4, 2026)
+- **Authoritative Main Baseline Artifact ID:** `13710278711` (Run [42698544776](https://github.com/mahitss/Payment_Bridge/actions/runs/42698544776), commit `4c1e5dd`, size: 10,332,604 bytes (~10.33 MB), measured duration 154s, generated November 9, 2026, active 14-day retention through November 23, 2026)
+- **PR #28 Feature Branch Artifact ID:** `13708563927` (Run [42695179236](https://github.com/mahitss/Payment_Bridge/actions/runs/42695179236), commit `b83cfb2`, size: 10,194,547 bytes (~10.19 MB), generated November 9, 2026, active retention through November 23, 2026)
+- **Historical Validation Artifact IDs (Expired):**
+  - Artifact ID `12569654956` (Run [40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389), commit `b681c87`, size: 10,743,399 bytes, expired November 7, 2026)
+  - Artifact ID `12569609901` (Run [40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661), commit `7fbd031`, size: 10,013,060 bytes, expired November 7, 2026)
+  - Artifact ID `12359179229` (Run [39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170), commit `9b0b6c7`, size: 10,560,935 bytes, measured 153.2s, expired November 4, 2026)
+  - Artifact ID `12345583865` (Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507), commit `c6a261a`, size: 10,198,755 bytes, expired November 4, 2026)
 - **CI Retention Period:** 14 days (Temporary CI artifact). *Note: Temporary download links from GitHub Actions expire after 14 days and require GitHub authentication; they cannot serve as the permanent public video submission URL.*
 
 ### Step-by-Step: Downloading the Artifact from GitHub Actions

@@ -1,19 +1,13 @@
 # ClaimBridge — Engineering Status Reconciliation & Verified Project Baseline
-**Document Version:** 3.1 (Mission 033.8.1A.4.1 Post-Merge Documentation Accuracy Corrections Baseline)
-**Date of Audit:** November 2, 2026
-**Auditor:** Staff Application Security & Senior Reliability Lead
+**Document Version:** 4.0 (Mission 043 Final Submission Documentation Reconciliation Baseline)
+**Date of Audit:** November 10, 2026
+**Auditor:** Senior Release Engineer and Documentation Integrity Auditor
 **Repository:** `https://github.com/mahitss/Payment_Bridge` (Public, Branch: `main`)
-**Current Main Merge Baseline:** Commit [`577aa877678cadded306bcca1812bbbdb9dc65a7`](https://github.com/mahitss/Payment_Bridge/commit/577aa877678cadded306bcca1812bbbdb9dc65a7) (PR #22 Documentation Reconciliation)
-**Audited Application Source Baseline:** Commit [`2f6785d30dc441b3d6c454461a8554237ba3a491`](https://github.com/mahitss/Payment_Bridge/commit/2f6785d30dc441b3d6c454461a8554237ba3a491) (PR #21 Merge)
+**Authoritative Main Merge Baseline:** Commit [`4c1e5dd1cf70ac88a8692fe9f108da4cd0e57af9`](https://github.com/mahitss/Payment_Bridge/commit/4c1e5dd1cf70ac88a8692fe9f108da4cd0e57af9) (PR #28 Merge)
 **Verified CI Workflows:**
-- **Current Main Merge Validation (Run #107):** [Run 41495450882](https://github.com/mahitss/Payment_Bridge/actions/runs/41495450882) (Commit `577aa87`, 6/6 jobs green, SUCCESS)
-- **PR #22 Release Documentation Reconciliation (Run #106):** [Run 41495433921](https://github.com/mahitss/Payment_Bridge/actions/runs/41495433921) (Head `63d3294`, 6/6 jobs green, SUCCESS)
-- **Audited Application Main Validation (Run #105):** [Run 41336877333](https://github.com/mahitss/Payment_Bridge/actions/runs/41336877333) (Commit `2f6785d`, 6/6 jobs green, SUCCESS)
-- **PR #21 PostgreSQL Test Isolation (Run #104):** [Run 41335781910](https://github.com/mahitss/Payment_Bridge/actions/runs/41335781910) (Head `ffc7484`, 6/6 jobs green, SUCCESS)
-- **PR #20 Post-Merge Main Validation (Run #103):** [Run 41333539848](https://github.com/mahitss/Payment_Bridge/actions/runs/41333539848) (Commit `9f0ff5d`, 6/6 jobs green, SUCCESS)
-- **PR #20 Recovery Fixture CI Correction (Run #102 & #101):** [Run 41332615965](https://github.com/mahitss/Payment_Bridge/actions/runs/41332615965) (Run #102, Head `2696e72`, 6/6 jobs green, SUCCESS) | [Run 41330448224](https://github.com/mahitss/Payment_Bridge/actions/runs/41330448224) (Run #101, Head `c9816c8`, 6/6 jobs green, SUCCESS)
-- **Historical PR #19 CI Failure Context:** PR #19 introduced Migration 000008, but its CI Run #99 ([Run 41133820056](https://github.com/mahitss/Payment_Bridge/actions/runs/41133820056), Head `c6d36e6`) and post-merge main Run #100 ([Run 41133832451](https://github.com/mahitss/Payment_Bridge/actions/runs/41133832451), Commit `5fce7da`) failed because `TestPostgres_RecoveryLeaseAndFinalization_Integration` reused a single case fixture for two active operations, which violated the newly added partial unique index `uq_payout_ops_case_active`. This failure was resolved in PR #20 (Mission 033.8.1A.2, Runs #101–#103) by giving `op2` a distinct payout case fixture (`pCase2`).
-- **Historical Release Baselines:** Mission 027 Main Merge Validation [Run 40175159427](https://github.com/mahitss/Payment_Bridge/actions/runs/40175159427) (Commit `49eaf89`, 6/6 jobs green) | PR #8 Verification [Run 40175065749](https://github.com/mahitss/Payment_Bridge/actions/runs/40175065749) (Commit `b1746ec`, 6/6 jobs green) | PR #7 Validation [Run 40131760851](https://github.com/mahitss/Payment_Bridge/actions/runs/40131760851) (Commit `e8c8334`, 6/6 jobs green) | PR #6 Baseline [Run 40128734686](https://github.com/mahitss/Payment_Bridge/actions/runs/40128734686) (Commit `bae46db`, 6/6 jobs green) | PR #4 Validation [Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) (Commit `b681c87`, 6/6 jobs green)
+- **Authoritative Main Baseline Validation:** [Run 42698544776](https://github.com/mahitss/Payment_Bridge/actions/runs/42698544776) (Commit `4c1e5dd`, 6/6 jobs green, SUCCESS)
+- **PR #28 Final Hackathon Audit Integration:** [Run 42695179236](https://github.com/mahitss/Payment_Bridge/actions/runs/42695179236) (Head `b83cfb2`, 6/6 jobs green, SUCCESS)
+- **Historical Release Baselines:** PR #27 Merge [Run 42681939266](https://github.com/mahitss/Payment_Bridge/actions/runs/42681939266) (Commit `62b802d`, 6/6 jobs green) | PR #22 Release Documentation [Run 41495450882](https://github.com/mahitss/Payment_Bridge/actions/runs/41495450882) (Commit `577aa87`, 6/6 jobs green) | PR #21 PostgreSQL Test Isolation [Run 41336877333](https://github.com/mahitss/Payment_Bridge/actions/runs/41336877333) (Commit `2f6785d`, 6/6 jobs green) | PR #4 Validation [Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) (Commit `b681c87`, 6/6 jobs green)
 **Security & Reliability Standard:** Fail-Closed Deterministic Enforcement / OWASP ASVS v4.0.3 L2
 
 ---

@@ -4,7 +4,7 @@
 
 **ClaimBridge** is an AI-augmented payout investigation and instant settlement platform built for the PayPal AI Hackathon. When multi-party disbursements fail or stall in `UNCLAIMED` status, payout operators struggle with cryptic error codes, disjointed dashboards, and dangerous double-payout retry loops. ClaimBridge solves this by decoupling non-deterministic AI claim investigations from a **deterministic, fail-closed Rust safety policy engine** and direct **PayPal Payouts REST API** settlement.
 
-ClaimBridge leverages local and server-side LLMs (such as Ollama Llama 3.2) to synthesize evidence-grounded root cause explanations. Crucially, the Go backend enforces strict grounding verification: if an AI model references an unknown or hallucinated transaction ID, the response is rejected fail-closed (HTTP 422). Financial actions remain strictly gated by dual-custody authorization, durable idempotency keys (`sender_batch_id`), and PayPal sandbox status verification.
+ClaimBridge leverages local and server-side LLMs (such as local Ollama running Qwen 3.5 4B or Llama 3.2) to synthesize evidence-grounded root cause explanations. Crucially, the Go backend enforces strict grounding verification: if an AI model references an unknown or hallucinated transaction ID, the response is rejected fail-closed (HTTP 422). Financial actions remain strictly gated by dual-custody authorization, durable idempotency keys (`sender_batch_id`), and PayPal sandbox status verification.
 
 ---
 
@@ -32,7 +32,7 @@ In automated claims, warranty reimbursements, and marketplace disbursements, pay
 
 ### AI Technologies & Models Used
 - **Replaceable Server-Side AI Provider Abstraction:** Pure Go interface (`services/api/internal/ai/provider.go`).
-- **Free-First Local Inference:** Native integration with local **Ollama** running **Llama 3.2** via OpenAI-compatible endpoints (`/v1/chat/completions`). Zero paid API keys required.
+- **Free-First Local Inference:** Native integration with local **Ollama** running **Qwen 3.5 4B** (`qwen3.5:4b`) or **Llama 3.2** (`llama3.2`) via native bounded `/api/chat` transport (with optional `/v1/chat/completions` transport supported for OpenAI-compatible providers). Zero paid API keys required. Bounded parameters (`AI_CONTEXT_SIZE=4096`, `AI_MAX_OUTPUT_TOKENS=300`, `AI_REQUEST_TIMEOUT_SECONDS=120`, `think: false`, `format: "json"`) ensure reliable local execution without model hangs. Hardware caveat: local CPU execution was benchmarked at ~60.6s on one specific development environment, which does not constitute an SLA across arbitrary host hardware.
 - **Prompt Injection Envelope:** Adversarial instructions neutralized using bounded fields and `<UNTRUSTED_EVIDENCE>` boundary tags.
 - **Strict Evidence Grounding:** Go backend asserts that every cited evidence identifier exists in the current case snapshot.
 
