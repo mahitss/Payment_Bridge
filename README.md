@@ -28,11 +28,11 @@ ClaimBridge decouples non-deterministic AI claim triage and forensic investigati
 +---------------|-----------------------------|---------------------------------|-------------------+
                 |                             |                                 |
                 v                             v                                 v
-+-------------------------------+  +--------------------------+  +----------------------------------+
-|      PostgreSQL Database      |  |  Deterministic Rust     |  |   Server-Side AI Inference       |
-|  (ACID, Multi-Tenant Scoped,  |  |  Safety Policy Engine   |  |   Local Ollama (Llama 3.2)       |
-|  Integer Minor Units Cents)   |  |  (State Machine & Caps)  |  |   OpenAI-Compatible Endpoint     |
-+-------------------------------+  +--------------------------+  +----------------------------------+
++-------------------------------+  +--------------------------+  +-------------------------------------+
+|      PostgreSQL Database      |  |  Deterministic Rust     |  |   Server-Side AI Inference          |
+|  (ACID, Multi-Tenant Scoped,  |  |  Safety Policy Engine   |  |   Local Ollama (Qwen 3.5/Llama 3.2) |
+|  Integer Minor Units Cents)   |  |  (State Machine & Caps)  |  |   OpenAI-Compatible Endpoint        |
++-------------------------------+  +--------------------------+  +-------------------------------------+
                                               |
                                               v
                                +------------------------------+
@@ -279,17 +279,26 @@ ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock t
 
 - **Authoritative Verification Matrix:** See [`docs/submission/VERIFICATION_MATRIX.md`](docs/submission/VERIFICATION_MATRIX.md) for full mapping of requirements to source files, exact tests, evidence tiers, and local reproduction steps.
 - **Judge Offline Evaluation Runbook:** See [`docs/submission/JUDGE_RUNBOOK.md`](docs/submission/JUDGE_RUNBOOK.md) for a single-command evaluator launch guide, seeded credentials, step-by-step walkthrough expectations, and safe cleanup commands.
-- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions: Main-Head Validation [Run 40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) on commit `b681c87`, Feature Branch Baseline [Run 40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) on commit `7fbd031`, Audited Source Baseline [Run 39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) on commit `c6a261a`, and Historical Validation [Run 39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) on commit `9b0b6c7`:
-  - **Go API Gateway:** `go vet`, 11/11 packages passing with race detection (`go test -race ./...`), PostgreSQL seeder integration test, and 32/32 acceptance scenarios passing in simulated deterministic test harness.
-  - **Rust Policy Engine:** 17/17 deterministic unit tests passing, zero Clippy warnings (`cargo clippy -- -D warnings`), and release compilation.
-  - **Next.js Web Frontend:** ESLint clean, 15/15 standalone production routes built.
-  - **End-to-End Browser Tests:** Playwright browser regression test suite in Chromium against live frontend, API gateway, and PostgreSQL (27/27 tests passing across 7 spec files, including deterministic 1080p demo walkthrough recording).
-  - **Security & Secret Audit:** Secret pattern scanning against git tree and strict sandbox environment verification (`PAYPAL_ENV=sandbox`).
-  - **Docker Compose Offline Evaluator Verification:** Multi-stage image builds, isolated stack launch (`docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up -d`), seeder execution, readiness checks, complete Playwright E2E suite executed against Compose, deterministic walkthrough recording generation, seeder idempotency re-run, and stack restart persistence.
+- **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions:
+  - **Authoritative Main Release Baseline:** [Run 42698544776](https://github.com/mahitss/Payment_Bridge/actions/runs/42698544776) on commit `4c1e5dd1cf70ac88a8692fe9f108da4cd0e57af9` (Post-PR #28 Merge, 6/6 jobs green, SUCCESS).
+  - **Release Candidate Verification (PR #28):** [Run 42695179236](https://github.com/mahitss/Payment_Bridge/actions/runs/42695179236) on commit `b83cfb2` (6/6 jobs green, SUCCESS).
+  - **Historical CI Baselines (Reference Only):** Validation Run [40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) on commit `b681c87`, Feature Branch Run [40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) on commit `7fbd031`, Audited Source Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) on commit `c6a261a`, and Historical Validation Run [39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) on commit `9b0b6c7`.
+  - **Verified Capabilities:**
+    - **Go API Gateway:** `go vet`, 11/11 packages passing with race detection (`go test -race ./...`), PostgreSQL seeder integration test, and 32/32 acceptance scenarios passing in simulated deterministic test harness.
+    - **Rust Policy Engine:** 17/17 deterministic unit tests passing, zero Clippy warnings (`cargo clippy -- -D warnings`), and release compilation.
+    - **Next.js Web Frontend:** ESLint clean, 15/15 standalone production routes built.
+    - **End-to-End Browser Tests:** Playwright browser regression test suite in Chromium against live frontend, API gateway, and PostgreSQL (38 tests passing across 9 spec files, including deterministic 1080p demo walkthrough recording).
+    - **Security & Secret Audit:** Secret pattern scanning against git tree and strict sandbox environment verification (`PAYPAL_ENV=sandbox`).
+    - **Docker Compose Offline Evaluator Verification:** Multi-stage image builds, isolated stack launch (`docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up -d`), seeder execution, readiness checks, complete Playwright E2E suite executed against Compose, deterministic walkthrough recording generation, seeder idempotency re-run, and stack restart persistence.
 - **External Integration Gating:**
-  - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied. Live PayPal cancellation is contract-verified in the test double harness; live sandbox cancellation remains unverified; zero real money was moved or cancelled.
+  - Genuine PayPal Sandbox OAuth & Payouts: Implemented and unit/mock verified; live sandbox runtime is gated by operator credentials and reported honestly as `BLOCKED` until `.env` keys are supplied. Direct sandbox payout execution attempts return PayPal HTTP 403 `PAYOUT_NOT_AVAILABLE` (`debug_id=f1628730219ad`) pending developer account enablement. Live PayPal cancellation is contract-verified in the test double harness; live sandbox cancellation remains unverified; zero real money was moved or cancelled.
   - Genuine Local Ollama Inference: Implemented and verified in live local runtime with `qwen3.5:4b` on a local CPU development environment (~60.6s, HTTP 201 Created); hardware performance varies across host CPUs. In headless CI or offline environments without an active Ollama daemon, the system safely reports `AI_UNAVAILABLE` fail-closed.
-- **Demo Video Status:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`, Main-Head Validation Artifact ID: `12569654956` in Run [40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389), ~10.7 MB, expiry November 7, 2026; Feature Branch Artifact ID: `12569609901` in Run [40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661), ~10.0 MB; Historical Artifact ID: `12359179229`, ~10.6 MB, measured at 153.2s) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, silent WebM), and published as a temporary downloadable CI artifact by `Docker Compose Offline Evaluator Verification` (`docker-compose-evaluator`); 14-day retention applies; production guide available in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md); public video hosting upload is `PENDING` team voiceover and final publication.
+- **Demo Video Status:**
+  - **Active CI Video Artifact:** Deterministic 1080p walkthrough recording artifact (`claimbridge-offline-demo-recording` / `claimbridge-demo-walkthrough.webm`) is automatically generated, verified against media quality gates (1920×1080, 120s–175s duration, measured at 154.0s in Run 42698544776, silent WebM), and published as an authenticated downloadable CI artifact:
+    - **Authoritative Main Baseline Artifact:** ID `13710278711` in Run [42698544776](https://github.com/mahitss/Payment_Bridge/actions/runs/42698544776) (~10.33 MB, 14-day retention active through **November 23, 2026**).
+    - **PR #28 Artifact:** ID `13708563927` in Run [42695179236](https://github.com/mahitss/Payment_Bridge/actions/runs/42695179236) (~10.19 MB).
+    - **Historical Artifacts (Expired November 7, 2026):** Artifact ID `12569654956` in Run 40119075389 (~10.7 MB), Artifact ID `12569609901` in Run 40119057661 (~10.0 MB), and Artifact ID `12359179229`.
+  - **Important Note on Artifact Access:** GitHub Actions artifacts require a signed-in GitHub account to download and are temporary (14-day retention). They are not permanent public video streaming links. A step-by-step download guide is provided in [`docs/demo/VIDEO_ARTIFACT_GUIDE.md`](docs/demo/VIDEO_ARTIFACT_GUIDE.md). Public narrated video hosting upload is `PENDING` team voiceover and final publication.
 
 ---
 

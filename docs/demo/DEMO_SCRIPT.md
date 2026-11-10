@@ -20,7 +20,7 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 
 2. **Track 2: Optional Live PayPal Sandbox & Ollama Verification**  
    - Performed *only* after `go run ./cmd/readiness -profile=submission` reports `[STATUS: READY]`.  
-   - Requires valid PayPal Sandbox OAuth credentials (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`) and an active Ollama instance (`llama3.2`).  
+   - Requires valid PayPal Sandbox OAuth credentials (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`) and an active Ollama instance (`qwen3.5:4b` or `llama3.2`).
    - Operates exclusively on genuine non-fixture cases.  
    - Live submission, live polling, and item cancellation execute real REST calls against `https://api-m.sandbox.paypal.com`.
 
@@ -152,5 +152,5 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 2. **Intake & Approval:** Create a fresh, non-fixture payout case for `$260.00` USD, initiate operation, and execute distinct officer dual-approval.
 3. **Live Sandbox Submission:** Click **Submit to PayPal Sandbox**. The browser displays genuine PayPal-assigned batch and item IDs from `api-m.sandbox.paypal.com`.
 4. **Live Polling:** Click **Sync Latest Status** to retrieve live provider status updates directly from PayPal Sandbox REST API v1.
-5. **Live Ollama Inference:** Run investigation with model-backed inference from local `llama3.2`.
+5. **Live Ollama Inference:** Run investigation with model-backed inference from local `qwen3.5:4b` (or `llama3.2`).
 6. **Controlled Cancellation:** If and only if the item is verified in `UNCLAIMED` status, click **Cancel Payout** to execute a real PayPal Sandbox cancellation.

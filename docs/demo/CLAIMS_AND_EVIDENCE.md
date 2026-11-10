@@ -68,15 +68,15 @@ This document establishes the factual basis for every statement made in the Clai
 
 ---
 
-### Claim 6: "The model runs locally on Ollama Llama 3.2 with zero external API fees."
+### Claim 6: "The model runs locally on Ollama (Qwen 3.5 4B or Llama 3.2) with zero external API fees."
 - **Verifying Source Code:**
-  - `services/api/internal/ai/ollama.go` (Targets local port `http://localhost:11434/v1/chat/completions`).
+  - `services/api/internal/ai/ollama.go` (Native bounded `/api/chat` transport with `format: "json"`, `think: false`, `options.num_ctx: 4096`, `options.num_predict: 300`, and optional `/v1/chat/completions` for OpenAI-compatible providers).
   - `services/api/internal/readiness/probes.go` (`ProbeAIHealth` and `ProbeAIInference`).
 - **Automated Test Evidence:**
   - `services/api/internal/ai/ai_test.go` (`TestOllamaProvider_Success`, `TestOllamaClient_CheckHealth`, and `TestOllamaClient_SensitiveLoggingSanitization`).
   - `services/api/internal/readiness/readiness_test.go` (`TestGenuineInferencePassesSchemaAndGrounding`, `TestMockProviderConfigured_FailsSubmission`, and `TestGenuineInferenceTimeout`).
 - **Operational Boundary:**
-  - Simulated and mock unit tests run in CI without external dependencies. Genuine model inference requires an active local daemon (`ollama serve`) and installed model (`ollama pull llama3.2`). Model availability alone does not satisfy inference verification; the diagnostic must execute a non-mutating synthetic probe and pass grounding checks.
+  - Simulated and mock unit tests run in CI without external dependencies. Genuine model inference requires an active local daemon (`ollama serve`) and installed model (`ollama pull qwen3.5:4b` or `ollama pull llama3.2`). Model availability alone does not satisfy inference verification; the diagnostic must execute a non-mutating synthetic probe and pass grounding checks.
 
 ---
 
@@ -123,7 +123,7 @@ This document establishes the factual basis for every statement made in the Clai
 ### Claim 10: "End-to-End Browser Regression & Workflow Verification — Validates full stack in real browser sessions."
 - **Verifying Source Code:**
   - `apps/web/playwright.config.ts` and `apps/web/e2e/*.spec.ts`.
-- **Automated Test Evidence (27/27 Tests Across 7 Spec Files):**
+- **Automated Test Evidence (38 Tests Across 9 Spec Files):**
   - `apps/web/e2e/health.spec.ts` (3 tests): Startup, landing page claims, and diagnostic health probe.
   - `apps/web/e2e/auth.spec.ts` (5 tests): Protected route redirects, invalid credentials, operator & officer logins, demo mode banner.
   - `apps/web/e2e/fixtures.spec.ts` (3 tests): DEMO-W9821 registry visibility, prominent provenance banner, offline synthetic investigation view, and disabled action buttons.
@@ -131,3 +131,5 @@ This document establishes the factual basis for every statement made in the Clai
   - `apps/web/e2e/mutation-guards.spec.ts` (4 tests): Direct API rejection (HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`) on fixture submit, sync, and cancel.
   - `apps/web/e2e/responsive-nav.spec.ts` (8 tests): Desktop nav, accessible mobile drawer toggle & Escape dismiss, automatic route close, skip link, 6-viewport overflow check, form semantics, password toggle, 44px touch targets.
   - `apps/web/e2e/demo-recording.spec.ts` (1 test): Deterministic 1080p browser walkthrough recording producing `claimbridge-demo-walkthrough.webm`, verified by automated media quality gate (`verify-recording-artifact.mjs`) asserting 1920×1080 resolution, 120.0s–175.0s duration, and silent WebM container.
+  - `apps/web/e2e/investigation-transparency.spec.ts` (5 tests): Runtime transport, telemetry duration, historical records, accessible elapsed timer, failure handling.
+  - `apps/web/e2e/evidence-inspector.spec.ts` (6 tests): Initial focus, Tab/Shift+Tab focus trap, Escape dismissal, focus restoration, safe allowlisted fields, error states.
