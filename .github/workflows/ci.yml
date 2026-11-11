@@ -9,7 +9,7 @@ on:
 jobs:
   test-go:
     name: Go API (Gate & Orchestrator)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -64,7 +64,7 @@ jobs:
 
   test-rust:
     name: Rust Deterministic Policy Engine
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     defaults:
       run:
         working-directory: services/policy
@@ -90,7 +90,7 @@ jobs:
 
   test-web:
     name: Next.js Web Frontend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     defaults:
       run:
         working-directory: apps/web
@@ -115,7 +115,7 @@ jobs:
 
   e2e:
     name: End-to-End Browser & Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -161,7 +161,11 @@ jobs:
 
       - name: Install Playwright Chromium
         working-directory: apps/web
-        run: npx playwright install --with-deps chromium
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          npx playwright install-deps chromium
+          npx playwright install chromium
 
       - name: Verify PostgreSQL Readiness
         run: |
@@ -279,7 +283,7 @@ jobs:
 
   security-checks:
     name: Security & Secret Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -296,7 +300,7 @@ jobs:
 
   docker-compose-evaluator:
     name: Docker Compose Offline Evaluator Verification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -313,7 +317,11 @@ jobs:
 
       - name: Install Playwright Chromium
         working-directory: apps/web
-        run: npx playwright install --with-deps chromium
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          npx playwright install-deps chromium
+          npx playwright install chromium
 
       - name: Free Host Port 5432 and Prepare Environment
         run: |

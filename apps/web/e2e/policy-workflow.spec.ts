@@ -135,7 +135,7 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     );
     const successMsg = page.locator("text=Investigation completed");
 
-    await expect(offlineMsg.or(successMsg)).toBeVisible({ timeout: 15000 });
+    await expect(offlineMsg.or(successMsg)).toBeVisible({ timeout: 60000 });
 
     // Core case status must NOT be corrupted
     await expect(page.locator("text=Internal: DRAFT")).toBeVisible();

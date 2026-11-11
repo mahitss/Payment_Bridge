@@ -269,6 +269,43 @@ export default function Home() {
           </div>
         )}
 
+        {/* Local Evaluation Fixtures (Demo Mode Enabled) */}
+        {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
+          <aside
+            aria-label="Demo Evaluator Fixtures"
+            className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-600 text-white">
+                    DEMO
+                  </span>
+                  <h2 className="text-sm font-semibold text-slate-900">
+                    Local Evaluation Fixtures (Demo Mode Enabled)
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Evaluator seed accounts are pre-configured for dual-custody verification:
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700 font-mono pt-1">
+                  <div>
+                    <span className="font-semibold text-slate-900">operator@claimbridge.internal</span>
+                    <span className="text-slate-500 font-sans ml-1.5">(Lead Operator)</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-900">officer@claimbridge.internal</span>
+                    <span className="text-slate-500 font-sans ml-1.5">(Compliance Officer)</span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-500 bg-white/80 border border-slate-200/80 rounded px-2.5 py-1.5 self-start sm:self-center">
+                Passwords provisioned via secure environment or seed config. Not rendered in client markup.
+              </div>
+            </div>
+          </aside>
+        )}
+
         {/* Hero Section */}
         <section className="text-center max-w-3xl mx-auto space-y-6 pt-4">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium">

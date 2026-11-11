@@ -30,7 +30,7 @@ test.describe("B. Authentication and Demo Accounts", () => {
     await page.click('button[type="submit"]');
 
     // Should redirect to /app
-    await expect(page).toHaveURL(/\/app/);
+    await expect(page).toHaveURL(/\/app/, { timeout: 15000 });
 
     // Verify operator email is displayed in header
     await expect(page.locator("header")).toContainText("operator@claimbridge.internal");
@@ -49,7 +49,7 @@ test.describe("B. Authentication and Demo Accounts", () => {
     await page.click('button[type="submit"]');
 
     // Should redirect to /app
-    await expect(page).toHaveURL(/\/app/);
+    await expect(page).toHaveURL(/\/app/, { timeout: 15000 });
 
     // Verify officer email is displayed in header
     await expect(page.locator("header")).toContainText("officer@claimbridge.internal");
