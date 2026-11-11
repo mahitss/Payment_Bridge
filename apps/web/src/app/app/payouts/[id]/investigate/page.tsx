@@ -717,6 +717,9 @@ export default function PayoutInvestigationPage() {
         evidence={selectedEvidence}
         loading={evidenceLoading}
         error={evidenceError}
+        activeEvidenceRef={activeEvidenceRef}
+        onRetry={(refId) => inspectEvidence(refId)}
+        triggerElement={lastTriggerElementRef.current}
       />
     </div>
   );

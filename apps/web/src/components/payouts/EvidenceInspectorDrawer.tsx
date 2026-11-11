@@ -59,15 +59,25 @@ export function EvidenceInspectorDrawer({
 
           if (focusables.length === 0) return;
 
-          const first = focusables[0];
-          const last = focusables[focusables.length - 1];
+          const firstElement = focusables[0];
+          const lastElement = focusables[focusables.length - 1];
 
-          if (e.shiftKey && document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          } else if (!e.shiftKey && document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
+          if (e.shiftKey) {
+            if (
+              document.activeElement === firstElement ||
+              !drawerRef.current.contains(document.activeElement)
+            ) {
+              e.preventDefault();
+              lastElement.focus();
+            }
+          } else {
+            if (
+              document.activeElement === lastElement ||
+              !drawerRef.current.contains(document.activeElement)
+            ) {
+              e.preventDefault();
+              firstElement.focus();
+            }
           }
         }
       };
@@ -80,13 +90,18 @@ export function EvidenceInspectorDrawer({
         document.removeEventListener("keydown", handleKeyDown);
         document.body.style.overflow = "";
       };
-    } else {
-      if (wasOpenRef.current && triggerElement) {
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      if (triggerElement && document.contains(triggerElement) && typeof triggerElement.focus === "function") {
         triggerElement.focus();
-        wasOpenRef.current = false;
+      } else if (activeEvidenceRef) {
+        const chip = document.querySelector<HTMLElement>(
+          `[data-testid="evidence-chip-${activeEvidenceRef}"]`
+        );
+        chip?.focus();
       }
     }
-  }, [isOpen, onClose, triggerElement]);
+  }, [isOpen, activeEvidenceRef, triggerElement, onClose]);
 
   if (!isOpen) return null;
 
