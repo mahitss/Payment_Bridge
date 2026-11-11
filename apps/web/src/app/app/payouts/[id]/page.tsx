@@ -334,9 +334,15 @@ export default function PayoutCaseDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setInvestigationError(
-          data.error || "Investigation assistant is currently offline or unreachable."
-        );
+        if (res.status === 503 || data?.code === "AI_UNAVAILABLE") {
+          setInvestigationError(
+            "Investigation assistant is currently offline or unreachable. Core payout operations remain fully functional."
+          );
+        } else {
+          setInvestigationError(
+            data.error || "Investigation assistant is currently offline or unreachable."
+          );
+        }
       } else {
         setInvestigationSuccess("Investigation completed with grounded evidence.");
         setSelectedInvestigation(data);
