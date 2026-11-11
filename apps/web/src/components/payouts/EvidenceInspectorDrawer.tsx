@@ -34,9 +34,11 @@ export function EvidenceInspectorDrawer({
     if (isOpen) {
       wasOpenRef.current = true;
 
-      const focusTimer = requestAnimationFrame(() => {
+      // Focus close button immediately and reinforce via timer
+      closeButtonRef.current?.focus();
+      const focusTimer = setTimeout(() => {
         closeButtonRef.current?.focus();
-      });
+      }, 0);
 
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === "Escape") {
@@ -86,7 +88,7 @@ export function EvidenceInspectorDrawer({
       document.body.style.overflow = "hidden";
 
       return () => {
-        cancelAnimationFrame(focusTimer);
+        clearTimeout(focusTimer);
         document.removeEventListener("keydown", handleKeyDown);
         document.body.style.overflow = "";
       };
@@ -142,6 +144,7 @@ export function EvidenceInspectorDrawer({
           </div>
           <button
             ref={closeButtonRef}
+            autoFocus
             type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
