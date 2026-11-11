@@ -98,6 +98,15 @@ type PayoutCase struct {
 	UpdatedAt            time.Time `json:"updated_at"`
 }
 
+type PayoutCasesMetrics struct {
+	TotalCases             int   `json:"total_cases"`
+	PendingDualApprovals   int   `json:"pending_dual_approvals"`
+	CompletedCasesCount    int   `json:"completed_cases_count"`
+	TotalCompletedCents    int64 `json:"total_completed_cents"`
+	AttentionNeededCount   int   `json:"attention_needed_count"`
+	ReconciliationRequired int   `json:"reconciliation_required"`
+}
+
 type PayoutOperation struct {
 	ID                     string                 `json:"id"`
 	PayoutCaseID           string                 `json:"payout_case_id"`

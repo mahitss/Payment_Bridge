@@ -76,6 +76,7 @@ type Repository interface {
 	GetPayoutCaseByID(ctx context.Context, orgID, caseID string) (*PayoutCase, error)
 	GetPayoutCaseByReference(ctx context.Context, orgID, reference string) (*PayoutCase, error)
 	ListPayoutCasesByOrg(ctx context.Context, orgID string, limit, offset int) ([]PayoutCase, int, error)
+	GetPayoutCasesMetrics(ctx context.Context, orgID string) (*PayoutCasesMetrics, error)
 	UpdatePayoutCaseStatus(ctx context.Context, orgID, caseID, status string) error
 
 	// Payout Operations
