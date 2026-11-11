@@ -34,7 +34,6 @@ export function EvidenceInspectorDrawer({
     if (isOpen) {
       wasOpenRef.current = true;
 
-      // Focus close button on open
       const focusTimer = requestAnimationFrame(() => {
         closeButtonRef.current?.focus();
       });
@@ -58,51 +57,36 @@ export function EvidenceInspectorDrawer({
               (el.offsetParent !== null || el.getClientRects().length > 0)
           );
 
-          if (focusables.length === 0) {
+          if (focusables.length === 0) return;
+
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+
+          if (e.shiftKey && document.activeElement === first) {
             e.preventDefault();
-            return;
-          }
-
-          const firstElement = focusables[0];
-          const lastElement = focusables[focusables.length - 1];
-
-          if (e.shiftKey) {
-            if (
-              document.activeElement === firstElement ||
-              !drawerRef.current.contains(document.activeElement)
-            ) {
-              e.preventDefault();
-              lastElement.focus();
-            }
-          } else {
-            if (
-              document.activeElement === lastElement ||
-              !drawerRef.current.contains(document.activeElement)
-            ) {
-              e.preventDefault();
-              firstElement.focus();
-            }
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
           }
         }
       };
 
-      window.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "hidden";
+
       return () => {
         cancelAnimationFrame(focusTimer);
-        window.removeEventListener("keydown", handleKeyDown);
+        document.removeEventListener("keydown", handleKeyDown);
+        document.body.style.overflow = "";
       };
-    } else if (wasOpenRef.current) {
-      wasOpenRef.current = false;
-      if (triggerElement && document.contains(triggerElement) && typeof triggerElement.focus === "function") {
+    } else {
+      if (wasOpenRef.current && triggerElement) {
         triggerElement.focus();
-      } else if (activeEvidenceRef) {
-        const chip = document.querySelector<HTMLElement>(
-          `[data-testid="evidence-chip-${activeEvidenceRef}"]`
-        );
-        chip?.focus();
+        wasOpenRef.current = false;
       }
     }
-  }, [isOpen, activeEvidenceRef, triggerElement, onClose]);
+  }, [isOpen, onClose, triggerElement]);
 
   if (!isOpen) return null;
 
@@ -112,28 +96,32 @@ export function EvidenceInspectorDrawer({
       aria-modal="true"
       aria-labelledby="evidence-inspector-title"
       data-testid="evidence-inspector-drawer"
-      className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm transition-opacity"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
+      className="fixed inset-0 z-50 overflow-hidden flex justify-end"
     >
+      {/* Backdrop */}
+      <div
+        data-testid="evidence-inspector-backdrop"
+        onClick={onClose}
+        className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity animate-in fade-in-0 duration-200"
+        aria-hidden="true"
+      />
+
+      {/* Drawer Container */}
       <div
         ref={drawerRef}
         tabIndex={-1}
-        className="w-full max-w-lg h-full bg-slate-900 border-l border-slate-800 flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-right duration-200 outline-none"
+        className="relative z-10 w-full max-w-lg h-full bg-white border-l border-slate-200 flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-right duration-200 outline-none text-slate-900"
       >
         {/* Header */}
-        <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" aria-hidden="true" />
-              <h3 id="evidence-inspector-title" className="text-sm font-bold text-white tracking-wide">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+              <h3 id="evidence-inspector-title" className="text-sm font-bold text-slate-900 tracking-wide">
                 Evidence Reference Inspector
               </h3>
             </div>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-500">
               Read-only citation explainability &amp; source record verification
             </p>
           </div>
@@ -141,7 +129,7 @@ export function EvidenceInspectorDrawer({
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
             aria-label="Close evidence inspector"
             data-testid="evidence-inspector-close"
           >
@@ -150,12 +138,12 @@ export function EvidenceInspectorDrawer({
         </div>
 
         {/* Subheader: Active Identifier & Badges */}
-        <div className="px-5 py-3.5 bg-slate-950/40 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="px-5 py-3.5 bg-slate-50/50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-1.5 font-mono text-[11px]">
             <span className="text-slate-500">Ref:</span>
             <span
               data-testid="evidence-inspector-ref-id"
-              className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-semibold border border-slate-700 font-mono"
+              className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200 font-mono"
             >
               {activeEvidenceRef || evidence?.reference_id}
             </span>
@@ -165,13 +153,13 @@ export function EvidenceInspectorDrawer({
             <div className="flex items-center gap-2 font-mono text-[10px]">
               <span
                 data-testid="evidence-source-type"
-                className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/30 font-semibold"
+                className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold"
               >
                 {evidence.source_type}
               </span>
               <span
                 data-testid="evidence-resolution-status"
-                className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-semibold"
+                className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold"
               >
                 {evidence.resolution_status === "RESOLVED"
                   ? "REFERENCE VALIDATED"
@@ -186,13 +174,13 @@ export function EvidenceInspectorDrawer({
           {/* Grounding vs Fact Distinction Caveat */}
           <div
             data-testid="evidence-grounding-caveat"
-            className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs space-y-1 text-indigo-200/90 leading-relaxed"
+            className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs space-y-1 text-blue-900 leading-relaxed"
           >
-            <div className="flex items-center gap-1.5 font-semibold text-indigo-300">
+            <div className="flex items-center gap-1.5 font-semibold text-blue-800">
               <Info className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
               <span>Citation Grounding Boundary</span>
             </div>
-            <p className="text-[11px] text-indigo-300/80">
+            <p className="text-[11px] text-blue-700">
               Validating this citation confirms that the cited record exists in tenant-scoped case history.
               It distinguishes verifiable citations from fabricated IDs, but does not autonomously certify
               the AI model&apos;s narrative conclusions as absolute ground truth.
@@ -205,10 +193,10 @@ export function EvidenceInspectorDrawer({
               data-testid="evidence-loading"
               role="status"
               aria-live="polite"
-              className="p-8 flex flex-col items-center justify-center space-y-3 text-slate-400 text-xs"
+              className="p-8 flex flex-col items-center justify-center space-y-3 text-slate-500 text-xs"
             >
               <div
-                className="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"
+                className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"
                 aria-hidden="true"
               />
               <span>Resolving citation against case records...</span>
@@ -220,16 +208,16 @@ export function EvidenceInspectorDrawer({
             <div
               data-testid="evidence-error"
               role="alert"
-              className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-2 text-xs"
+              className="p-4 rounded-xl bg-rose-50 border border-rose-200 space-y-2 text-xs"
             >
-              <div className="flex items-center gap-2 text-rose-400 font-semibold">
+              <div className="flex items-center gap-2 text-rose-700 font-semibold">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
                 <span>Citation Unavailable or Inaccessible</span>
               </div>
-              <p className="text-rose-200/90 text-xs leading-relaxed">
+              <p className="text-rose-800 text-xs leading-relaxed">
                 {error}
               </p>
-              <p className="text-[11px] text-slate-400 leading-normal">
+              <p className="text-[11px] text-slate-500 leading-normal">
                 The identifier could not be validated against records belonging to this organization and case.
                 It may be malformed, belonging to another tenant or case, or an ungrounded hallucination.
               </p>
@@ -237,7 +225,7 @@ export function EvidenceInspectorDrawer({
                 <button
                   type="button"
                   onClick={() => onRetry(activeEvidenceRef)}
-                  className="mt-2 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-medium border border-rose-500/40 transition"
+                  className="mt-2 px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs font-medium border border-rose-300 transition"
                 >
                   Retry Verification
                 </button>
@@ -249,7 +237,7 @@ export function EvidenceInspectorDrawer({
           {!loading && evidence && (
             <div className="space-y-4">
               {/* Provenance Card */}
-              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1.5">
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">
                     Data Provenance
@@ -258,8 +246,8 @@ export function EvidenceInspectorDrawer({
                     data-testid="evidence-provenance"
                     className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold border ${
                       evidence.is_synthetic_fixture
-                        ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                        ? "bg-amber-50 text-amber-800 border-amber-200"
+                        : "bg-emerald-50 text-emerald-700 border border-emerald-200"
                     }`}
                   >
                     {evidence.is_synthetic_fixture
@@ -267,7 +255,7 @@ export function EvidenceInspectorDrawer({
                       : "Live Authorized Record"}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-slate-500">
                   {evidence.is_synthetic_fixture
                     ? "Guaranteed zero financial mutation: strictly isolated from live PayPal destinations."
                     : "Verified record scoped to authenticated tenant organization."}
@@ -275,22 +263,22 @@ export function EvidenceInspectorDrawer({
               </div>
 
               {/* Source Display Label & Recorded Timestamp */}
-              <div className="p-3.5 rounded-lg bg-slate-950/80 border border-slate-800 space-y-1.5">
+              <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
                 <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">
                   Resolved Entity
                 </span>
                 <div
                   data-testid="evidence-display-label"
-                  className="text-sm font-semibold text-white"
+                  className="text-sm font-semibold text-slate-900"
                 >
                   {evidence.display_label}
                 </div>
                 {evidence.recorded_at && (
                   <div
                     data-testid="evidence-recorded-at"
-                    className="text-xs text-slate-400 flex items-center gap-1.5 font-mono pt-1"
+                    className="text-xs text-slate-500 flex items-center gap-1.5 font-mono pt-1"
                   >
-                    <Clock className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+                    <Clock className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
                     <span>Recorded: {formatDate(evidence.recorded_at)}</span>
                   </div>
                 )}
@@ -303,17 +291,17 @@ export function EvidenceInspectorDrawer({
                 </span>
                 <div
                   data-testid="evidence-fields"
-                  className="rounded-lg bg-slate-950 border border-slate-800 divide-y divide-slate-900 overflow-hidden"
+                  className="rounded-lg bg-white border border-slate-200 divide-y divide-slate-100 overflow-hidden"
                 >
                   {evidence.fields.map((f, fIdx) => (
                     <div
                       key={fIdx}
                       className="px-3.5 py-2.5 flex items-start justify-between gap-3 text-xs"
                     >
-                      <span className="text-slate-400 font-medium whitespace-nowrap">
+                      <span className="text-slate-500 font-medium whitespace-nowrap">
                         {f.name}
                       </span>
-                      <span className="text-slate-200 font-mono text-right break-all max-w-[280px]">
+                      <span className="text-slate-900 font-mono text-right break-all max-w-[280px]">
                         {f.value}
                       </span>
                     </div>
@@ -325,14 +313,14 @@ export function EvidenceInspectorDrawer({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/70 flex items-center justify-between">
+        <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
           <span className="text-[10px] text-slate-500 font-mono">
             Scope: Authenticated Tenant Only
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[38px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+            className="min-h-[38px] px-4 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium border border-slate-200 shadow-sm transition"
             data-testid="evidence-inspector-footer-close"
           >
             Close Inspector

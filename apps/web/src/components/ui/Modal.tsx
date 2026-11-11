@@ -34,7 +34,6 @@ export function Modal({
     if (isOpen) {
       if (!dialog.open) {
         dialog.showModal();
-        // Prevent background scroll
         document.body.style.overflow = "hidden";
       }
     } else {
@@ -49,7 +48,6 @@ export function Modal({
     };
   }, [isOpen]);
 
-  // Handle native escape & backdrop click
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -96,28 +94,28 @@ export function Modal({
       aria-labelledby={titleId}
       aria-describedby={description ? descId : undefined}
       className={cn(
-        "fixed inset-0 z-50 m-auto p-0 bg-transparent text-slate-100 backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm open:flex open:flex-col items-center justify-center outline-none overscroll-contain",
+        "fixed inset-0 z-50 m-auto p-0 bg-transparent text-slate-900 backdrop:bg-slate-950/50 backdrop:backdrop-blur-sm open:flex open:flex-col items-center justify-center outline-none overscroll-contain",
         "w-[calc(100%-2rem)]",
         maxWidthStyles[maxWidth]
       )}
     >
       <div
         className={cn(
-          "w-full rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in-0 zoom-in-95 duration-150",
+          "w-full rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in-0 zoom-in-95 duration-150",
           className
         )}
       >
         {/* Header */}
-        <div className="flex items-start justify-between p-6 border-b border-slate-800 bg-slate-900/60">
+        <div className="flex items-start justify-between p-6 border-b border-slate-100 bg-slate-50/50">
           <div className="space-y-1 pr-4">
             <h3
               id={titleId}
-              className="text-base font-semibold text-white tracking-tight"
+              className="text-base font-semibold text-slate-900 tracking-tight"
             >
               {title}
             </h3>
             {description && (
-              <p id={descId} className="text-xs text-slate-400 leading-relaxed">
+              <p id={descId} className="text-xs text-slate-500 leading-relaxed">
                 {description}
               </p>
             )}
@@ -126,7 +124,7 @@ export function Modal({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             <X className="w-5 h-5" aria-hidden="true" />
           </button>
@@ -140,4 +138,3 @@ export function Modal({
     </dialog>
   );
 }
-

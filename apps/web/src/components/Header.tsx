@@ -58,7 +58,7 @@ export default function Header() {
   }, [mobileMenuOpen]);
 
   return (
-    <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
+    <header className="border-b border-slate-800 bg-slate-950 sticky top-0 z-40 text-slate-100 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-4 sm:gap-6">
           <Link
@@ -162,7 +162,7 @@ export default function Header() {
           id="mobile-navigation"
           role="region"
           aria-label="Mobile Navigation"
-          className="md:hidden border-t border-slate-800 bg-slate-900/95 backdrop-blur-xl px-4 py-4 space-y-3 shadow-2xl animate-in slide-in-from-top-2"
+          className="md:hidden border-t border-slate-800 bg-slate-950 px-4 py-4 space-y-3 shadow-2xl animate-in slide-in-from-top-2"
         >
           {/* Organization & User Info in Mobile View */}
           <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 space-y-1.5 text-xs">

@@ -409,9 +409,9 @@ export default function PayoutCaseDetailPage() {
 
   if (loading || loadingData) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
           <span className="text-xs font-mono">Loading case details...</span>
         </div>
       </div>
@@ -424,10 +424,10 @@ export default function PayoutCaseDetailPage() {
 
   if (!pCase) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
         <Header />
         <main className="flex-1 max-w-7xl w-full mx-auto p-6 text-center space-y-4">
-          <p className="text-slate-400 text-sm">Payout case not found.</p>
+          <p className="text-slate-500 text-sm">Payout case not found.</p>
           <Link href="/app/payouts">
             <Button variant="primary" size="md">
               Return to Registry
@@ -439,7 +439,7 @@ export default function PayoutCaseDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Header />
 
       <main
@@ -548,18 +548,18 @@ export default function PayoutCaseDetailPage() {
           description="Transfers funds from active PayPal Sandbox credentials using durable sender batch idempotency."
         >
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs font-mono">
               <div className="flex justify-between">
-                <span className="text-slate-400">Recipient Email:</span>
-                <span className="text-white font-semibold">{pCase.recipient_email}</span>
+                <span className="text-slate-500">Recipient Email:</span>
+                <span className="text-slate-900 font-semibold">{pCase.recipient_email}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Amount:</span>
-                <span className="text-emerald-400 font-bold">{formatCentsToUSD(latestOp.amount_cents)}</span>
+                <span className="text-slate-500">Amount:</span>
+                <span className="text-emerald-600 font-bold">{formatCentsToUSD(latestOp.amount_cents)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Sender Batch ID:</span>
-                <span className="text-blue-400">{latestOp.sender_batch_id}</span>
+                <span className="text-slate-500">Sender Batch ID:</span>
+                <span className="text-blue-600">{latestOp.sender_batch_id}</span>
               </div>
             </div>
 
@@ -567,7 +567,7 @@ export default function PayoutCaseDetailPage() {
               This request commits an explicit sender batch ID before making the REST call to PayPal. In the event of network disconnection, the payout can be recovered idempotently without double-spending.
             </Alert>
 
-            <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+            <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
               <Button variant="secondary" size="md" onClick={() => setConfirmSubmitModal(false)} disabled={actionLoading === "submit"}>
                 Cancel
               </Button>
@@ -595,11 +595,11 @@ export default function PayoutCaseDetailPage() {
           description="Safely revoke this prepared or unclaimed payout operation."
         >
           <div className="space-y-4">
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Are you sure you want to cancel operation <span className="font-mono text-blue-400">{latestOp.id}</span>? Once cancelled, this operation cannot be re-opened.
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to cancel operation <span className="font-mono text-blue-600">{latestOp.id}</span>? Once cancelled, this operation cannot be re-opened.
             </p>
 
-            <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+            <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
               <Button variant="secondary" size="md" onClick={() => setConfirmCancelModal(false)} disabled={actionLoading === "cancel"}>
                 Go Back
               </Button>

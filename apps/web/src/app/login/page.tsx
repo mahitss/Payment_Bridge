@@ -60,25 +60,25 @@ function LoginForm() {
   };
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-8 backdrop-blur-sm shadow-xl">
+    <div className="bg-white border border-slate-200/80 rounded-2xl p-8 shadow-sm">
       <form onSubmit={handleLogin} className="space-y-4">
         {error && (
           <div
             role="alert"
             aria-live="assertive"
-            className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start gap-2"
+            className="p-3.5 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2"
           >
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" aria-hidden="true" />
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" aria-hidden="true" />
             <div>
               <span>{error}</span>
               {isUnverified && (
-                <div className="mt-2 text-slate-300">
+                <div className="mt-2 text-slate-700">
                   <span>Haven&apos;t received your verification link? Check{" "}</span>
                   <a
                     href="http://localhost:8025"
                     target="_blank"
                     rel="noreferrer"
-                    className="text-blue-400 underline hover:text-blue-300"
+                    className="text-blue-600 underline hover:text-blue-700"
                   >
                     Mailpit (http://localhost:8025)
                   </a>
@@ -91,11 +91,11 @@ function LoginForm() {
 
         {/* Email */}
         <div>
-          <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="email">
+          <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="email">
             Email Address
           </label>
           <div className="relative">
-            <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" aria-hidden="true" />
+            <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" aria-hidden="true" />
             <input
               id="email"
               type="email"
@@ -105,7 +105,7 @@ function LoginForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
-              className="w-full pl-9 pr-3 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
+              className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
             />
           </div>
         </div>
@@ -113,18 +113,18 @@ function LoginForm() {
         {/* Password */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-medium text-slate-300" htmlFor="password">
+            <label className="text-xs font-medium text-slate-700" htmlFor="password">
               Password
             </label>
             <Link
               href="/forgot-password"
-              className="text-xs text-blue-400 hover:text-blue-300 transition focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
+              className="text-xs text-blue-600 hover:text-blue-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
             >
               Forgot password?
             </Link>
           </div>
           <div className="relative">
-            <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" aria-hidden="true" />
+            <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" aria-hidden="true" />
             <input
               id="password"
               type={showPassword ? "text" : "password"}
@@ -133,12 +133,12 @@ function LoginForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="w-full pl-9 pr-12 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
+              className="w-full pl-9 pr-12 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-2 top-2 p-1.5 min-w-[36px] min-h-[36px] text-slate-400 hover:text-slate-200 transition rounded focus-visible:ring-2 focus-visible:ring-blue-500 flex items-center justify-center"
+              className="absolute right-2 top-2 p-1.5 min-w-[36px] min-h-[36px] text-slate-400 hover:text-slate-600 transition rounded focus-visible:ring-2 focus-visible:ring-blue-500 flex items-center justify-center"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? (
@@ -154,7 +154,7 @@ function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full mt-2 min-h-[44px] py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-medium text-sm rounded-lg transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="w-full mt-2 min-h-[44px] py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white font-medium text-sm rounded-lg transition flex items-center justify-center gap-2 shadow-sm focus-visible:ring-2 focus-visible:ring-blue-500"
         >
           {loading ? (
             <>
@@ -170,10 +170,10 @@ function LoginForm() {
         </button>
       </form>
 
-      <div className="mt-6 pt-6 border-t border-slate-800/80 text-center">
-        <p className="text-xs text-slate-400">
+      <div className="mt-6 pt-6 border-t border-slate-100 text-center">
+        <p className="text-xs text-slate-500">
           Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-blue-400 hover:text-blue-300 font-medium">
+          <Link href="/register" className="text-blue-600 hover:text-blue-700 font-medium">
             Create an account
           </Link>
         </p>
@@ -184,18 +184,18 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         {/* Branding */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2 mb-3">
-            <span className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">
+            <span className="p-2 rounded-xl bg-blue-600/10 text-blue-600 border border-blue-200">
               <ShieldCheck className="w-6 h-6" />
             </span>
-            <span className="text-xl font-bold tracking-tight text-white">ClaimBridge</span>
+            <span className="text-xl font-bold tracking-tight text-slate-900">ClaimBridge</span>
           </Link>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Sign in to ClaimBridge</h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Sign in to ClaimBridge</h1>
+          <p className="text-xs text-slate-500 mt-1">
             Access secure claims adjudication and real-time payout telemetry
           </p>
         </div>

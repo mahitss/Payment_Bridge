@@ -59,25 +59,23 @@ export default function PayoutsListPage() {
   const fetchCases = useCallback(async () => {
     setLoadingCases(true);
     try {
-      const offset = page * pageSize;
-      const res = await fetch(
-        `/api/v1/payout-cases?limit=${pageSize}&offset=${offset}`,
-        {
-          method: "GET",
-          credentials: "include",
-        }
-      );
+      const res = await fetch(`/api/v1/payout-cases?limit=100&offset=0`, {
+        method: "GET",
+        credentials: "include",
+      });
+
       if (res.ok) {
         const data = await res.json();
-        setCases(data.cases || []);
-        setTotalCases(data.total || 0);
+        const rawCases: PayoutCase[] = data.cases || [];
+        setCases(rawCases);
+        setTotalCases(data.total_cases ?? rawCases.length);
       }
     } catch {
-      // Backend error fallback
+      // Fail safely
     } finally {
       setLoadingCases(false);
     }
-  }, [page, pageSize]);
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -85,42 +83,30 @@ export default function PayoutsListPage() {
     }
   }, [user, fetchCases]);
 
+  // Client-side filtering & search
   const filteredCases = useMemo(() => {
     return cases.filter((c) => {
-      const q = searchTerm.toLowerCase();
-      const matchesSearch =
-        !searchTerm ||
-        c.reference.toLowerCase().includes(q) ||
-        c.recipient_email.toLowerCase().includes(q) ||
-        c.recipient_name.toLowerCase().includes(q) ||
-        c.title.toLowerCase().includes(q);
+      // Status filter
+      if (statusFilter !== "ALL" && c.status !== statusFilter) {
+        return false;
+      }
 
-      const matchesStatus =
-        statusFilter === "ALL" || c.status === statusFilter;
-
-      return matchesSearch && matchesStatus;
+      // Keyword search
+      if (!searchTerm.trim()) return true;
+      const term = searchTerm.toLowerCase();
+      return (
+        c.reference?.toLowerCase().includes(term) ||
+        c.title?.toLowerCase().includes(term) ||
+        c.recipient_name?.toLowerCase().includes(term) ||
+        c.recipient_email?.toLowerCase().includes(term)
+      );
     });
-  }, [cases, searchTerm, statusFilter]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-mono">Loading cases...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
+  }, [cases, statusFilter, searchTerm]);
 
   const totalPages = Math.ceil(totalCases / pageSize);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Header />
 
       <main
@@ -131,13 +117,13 @@ export default function PayoutsListPage() {
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-blue-400">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-blue-600">
               <span>Settlement Registry</span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              Payout Cases & Investigation
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+              Payout Cases &amp; Investigation
             </h1>
-            <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+            <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
               Organization-scoped payout cases. Dual-custody is strictly enforced on operations exceeding $250.00 USD.
             </p>
           </div>
@@ -184,7 +170,7 @@ export default function PayoutsListPage() {
                   className={`min-h-[36px] px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                     active
                       ? "bg-blue-600 text-white shadow-sm"
-                      : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800"
+                      : "bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                   }`}
                 >
                   {tab.label}
@@ -194,8 +180,8 @@ export default function PayoutsListPage() {
           </div>
 
           {/* Search Box */}
-          <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-3">
-            <Search className="w-4 h-4 text-slate-500 shrink-0 ml-2" aria-hidden="true" />
+          <div className="p-3 rounded-xl bg-white border border-slate-200/80 shadow-sm flex items-center gap-3">
+            <Search className="w-4 h-4 text-slate-400 shrink-0 ml-2" aria-hidden="true" />
             <input
               type="text"
               id="payout-search"
@@ -203,13 +189,13 @@ export default function PayoutsListPage() {
               placeholder="Search by case reference, recipient email, name, or title..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full min-h-[40px] px-2 py-1.5 bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none"
+              className="w-full min-h-[40px] px-2 py-1.5 bg-transparent text-xs text-slate-900 placeholder-slate-400 focus:outline-none"
             />
             {searchTerm && (
               <button
                 type="button"
                 onClick={() => setSearchTerm("")}
-                className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800"
+                className="text-xs text-slate-600 hover:text-slate-900 px-2 py-1 rounded bg-slate-100"
               >
                 Clear
               </button>
@@ -218,15 +204,15 @@ export default function PayoutsListPage() {
         </div>
 
         {/* Registry Table Card */}
-        <section className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden shadow-sm">
+        <section className="rounded-xl bg-white border border-slate-200/80 overflow-hidden shadow-sm">
           {loadingCases ? (
             <div
-              className="py-20 flex flex-col items-center justify-center gap-3 text-slate-400 text-xs"
+              className="py-20 flex flex-col items-center justify-center gap-3 text-slate-500 text-xs"
               role="status"
               aria-live="polite"
             >
               <div
-                className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"
+                className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"
                 aria-hidden="true"
               />
               <span>Querying database records...</span>
@@ -237,12 +223,12 @@ export default function PayoutsListPage() {
               role="status"
               aria-live="polite"
             >
-              <div className="w-12 h-12 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-center justify-center mx-auto text-slate-500">
+              <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center mx-auto text-slate-400">
                 <CreditCard className="w-6 h-6" aria-hidden="true" />
               </div>
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-white">No matching payout cases</p>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                <p className="text-sm font-semibold text-slate-900">No matching payout cases</p>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
                   {cases.length === 0
                     ? "Get started by creating your first sandbox settlement payout case."
                     : "No payout cases match your current search and status filters."}
@@ -262,7 +248,7 @@ export default function PayoutsListPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-6">Case Reference</TableHead>
-                  <TableHead>Title & Recipient</TableHead>
+                  <TableHead>Title &amp; Recipient</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Dual-Custody Policy</TableHead>
                   <TableHead>Case Status</TableHead>
@@ -273,11 +259,11 @@ export default function PayoutsListPage() {
               <TableBody>
                 {filteredCases.map((c) => (
                   <TableRow key={c.id}>
-                    <TableCell className="pl-6 font-mono font-medium text-blue-400">
+                    <TableCell className="pl-6 font-mono font-medium text-blue-600">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <Link
                           href={`/app/payouts/${c.id}`}
-                          className="hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded"
+                          className="hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded font-semibold"
                         >
                           {c.reference}
                         </Link>
@@ -289,12 +275,12 @@ export default function PayoutsListPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="font-medium text-white">{c.title}</div>
-                      <div className="text-slate-400 text-[11px] font-mono">
+                      <div className="font-medium text-slate-900">{c.title}</div>
+                      <div className="text-slate-500 text-[11px] font-mono">
                         {c.recipient_name} &bull; {c.recipient_email}
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono font-semibold text-white">
+                    <TableCell className="font-mono font-semibold text-slate-900">
                       {formatCentsToUSD(c.amount_cents)}
                     </TableCell>
                     <TableCell>
@@ -326,7 +312,7 @@ export default function PayoutsListPage() {
                         {c.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-slate-400 text-[11px] whitespace-nowrap">
+                    <TableCell className="text-slate-500 text-[11px] whitespace-nowrap">
                       {formatDate(c.created_at)}
                     </TableCell>
                     <TableCell className="text-right pr-6">
@@ -337,8 +323,8 @@ export default function PayoutsListPage() {
                           </Button>
                         </Link>
                         <Link href={`/app/payouts/${c.id}/investigate`}>
-                          <Button variant="secondary" size="sm" className="gap-1 text-blue-300">
-                            <Sparkles className="w-3 h-3 text-blue-400" aria-hidden="true" />
+                          <Button variant="secondary" size="sm" className="gap-1 text-blue-600">
+                            <Sparkles className="w-3 h-3 text-blue-600" aria-hidden="true" />
                             <span>AI Triage</span>
                           </Button>
                         </Link>
@@ -352,7 +338,7 @@ export default function PayoutsListPage() {
 
           {/* Pagination Footer */}
           {totalCases > pageSize && (
-            <div className="p-4 border-t border-slate-800 bg-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+            <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500">
               <span>
                 Showing {page * pageSize + 1} -{" "}
                 {Math.min((page + 1) * pageSize, totalCases)} of {totalCases} cases
@@ -368,7 +354,7 @@ export default function PayoutsListPage() {
                   <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Previous</span>
                 </Button>
-                <span className="font-mono text-slate-300 px-2">
+                <span className="font-mono text-slate-700 px-2">
                   Page {page + 1} of {totalPages}
                 </span>
                 <Button

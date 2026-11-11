@@ -243,9 +243,9 @@ export default function PayoutInvestigationPage() {
 
   if (loading || loadingCase) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
           <span className="text-xs font-mono">Loading investigation workspace...</span>
         </div>
       </div>
@@ -258,10 +258,10 @@ export default function PayoutInvestigationPage() {
 
   if (!pCase) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
         <Header />
         <main className="flex-1 max-w-7xl w-full mx-auto p-6 text-center space-y-4">
-          <p className="text-slate-400 text-sm">Payout case not found.</p>
+          <p className="text-slate-500 text-sm">Payout case not found.</p>
           <Link href="/app/payouts">
             <Button variant="primary" size="md">
               Return to Registry
@@ -276,7 +276,7 @@ export default function PayoutInvestigationPage() {
   const inferenceDuration = formatInferenceDuration(selectedInvestigation?.raw_response);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Header />
 
       <main
@@ -288,13 +288,13 @@ export default function PayoutInvestigationPage() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link href={`/app/payouts/${pCase.id}`}>
-              <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 text-slate-400">
+              <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 text-slate-600 hover:text-slate-900">
                 <ArrowLeft className="w-4 h-4" aria-hidden="true" />
                 <span>Back to Case Detail</span>
               </Button>
             </Link>
-            <span className="text-slate-700">/</span>
-            <span className="text-xs font-mono text-blue-400 font-semibold">
+            <span className="text-slate-300">/</span>
+            <span className="text-xs font-mono text-blue-600 font-semibold">
               {pCase.reference}
             </span>
           </div>
@@ -341,22 +341,22 @@ export default function PayoutInvestigationPage() {
           <div className="lg:col-span-3 space-y-4">
             <Card>
               <CardHeader className="py-4 px-5">
-                <CardTitle className="text-xs uppercase tracking-wider text-slate-400">
+                <CardTitle className="text-xs uppercase tracking-wider text-slate-500">
                   Case Overview
                 </CardTitle>
               </CardHeader>
               <CardContent className="py-2 px-5 space-y-3 text-xs">
                 <div>
                   <span className="text-slate-500 block text-[11px]">Title</span>
-                  <span className="font-semibold text-white">{pCase.title}</span>
+                  <span className="font-semibold text-slate-900">{pCase.title}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block text-[11px]">Recipient</span>
-                  <span className="font-mono text-slate-200">{pCase.recipient_email}</span>
+                  <span className="font-mono text-slate-700">{pCase.recipient_email}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block text-[11px]">Settlement Amount</span>
-                  <span className="font-mono font-bold text-emerald-400">
+                  <span className="font-mono font-bold text-emerald-600">
                     {formatCentsToUSD(pCase.amount_cents)}
                   </span>
                 </div>
@@ -372,7 +372,7 @@ export default function PayoutInvestigationPage() {
             {/* Provider Operations Snapshots */}
             <Card>
               <CardHeader className="py-4 px-5">
-                <CardTitle className="text-xs uppercase tracking-wider text-slate-400">
+                <CardTitle className="text-xs uppercase tracking-wider text-slate-500">
                   Operations &amp; Snapshots
                 </CardTitle>
               </CardHeader>
@@ -383,23 +383,23 @@ export default function PayoutInvestigationPage() {
                   operations.map((op, idx) => (
                     <div
                       key={op.id}
-                      className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 space-y-1 font-mono text-[11px]"
+                      className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1 font-mono text-[11px]"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-blue-400 font-semibold">Op #{idx + 1}</span>
+                        <span className="text-blue-600 font-semibold">Op #{idx + 1}</span>
                         <Badge variant="neutral" size="sm">
                           {op.status}
                         </Badge>
                       </div>
-                      <div className="text-slate-400 truncate">
+                      <div className="text-slate-600 truncate">
                         Batch: {op.sender_batch_id}
                       </div>
                       {op.paypal_payout_batch_id && (
-                        <div className="text-slate-300 truncate">
+                        <div className="text-slate-800 truncate">
                           PayPal: {op.paypal_payout_batch_id}
                         </div>
                       )}
-                      <div className="text-[10px] text-slate-500 pt-1">
+                      <div className="text-[10px] text-slate-400 pt-1">
                         {formatDate(op.created_at)}
                       </div>
                     </div>
@@ -414,12 +414,12 @@ export default function PayoutInvestigationPage() {
             {!selectedInvestigation ? (
               <Card>
                 <CardContent className="py-16 text-center space-y-4">
-                  <div className="w-12 h-12 rounded-xl bg-blue-950/40 border border-blue-900/50 flex items-center justify-center mx-auto text-blue-400">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center mx-auto text-blue-600">
                     <Sparkles className="w-6 h-6" aria-hidden="true" />
                   </div>
                   <div className="space-y-1">
-                    <h3 className="text-base font-semibold text-white">No Forensic Triage Record</h3>
-                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    <h3 className="text-base font-semibold text-slate-900">No Forensic Triage Record</h3>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto">
                       Run an autonomous investigation to evaluate observed case facts, inspect provider telemetry, and detect settlement discrepancies.
                     </p>
                   </div>
@@ -439,11 +439,11 @@ export default function PayoutInvestigationPage() {
             ) : (
               <>
                 {/* Executive Summary Card */}
-                <Card className="border-blue-900/40 bg-gradient-to-b from-slate-900 to-slate-900/90">
+                <Card>
                   <CardHeader>
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
-                        <Brain className="w-4 h-4 text-blue-400" aria-hidden="true" />
+                        <Brain className="w-4 h-4 text-blue-600" aria-hidden="true" />
                         <CardTitle className="text-base">Executive Triage Summary</CardTitle>
                       </div>
 
@@ -471,7 +471,7 @@ export default function PayoutInvestigationPage() {
                         </Badge>
 
                         {inferenceDuration && (
-                          <span className="text-[11px] text-slate-400 font-mono">
+                          <span className="text-[11px] text-slate-500 font-mono">
                             {inferenceDuration}
                           </span>
                         )}
@@ -479,13 +479,13 @@ export default function PayoutInvestigationPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <p className="text-xs text-slate-200 leading-relaxed font-sans">
+                    <p className="text-xs text-slate-800 leading-relaxed font-sans">
                       {selectedInvestigation.summary}
                     </p>
 
                     {selectedInvestigation.requires_human_review && (
-                      <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-800/60 text-amber-300 text-xs flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                      <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
                         <span>Human Review Recommended by AI Evaluator.</span>
                       </div>
                     )}
@@ -496,7 +496,7 @@ export default function PayoutInvestigationPage() {
                 <Card>
                   <CardHeader>
                     <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-blue-400" aria-hidden="true" />
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden="true" />
                       <CardTitle className="text-sm">
                         Grounded Forensic Findings ({selectedInvestigation.findings.length})
                       </CardTitle>
@@ -504,14 +504,14 @@ export default function PayoutInvestigationPage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {selectedInvestigation.findings.length === 0 ? (
-                      <p className="text-xs text-slate-400">No specific discrepancies detected.</p>
+                      <p className="text-xs text-slate-500">No specific discrepancies detected.</p>
                     ) : (
                       selectedInvestigation.findings.map((f, i) => (
                         <div
                           key={i}
-                          className="p-3.5 rounded-lg bg-slate-950/60 border border-slate-800 space-y-2 text-xs"
+                          className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2 text-xs"
                         >
-                          <p className="text-slate-200 leading-relaxed">
+                          <p className="text-slate-800 leading-relaxed">
                             {f.explanation}
                           </p>
 
@@ -526,7 +526,7 @@ export default function PayoutInvestigationPage() {
                                   type="button"
                                   data-testid={`evidence-chip-${refId}`}
                                   onClick={(e) => inspectEvidence(refId, e)}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-blue-950/80 hover:bg-blue-900 text-blue-300 border border-blue-800/60 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
                                 >
                                   <span>{refId}</span>
                                   <ExternalLink className="w-2.5 h-2.5 opacity-60" aria-hidden="true" />
@@ -544,7 +544,7 @@ export default function PayoutInvestigationPage() {
                 <Card>
                   <CardHeader>
                     <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
                       <CardTitle className="text-sm">
                         Recommended Next Steps ({selectedInvestigation.recommended_next_steps.length})
                       </CardTitle>
@@ -552,18 +552,18 @@ export default function PayoutInvestigationPage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {selectedInvestigation.recommended_next_steps.length === 0 ? (
-                      <p className="text-xs text-slate-400">No further action necessary.</p>
+                      <p className="text-xs text-slate-500">No further action necessary.</p>
                     ) : (
                       selectedInvestigation.recommended_next_steps.map((step, i) => (
                         <div
                           key={i}
-                          className="p-3.5 rounded-lg bg-slate-950/60 border border-slate-800 flex items-start justify-between gap-3 text-xs"
+                          className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 flex items-start justify-between gap-3 text-xs"
                         >
                           <div className="space-y-1">
-                            <div className="font-semibold text-white">
+                            <div className="font-semibold text-slate-900">
                               {step.action.replace(/_/g, " ")}
                             </div>
-                            <p className="text-slate-400 text-[11px] leading-relaxed">
+                            <p className="text-slate-600 text-[11px] leading-relaxed">
                               {step.reason}
                             </p>
                           </div>
@@ -592,14 +592,14 @@ export default function PayoutInvestigationPage() {
                     {selectedInvestigation.risk_flags.length > 0 && (
                       <Card>
                         <CardHeader className="py-3 px-4">
-                          <CardTitle className="text-xs uppercase tracking-wider text-rose-400">
+                          <CardTitle className="text-xs uppercase tracking-wider text-rose-600">
                             Risk Flags Detected
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="py-2 px-4 space-y-1.5">
                           {selectedInvestigation.risk_flags.map((flag, i) => (
-                            <div key={i} className="text-xs text-rose-300 flex items-start gap-1.5">
-                              <span className="text-rose-500 font-bold">&bull;</span>
+                            <div key={i} className="text-xs text-rose-700 flex items-start gap-1.5">
+                              <span className="text-rose-600 font-bold">&bull;</span>
                               <span>{flag}</span>
                             </div>
                           ))}
@@ -610,14 +610,14 @@ export default function PayoutInvestigationPage() {
                     {selectedInvestigation.missing_information.length > 0 && (
                       <Card>
                         <CardHeader className="py-3 px-4">
-                          <CardTitle className="text-xs uppercase tracking-wider text-amber-400">
+                          <CardTitle className="text-xs uppercase tracking-wider text-amber-600">
                             Missing Information
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="py-2 px-4 space-y-1.5">
                           {selectedInvestigation.missing_information.map((item, i) => (
-                            <div key={i} className="text-xs text-amber-300 flex items-start gap-1.5">
-                              <span className="text-amber-500 font-bold">&bull;</span>
+                            <div key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
+                              <span className="text-amber-600 font-bold">&bull;</span>
                               <span>{item}</span>
                             </div>
                           ))}
@@ -633,32 +633,32 @@ export default function PayoutInvestigationPage() {
           {/* Right Panel: Policy Governance & History (3 cols) */}
           <div className="lg:col-span-3 space-y-4">
             {/* Deterministic Policy Supervention */}
-            <Card className="border-blue-900/40">
+            <Card>
               <CardHeader className="py-4 px-5">
                 <div className="flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-blue-400" aria-hidden="true" />
-                  <CardTitle className="text-xs uppercase tracking-wider text-slate-400">
+                  <Cpu className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                  <CardTitle className="text-xs uppercase tracking-wider text-slate-500">
                     Policy Engine Rules
                   </CardTitle>
                 </div>
               </CardHeader>
               <CardContent className="py-2 px-5 space-y-3 text-xs">
-                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Max Limit:</span>
-                    <span className="font-mono text-white">$500.00 USD</span>
+                    <span className="text-slate-500">Max Limit:</span>
+                    <span className="font-mono text-slate-900 font-semibold">$500.00 USD</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Dual Custody:</span>
-                    <span className="font-mono text-amber-400">&gt; $250.00 USD</span>
+                    <span className="text-slate-500">Dual Custody:</span>
+                    <span className="font-mono text-amber-600 font-semibold">&gt; $250.00 USD</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Risk Threshold:</span>
-                    <span className="font-mono text-amber-400">&gt; 20.0 Score</span>
+                    <span className="text-slate-500">Risk Threshold:</span>
+                    <span className="font-mono text-amber-600 font-semibold">&gt; 20.0 Score</span>
                   </div>
                 </div>
 
-                <p className="text-[11px] text-slate-400 leading-relaxed">
+                <p className="text-[11px] text-slate-500 leading-relaxed">
                   In case of disagreement between AI outputs and policy rules, server-side policies strictly supervene.
                 </p>
               </CardContent>
@@ -668,8 +668,8 @@ export default function PayoutInvestigationPage() {
             <Card>
               <CardHeader className="py-4 px-5">
                 <div className="flex items-center gap-2">
-                  <History className="w-4 h-4 text-blue-400" aria-hidden="true" />
-                  <CardTitle className="text-xs uppercase tracking-wider text-slate-400">
+                  <History className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                  <CardTitle className="text-xs uppercase tracking-wider text-slate-500">
                     Investigation History ({investigations.length})
                   </CardTitle>
                 </div>
@@ -687,17 +687,17 @@ export default function PayoutInvestigationPage() {
                         onClick={() => setSelectedInvestigation(inv)}
                         className={`w-full text-left p-3 rounded-lg border transition-colors ${
                           active
-                            ? "bg-blue-950/40 border-blue-800/80 text-white"
-                            : "bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                            ? "bg-blue-50 border-blue-200 text-blue-900 shadow-sm"
+                            : "bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                         }`}
                       >
                         <div className="flex items-center justify-between text-[11px] font-mono">
-                          <span className="font-semibold text-blue-400">
+                          <span className="font-semibold text-blue-600">
                             {inv.model}
                           </span>
                           <span>{inv.confidence}</span>
                         </div>
-                        <div className="text-[10px] text-slate-500 mt-1">
+                        <div className="text-[10px] text-slate-400 mt-1">
                           {formatDate(inv.created_at)}
                         </div>
                       </button>

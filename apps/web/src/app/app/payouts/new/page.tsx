@@ -63,45 +63,49 @@ export default function NewPayoutCasePage() {
   };
 
   const amountCents = parseAmountToCents(amountDollars);
-  const isCeilingExceeded = amountCents > 50000; // $500.00 USD
-  const isDualApprovalRequired = amountCents > 25000 || riskScore > 20.0; // > $250.00 USD or risk > 20.0
+
+  // Client preview of policy invariants
+  const isCeilingExceeded = amountCents > 50000;
+  const isDualApprovalRequired = amountCents > 25000 || riskScore > 20;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (amountCents <= 0) {
-      setErrorMsg("Amount must be greater than $0.00.");
-      return;
-    }
-    if (isCeilingExceeded) {
-      setErrorMsg("Amount exceeds the $500.00 USD maximum policy ceiling for this milestone.");
-      return;
-    }
+    // Frontend preflight validation
     if (!recipientEmail || !recipientEmail.includes("@")) {
-      setErrorMsg("A valid recipient email address is required.");
+      setErrorMsg("A valid recipient PayPal email address is required.");
       return;
     }
     if (!recipientName.trim()) {
-      setErrorMsg("Recipient name cannot be empty.");
+      setErrorMsg("Recipient full name is required.");
       return;
     }
     if (!title.trim()) {
-      setErrorMsg("Settlement title cannot be empty.");
+      setErrorMsg("A settlement title is required.");
+      return;
+    }
+    if (amountCents <= 0) {
+      setErrorMsg("Payout amount must be greater than $0.00.");
+      return;
+    }
+    if (isCeilingExceeded) {
+      setErrorMsg("Ceiling exceeded: Payouts above $500.00 USD are blocked fail-closed by policy.");
       return;
     }
 
     setSubmitting(true);
+
     try {
       const payload = {
         reference: reference.trim() || undefined,
-        recipient_email: recipientEmail.trim().toLowerCase(),
+        recipient_email: recipientEmail.trim(),
         recipient_name: recipientName.trim(),
         title: title.trim(),
         description: description.trim() || undefined,
-        currency: "USD",
         amount_cents: amountCents,
-        risk_score: parseFloat(riskScore.toString()),
+        currency: "USD",
+        risk_score: riskScore,
       };
 
       const res = await fetch("/api/v1/payout-cases", {
@@ -112,25 +116,26 @@ export default function NewPayoutCasePage() {
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        setErrorMsg(data.error || "Failed to create payout case");
-        setSubmitting(false);
-        return;
-      }
 
-      router.push(`/app/payouts/${data.case.id}`);
+      if (!res.ok) {
+        setErrorMsg(data.error || "Failed to create payout case record.");
+      } else {
+        // Redirect to case detail page
+        router.push(`/app/payouts/${data.case.id}`);
+      }
     } catch {
       setErrorMsg("Network error connecting to API gateway.");
+    } finally {
       setSubmitting(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-mono">Loading...</span>
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs font-mono">Verifying authorization...</span>
         </div>
       </div>
     );
@@ -141,7 +146,7 @@ export default function NewPayoutCasePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Header />
 
       <main
@@ -151,7 +156,7 @@ export default function NewPayoutCasePage() {
       >
         <div className="flex items-center gap-2">
           <Link href="/app/payouts">
-            <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 text-slate-400">
+            <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 text-slate-600 hover:text-slate-900">
               <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               <span>Back to Payout Registry</span>
             </Button>
@@ -159,10 +164,10 @@ export default function NewPayoutCasePage() {
         </div>
 
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
             Create Payout Settlement Case
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Establish a durable case record in PostgreSQL. Dual custody and fail-closed ceilings are validated server-side.
           </p>
         </div>
@@ -188,7 +193,7 @@ export default function NewPayoutCasePage() {
                   {/* Case Reference & Title */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label htmlFor="case-reference" className="text-xs font-medium text-slate-300">
+                      <label htmlFor="case-reference" className="text-xs font-medium text-slate-700">
                         Case Reference (Optional)
                       </label>
                       <input
@@ -197,7 +202,7 @@ export default function NewPayoutCasePage() {
                         placeholder="Auto-generated (e.g. CASE-1712...)"
                         value={reference}
                         onChange={(e) => setReference(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs sm:text-sm text-white placeholder-slate-500 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none font-mono transition"
+                        className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-200 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none font-mono transition"
                       />
                       <span className="text-[11px] text-slate-500 block">
                         Unique internal reference code
@@ -205,8 +210,8 @@ export default function NewPayoutCasePage() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label htmlFor="settlement-title" className="text-xs font-medium text-slate-300">
-                        Settlement Title <span className="text-rose-400" aria-label="required">*</span>
+                      <label htmlFor="settlement-title" className="text-xs font-medium text-slate-700">
+                        Settlement Title <span className="text-rose-500" aria-label="required">*</span>
                       </label>
                       <input
                         id="settlement-title"
@@ -215,7 +220,7 @@ export default function NewPayoutCasePage() {
                         placeholder="e.g. Policy #9924-A Claim Settlement"
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs sm:text-sm text-white placeholder-slate-500 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
+                        className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-200 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
                       />
                     </div>
                   </div>
@@ -223,8 +228,8 @@ export default function NewPayoutCasePage() {
                   {/* Recipient Details */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label htmlFor="recipient-email" className="text-xs font-medium text-slate-300">
-                        Recipient PayPal Email <span className="text-rose-400" aria-label="required">*</span>
+                      <label htmlFor="recipient-email" className="text-xs font-medium text-slate-700">
+                        Recipient PayPal Email <span className="text-rose-500" aria-label="required">*</span>
                       </label>
                       <input
                         id="recipient-email"
@@ -235,7 +240,7 @@ export default function NewPayoutCasePage() {
                         placeholder="sandbox-claimant@personal.example.com"
                         value={recipientEmail}
                         onChange={(e) => setRecipientEmail(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs sm:text-sm text-white placeholder-slate-500 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none font-mono transition"
+                        className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-200 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none font-mono transition"
                       />
                       <span className="text-[11px] text-slate-500 block">
                         Target sandbox account to receive funds
@@ -243,8 +248,8 @@ export default function NewPayoutCasePage() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label htmlFor="recipient-name" className="text-xs font-medium text-slate-300">
-                        Recipient Full Name <span className="text-rose-400" aria-label="required">*</span>
+                      <label htmlFor="recipient-name" className="text-xs font-medium text-slate-700">
+                        Recipient Full Name <span className="text-rose-500" aria-label="required">*</span>
                       </label>
                       <input
                         id="recipient-name"
@@ -254,7 +259,7 @@ export default function NewPayoutCasePage() {
                         placeholder="e.g. Sarah Connor"
                         value={recipientName}
                         onChange={(e) => setRecipientName(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs sm:text-sm text-white placeholder-slate-500 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
+                        className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-200 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
                       />
                     </div>
                   </div>
@@ -262,11 +267,11 @@ export default function NewPayoutCasePage() {
                   {/* Amount & Currency */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1.5 md:col-span-2">
-                      <label htmlFor="payout-amount" className="text-xs font-medium text-slate-300">
-                        Payout Amount (USD) <span className="text-rose-400" aria-label="required">*</span>
+                      <label htmlFor="payout-amount" className="text-xs font-medium text-slate-700">
+                        Payout Amount (USD) <span className="text-rose-500" aria-label="required">*</span>
                       </label>
                       <div className="relative">
-                        <span className="absolute left-3.5 top-2.5 text-xs font-mono text-slate-400" aria-hidden="true">
+                        <span className="absolute left-3.5 top-2.5 text-xs font-mono text-slate-500" aria-hidden="true">
                           $
                         </span>
                         <input
@@ -277,9 +282,9 @@ export default function NewPayoutCasePage() {
                           value={amountDollars}
                           onChange={(e) => setAmountDollars(e.target.value)}
                           placeholder="150.00"
-                          className="w-full pl-8 pr-28 py-2.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs sm:text-sm text-white font-mono focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
+                          className="w-full pl-8 pr-28 py-2.5 rounded-lg bg-white border border-slate-200 text-xs sm:text-sm text-slate-900 font-mono focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition"
                         />
-                        <span className="absolute right-3.5 top-2.5 text-[11px] font-mono text-slate-400" aria-hidden="true">
+                        <span className="absolute right-3.5 top-2.5 text-[11px] font-mono text-slate-500" aria-hidden="true">
                           {amountCents} cents
                         </span>
                       </div>
@@ -289,7 +294,7 @@ export default function NewPayoutCasePage() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label htmlFor="payout-currency" className="text-xs font-medium text-slate-300">
+                      <label htmlFor="payout-currency" className="text-xs font-medium text-slate-700">
                         Currency
                       </label>
                       <input
@@ -297,7 +302,7 @@ export default function NewPayoutCasePage() {
                         type="text"
                         disabled
                         value="USD (Sandbox)"
-                        className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-xs sm:text-sm text-slate-400 font-mono cursor-not-allowed"
+                        className="w-full px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-500 font-mono cursor-not-allowed"
                       />
                       <span className="text-[11px] text-slate-500 block">
                         Fixed to USD in current milestone
@@ -308,7 +313,7 @@ export default function NewPayoutCasePage() {
                   {/* Risk Score */}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label htmlFor="risk-score" className="text-xs font-medium text-slate-300">
+                      <label htmlFor="risk-score" className="text-xs font-medium text-slate-700">
                         Claim Risk Score (0 - 100)
                       </label>
                       <Badge variant={riskScore > 20 ? "warning" : "success"} size="sm">
@@ -327,7 +332,7 @@ export default function NewPayoutCasePage() {
                       aria-valuemax={100}
                       aria-valuenow={riskScore}
                       aria-valuetext={`Risk score ${riskScore} out of 100`}
-                      className="w-full accent-blue-500 cursor-pointer h-2 bg-slate-800 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500"
+                      className="w-full accent-blue-600 cursor-pointer h-2 bg-slate-200 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500"
                     />
                     <div className="flex justify-between text-[10px] text-slate-500 font-mono">
                       <span>0 (Low Risk)</span>
@@ -338,7 +343,7 @@ export default function NewPayoutCasePage() {
 
                   {/* Description */}
                   <div className="space-y-1.5">
-                    <label htmlFor="case-description" className="text-xs font-medium text-slate-300">
+                    <label htmlFor="case-description" className="text-xs font-medium text-slate-700">
                       Claim Description &amp; Internal Notes
                     </label>
                     <textarea
@@ -347,12 +352,12 @@ export default function NewPayoutCasePage() {
                       placeholder="Details of damage inspection, settlement agreement, or claim adjustor review..."
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs sm:text-sm text-white placeholder-slate-500 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition resize-none"
+                      className="w-full px-3.5 py-2.5 rounded-lg bg-white border border-slate-200 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition resize-none"
                     />
                   </div>
 
                   {/* Action buttons */}
-                  <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-800/80">
+                  <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100">
                     <Link href="/app/payouts">
                       <Button variant="secondary" size="md">
                         Cancel
@@ -376,11 +381,11 @@ export default function NewPayoutCasePage() {
 
           {/* Right Column: Live Policy Engine Simulator (5 cols) */}
           <div className="lg:col-span-5 space-y-4">
-            <Card className="border-blue-900/40 bg-gradient-to-b from-slate-900 to-slate-900/90">
+            <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Cpu className="w-4 h-4 text-blue-400" aria-hidden="true" />
+                    <Cpu className="w-4 h-4 text-blue-600" aria-hidden="true" />
                     <CardTitle className="text-sm">Policy Engine Live Evaluation</CardTitle>
                   </div>
                   <Badge
@@ -408,22 +413,22 @@ export default function NewPayoutCasePage() {
 
               <CardContent className="space-y-4 text-xs">
                 {/* Metric breakdown */}
-                <div className="p-3.5 rounded-lg bg-slate-950/80 border border-slate-800 space-y-2 font-mono">
+                <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2 font-mono">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Target Amount:</span>
-                    <span className="font-semibold text-white">
+                    <span className="text-slate-500">Target Amount:</span>
+                    <span className="font-semibold text-slate-900">
                       ${(amountCents / 100).toFixed(2)} USD
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Minor Units (Cents):</span>
-                    <span className="font-semibold text-blue-400">
+                    <span className="text-slate-500">Minor Units (Cents):</span>
+                    <span className="font-semibold text-blue-600">
                       {amountCents}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Risk Assessment:</span>
-                    <span className="font-semibold text-white">
+                    <span className="text-slate-500">Risk Assessment:</span>
+                    <span className="font-semibold text-slate-900">
                       {riskScore} / 100
                     </span>
                   </div>
@@ -431,22 +436,22 @@ export default function NewPayoutCasePage() {
 
                 {/* Status Callout */}
                 {isCeilingExceeded ? (
-                  <div className="p-3.5 rounded-lg bg-rose-950/50 border border-rose-800/80 text-rose-200 space-y-1">
+                  <div className="p-3.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 space-y-1">
                     <div className="flex items-center gap-2 font-semibold">
-                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" aria-hidden="true" />
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" aria-hidden="true" />
                       <span>Ceiling Exceeded ($500.00 Limit)</span>
                     </div>
-                    <p className="text-[11px] text-rose-300 leading-relaxed">
+                    <p className="text-[11px] text-rose-700 leading-relaxed">
                       Amount of ${(amountCents / 100).toFixed(2)} exceeds the maximum safety ceiling ($500.00 USD). This operation will be rejected fail-closed.
                     </p>
                   </div>
                 ) : isDualApprovalRequired ? (
-                  <div className="p-3.5 rounded-lg bg-amber-950/50 border border-amber-800/80 text-amber-200 space-y-1">
+                  <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 space-y-1">
                     <div className="flex items-center gap-2 font-semibold">
-                      <Lock className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                      <Lock className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
                       <span>Dual-Custody Mandated</span>
                     </div>
-                    <p className="text-[11px] text-amber-300 leading-relaxed">
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
                       {amountCents > 25000
                         ? "Amount exceeds $250.00 USD threshold. "
                         : "Risk score exceeds 20.0 threshold. "}
@@ -454,33 +459,33 @@ export default function NewPayoutCasePage() {
                     </p>
                   </div>
                 ) : (
-                  <div className="p-3.5 rounded-lg bg-emerald-950/50 border border-emerald-800/80 text-emerald-200 space-y-1">
+                  <div className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 space-y-1">
                     <div className="flex items-center gap-2 font-semibold">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" aria-hidden="true" />
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
                       <span>Single-Officer Fast Track</span>
                     </div>
-                    <p className="text-[11px] text-emerald-300 leading-relaxed">
+                    <p className="text-[11px] text-emerald-700 leading-relaxed">
                       Amount is within $250.00 USD and low risk. Immediate PayPal Sandbox submission is authorized upon initiation.
                     </p>
                   </div>
                 )}
 
                 {/* Governance Invariants */}
-                <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                     Enforced Governance Invariants
                   </div>
-                  <ul className="space-y-1.5 text-[11px] text-slate-400">
+                  <ul className="space-y-1.5 text-[11px] text-slate-600">
                     <li className="flex items-start gap-2">
-                      <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" aria-hidden="true" />
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" aria-hidden="true" />
                       <span>Integer cents persistence avoids floating-point roundoff</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" aria-hidden="true" />
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" aria-hidden="true" />
                       <span>Pre-flight idempotency token generated before provider call</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" aria-hidden="true" />
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" aria-hidden="true" />
                       <span>Cross-tenant boundary enforced at SQL &amp; session layers</span>
                     </li>
                   </ul>

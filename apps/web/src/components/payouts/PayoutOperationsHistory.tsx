@@ -40,13 +40,13 @@ export function PayoutOperationsHistory({
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <History className="w-4 h-4 text-blue-400" aria-hidden="true" />
+            <History className="w-4 h-4 text-blue-600" aria-hidden="true" />
             <CardTitle className="text-sm">Operations History</CardTitle>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="text-center py-8 text-xs text-slate-400 space-y-1">
-            <p className="font-semibold text-slate-300">No operations executed yet</p>
+          <div className="text-center py-8 text-xs text-slate-500 space-y-1">
+            <p className="font-semibold text-slate-900">No operations executed yet</p>
             <p>Initiate an operation to generate sender batch idempotency tokens.</p>
           </div>
         </CardContent>
@@ -59,10 +59,10 @@ export function PayoutOperationsHistory({
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <History className="w-4 h-4 text-blue-400" aria-hidden="true" />
+            <History className="w-4 h-4 text-blue-600" aria-hidden="true" />
             <CardTitle className="text-sm">Operations Audit Trail ({operations.length})</CardTitle>
           </div>
-          <span className="text-xs text-slate-400 font-mono">
+          <span className="text-xs text-slate-500 font-mono">
             PostgreSQL Durable Log
           </span>
         </div>
@@ -90,12 +90,10 @@ export function PayoutOperationsHistory({
               return (
                 <React.Fragment key={op.id}>
                   <TableRow>
-                    <TableCell className="pl-6 font-mono">
-                      <div className="text-white font-medium text-xs">
-                        {op.id.slice(0, 8)}...
-                      </div>
-                      <div className="text-[11px] text-blue-400 font-mono">
-                        {op.sender_batch_id}
+                    <TableCell className="pl-6 font-mono text-xs">
+                      <div className="font-semibold text-blue-600">{op.id.slice(0, 8)}...</div>
+                      <div className="text-slate-500 text-[11px] truncate max-w-[180px]">
+                        Batch: {op.sender_batch_id}
                       </div>
                     </TableCell>
 
@@ -106,11 +104,15 @@ export function PayoutOperationsHistory({
                             ? "success"
                             : op.status === "SUBMITTED"
                             ? "info"
+                            : op.status === "APPROVED"
+                            ? "success"
                             : op.status === "AWAITING_APPROVAL"
                             ? "warning"
-                            : op.status === "RECONCILIATION_REQUIRED" || op.status === "MANUAL_RECONCILIATION_REQUIRED"
+                            : op.status === "RECONCILIATION_REQUIRED"
                             ? "danger"
-                            : op.status === "FAILED" || op.status === "CANCELLED"
+                            : op.status === "CANCELLED"
+                            ? "danger"
+                            : op.status === "FAILED"
                             ? "danger"
                             : "neutral"
                         }
@@ -119,54 +121,53 @@ export function PayoutOperationsHistory({
                       >
                         {op.status}
                       </Badge>
-                      {op.error_message && (
-                        <div className="text-[10px] text-rose-400 mt-1 max-w-xs truncate" title={op.error_message}>
-                          {op.error_message}
-                        </div>
-                      )}
                     </TableCell>
 
                     <TableCell>
                       {op.requires_dual_approval ? (
-                        op.approved_by_user_id ? (
-                          <Badge variant="success" size="sm">
-                            Approved
-                          </Badge>
-                        ) : (
-                          <Badge variant="warning" size="sm">
-                            Pending Officer
-                          </Badge>
-                        )
+                        <div className="space-y-0.5">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium text-amber-700">
+                            <Lock className="w-3 h-3 text-amber-600" />
+                            <span>Mandatory</span>
+                          </span>
+                          {op.approved_by_user_id ? (
+                            <div className="text-[10px] text-emerald-700 font-mono">
+                              Signed: {op.approved_by_user_id.slice(0, 6)}...
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-amber-600 font-mono">
+                              Pending sign-off
+                            </div>
+                          )}
+                        </div>
                       ) : (
-                        <Badge variant="outline" size="sm">
-                          Single Approver
-                        </Badge>
+                        <span className="text-[11px] text-slate-400 font-mono">Single</span>
                       )}
                     </TableCell>
 
-                    <TableCell className="font-mono text-[11px]">
+                    <TableCell className="font-mono text-xs">
                       {op.paypal_payout_batch_id ? (
-                        <div>
-                          <div className="text-slate-200">
+                        <div className="space-y-0.5">
+                          <div className="text-slate-800">
                             Batch: {op.paypal_payout_batch_id}
                           </div>
                           {op.paypal_payout_item_id && (
-                            <div className="text-slate-400">
+                            <div className="text-slate-500">
                               Item: {op.paypal_payout_item_id}
                             </div>
                           )}
                           {op.paypal_item_status && (
-                            <span className="text-[10px] text-emerald-400 font-semibold uppercase">
+                            <span className="text-[10px] text-emerald-600 font-semibold uppercase">
                               [{op.paypal_item_status}]
                             </span>
                           )}
                         </div>
                       ) : (
-                        <span className="text-slate-500">—</span>
+                        <span className="text-slate-400">—</span>
                       )}
                     </TableCell>
 
-                    <TableCell className="text-slate-400 text-[11px] whitespace-nowrap">
+                    <TableCell className="text-slate-500 text-[11px] whitespace-nowrap">
                       {formatDate(op.created_at)}
                     </TableCell>
 
@@ -176,7 +177,7 @@ export function PayoutOperationsHistory({
                           variant="ghost"
                           size="sm"
                           onClick={() => setExpandedOpId(isExpanded ? null : op.id)}
-                          className="gap-1 text-slate-400 hover:text-white"
+                          className="gap-1 text-slate-600 hover:text-slate-900"
                         >
                           <FileText className="w-3.5 h-3.5" aria-hidden="true" />
                           <span>{isExpanded ? "Hide" : "Payload"}</span>
@@ -187,21 +188,21 @@ export function PayoutOperationsHistory({
                           )}
                         </Button>
                       ) : (
-                        <span className="text-[11px] text-slate-500 font-mono">—</span>
+                        <span className="text-[11px] text-slate-400 font-mono">—</span>
                       )}
                     </TableCell>
                   </TableRow>
 
                   {/* Expanded JSON Inspector row */}
                   {isExpanded && hasRawResponse && (
-                    <TableRow className="bg-slate-950/80 hover:bg-slate-950/80">
+                    <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
                       <TableCell colSpan={6} className="p-4 pl-6 pr-6">
-                        <div className="rounded-lg bg-slate-950 border border-slate-800 p-3 space-y-2">
+                        <div className="rounded-lg bg-slate-900 border border-slate-800 p-3 space-y-2 text-slate-100">
                           <div className="flex items-center justify-between text-xs text-slate-400 font-mono border-b border-slate-800 pb-2">
                             <span>Raw Provider JSON (Idempotent Response)</span>
                             <span>Operation: {op.id}</span>
                           </div>
-                          <pre className="text-[11px] font-mono text-emerald-400 overflow-x-auto p-2 bg-slate-900/60 rounded max-h-60">
+                          <pre className="text-[11px] font-mono text-emerald-400 overflow-x-auto p-2 bg-slate-950/80 rounded max-h-60">
                             {JSON.stringify(op.raw_provider_response, null, 2)}
                           </pre>
                         </div>
@@ -217,4 +218,3 @@ export function PayoutOperationsHistory({
     </Card>
   );
 }
-
