@@ -219,6 +219,11 @@ func (s *Service) ListPayoutCases(ctx context.Context, orgID string, limit, offs
 	return s.repo.ListPayoutCasesByOrg(ctx, orgID, limit, offset)
 }
 
+// GetPayoutCasesMetrics retrieves aggregated metrics for an organization's payout cases.
+func (s *Service) GetPayoutCasesMetrics(ctx context.Context, orgID string) (*db.PayoutCasesMetrics, error) {
+	return s.repo.GetPayoutCasesMetrics(ctx, orgID)
+}
+
 // generateSafeCorrelationID ensures generated identifiers obey provider length limits (e.g. PayPal's 63-character limit for sender_item_id).
 func generateSafeCorrelationID(prefix, reference, suffix string, maxLen int) string {
 	if maxLen <= 0 {

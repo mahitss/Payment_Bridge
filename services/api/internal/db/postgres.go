@@ -672,6 +672,42 @@ func (r *PostgresRepository) ListPayoutCasesByOrg(ctx context.Context, orgID str
 	return cases, total, nil
 }
 
+func (r *PostgresRepository) GetPayoutCasesMetrics(ctx context.Context, orgID string) (*PayoutCasesMetrics, error) {
+	queryCases := `
+		SELECT
+			COUNT(*) AS total_cases,
+			COUNT(*) FILTER (WHERE dual_approval_required = true AND status = 'DRAFT') AS pending_dual_approvals,
+			COUNT(*) FILTER (WHERE status = 'COMPLETED') AS completed_cases_count,
+			COALESCE(SUM(amount_cents) FILTER (WHERE status = 'COMPLETED'), 0) AS total_completed_cents,
+			COUNT(*) FILTER (WHERE status IN ('DRAFT', 'FAILED', 'RECONCILIATION_REQUIRED')) AS attention_needed_count
+		FROM payout_cases
+		WHERE organization_id = $1
+	`
+	var m PayoutCasesMetrics
+	err := r.pool.QueryRow(ctx, queryCases, orgID).Scan(
+		&m.TotalCases,
+		&m.PendingDualApprovals,
+		&m.CompletedCasesCount,
+		&m.TotalCompletedCents,
+		&m.AttentionNeededCount,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch payout cases metrics: %w", err)
+	}
+
+	queryOps := `
+		SELECT COUNT(*)
+		FROM payout_operations
+		WHERE organization_id = $1 AND status = 'RECONCILIATION_REQUIRED'
+	`
+	err = r.pool.QueryRow(ctx, queryOps, orgID).Scan(&m.ReconciliationRequired)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch reconciliation metrics: %w", err)
+	}
+
+	return &m, nil
+}
+
 func (r *PostgresRepository) UpdatePayoutCaseStatus(ctx context.Context, orgID, caseID, status string) error {
 	query := `
 		UPDATE payout_cases

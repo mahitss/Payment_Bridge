@@ -497,6 +497,36 @@ func (m *MockRepository) ListPayoutCasesByOrg(ctx context.Context, orgID string,
 	return matched[offset:end], total, nil
 }
 
+func (m *MockRepository) GetPayoutCasesMetrics(ctx context.Context, orgID string) (*PayoutCasesMetrics, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	metrics := &PayoutCasesMetrics{}
+	for _, c := range m.Cases {
+		if c.OrganizationID == orgID {
+			metrics.TotalCases++
+			if c.DualApprovalRequired && c.Status == "DRAFT" {
+				metrics.PendingDualApprovals++
+			}
+			if c.Status == "COMPLETED" {
+				metrics.CompletedCasesCount++
+				metrics.TotalCompletedCents += c.AmountCents
+			}
+			if c.Status == "DRAFT" || c.Status == "FAILED" || c.Status == "RECONCILIATION_REQUIRED" {
+				metrics.AttentionNeededCount++
+			}
+		}
+	}
+
+	for _, op := range m.Operations {
+		if op.OrganizationID == orgID && op.Status == "RECONCILIATION_REQUIRED" {
+			metrics.ReconciliationRequired++
+		}
+	}
+
+	return metrics, nil
+}
+
 func (m *MockRepository) UpdatePayoutCaseStatus(ctx context.Context, orgID, caseID, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

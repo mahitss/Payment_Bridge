@@ -257,6 +257,27 @@ export interface RecoverPayoutOperationResponse {
   message: string;
 }
 
+export interface PayoutCasesMetrics {
+  total_cases: number;
+  pending_dual_approvals: number;
+  completed_cases_count: number;
+  total_completed_cents: number;
+  attention_needed_count: number;
+  reconciliation_required: number;
+}
+
+export async function fetchPayoutCasesMetrics(): Promise<PayoutCasesMetrics> {
+  const res = await fetch("/api/v1/payout-cases/metrics", {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP error ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function recoverPayoutOperation(
   operationId: string,
   caseId?: string

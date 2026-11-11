@@ -353,3 +353,89 @@ func TestPayoutHandler_Submit_MissingScopeReturnsHTTP403(t *testing.T) {
 		t.Errorf("expected code PAYPAL_SCOPE_MISSING, got %v", res["code"])
 	}
 }
+
+func TestPayoutHandler_GetPayoutCasesMetrics(t *testing.T) {
+	_, repo, userA, _, org, mux := setupTestHandler(t)
+	ctx := context.Background()
+
+	// Initially zero metrics
+	req := authenticatedRequest(http.MethodGet, "/api/v1/payout-cases/metrics", nil, userA, org)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var m db.PayoutCasesMetrics
+	if err := json.NewDecoder(rec.Body).Decode(&m); err != nil {
+		t.Fatalf("failed to decode metrics: %v", err)
+	}
+
+	if m.TotalCases != 0 || m.PendingDualApprovals != 0 || m.CompletedCasesCount != 0 {
+		t.Errorf("expected all zeros for empty org, got %+v", m)
+	}
+
+	// Create a case requiring dual approval ($350)
+	case1 := &db.PayoutCase{
+		OrganizationID:       org.ID,
+		CreatedByUserID:      userA.ID,
+		Reference:            "REF-METRIC-1",
+		RecipientEmail:       "metric1@example.com",
+		AmountCents:          35000,
+		Currency:             "USD",
+		Status:               "DRAFT",
+		DualApprovalRequired: true,
+		CreatedAt:            time.Now(),
+		UpdatedAt:            time.Now(),
+	}
+	if err := repo.CreatePayoutCase(ctx, case1); err != nil {
+		t.Fatalf("failed to create case1: %v", err)
+	}
+
+	// Create a completed case ($100)
+	case2 := &db.PayoutCase{
+		OrganizationID:       org.ID,
+		CreatedByUserID:      userA.ID,
+		Reference:            "REF-METRIC-2",
+		RecipientEmail:       "metric2@example.com",
+		AmountCents:          10000,
+		Currency:             "USD",
+		Status:               "COMPLETED",
+		DualApprovalRequired: false,
+		CreatedAt:            time.Now(),
+		UpdatedAt:            time.Now(),
+	}
+	if err := repo.CreatePayoutCase(ctx, case2); err != nil {
+		t.Fatalf("failed to create case2: %v", err)
+	}
+
+	// Query metrics again
+	req = authenticatedRequest(http.MethodGet, "/api/v1/payout-cases/metrics", nil, userA, org)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got: %d", rec.Code)
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&m); err != nil {
+		t.Fatalf("failed to decode metrics: %v", err)
+	}
+
+	if m.TotalCases != 2 {
+		t.Errorf("expected TotalCases=2, got %d", m.TotalCases)
+	}
+	if m.PendingDualApprovals != 1 {
+		t.Errorf("expected PendingDualApprovals=1, got %d", m.PendingDualApprovals)
+	}
+	if m.CompletedCasesCount != 1 {
+		t.Errorf("expected CompletedCasesCount=1, got %d", m.CompletedCasesCount)
+	}
+	if m.TotalCompletedCents != 10000 {
+		t.Errorf("expected TotalCompletedCents=10000, got %d", m.TotalCompletedCents)
+	}
+	if m.AttentionNeededCount != 1 {
+		t.Errorf("expected AttentionNeededCount=1, got %d", m.AttentionNeededCount)
+	}
+}

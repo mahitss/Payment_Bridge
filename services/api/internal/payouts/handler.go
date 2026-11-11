@@ -40,6 +40,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Payout Cases
 	mux.HandleFunc("GET /api/v1/payout-cases", h.handleListPayoutCases)
+	mux.HandleFunc("GET /api/v1/payout-cases/metrics", h.handleGetPayoutCasesMetrics)
 	mux.HandleFunc("POST /api/v1/payout-cases", h.handleCreatePayoutCase)
 	mux.HandleFunc("GET /api/v1/payout-cases/{case_id}", h.handleGetPayoutCase)
 	mux.HandleFunc("POST /api/v1/payout-cases/{case_id}/sync", h.handleSyncPayoutCase)
@@ -136,6 +137,24 @@ func (h *Handler) handleListPayoutCases(w http.ResponseWriter, r *http.Request) 
 		"limit":  limit,
 		"offset": offset,
 	})
+}
+
+// GET /api/v1/payout-cases/metrics
+func (h *Handler) handleGetPayoutCasesMetrics(w http.ResponseWriter, r *http.Request) {
+	_, org, err := h.getAuth(r)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return
+	}
+
+	metrics, err := h.service.GetPayoutCasesMetrics(r.Context(), org.ID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "Failed to get payout cases metrics", slog.String("error", err.Error()))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get payout cases metrics"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, metrics)
 }
 
 // POST /api/v1/payout-cases
