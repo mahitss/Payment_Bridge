@@ -59,38 +59,38 @@ export default function RegisterPage() {
   };
 
   return (
-    <main id="main-content" tabIndex={-1} className="min-h-screen flex items-center justify-center px-4 py-12 outline-none">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center px-4 py-12 outline-none">
       <div className="w-full max-w-md">
         {/* Branding */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2 mb-3">
-            <span className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">
+            <span className="p-2 rounded-xl bg-blue-600/10 text-blue-600 border border-blue-200">
               <ShieldCheck className="w-6 h-6" />
             </span>
-            <span className="text-xl font-bold tracking-tight text-white">ClaimBridge</span>
+            <span className="text-xl font-bold tracking-tight text-slate-900">ClaimBridge</span>
           </Link>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Create your account</h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Create your account</h1>
+          <p className="text-xs text-slate-500 mt-1">
             Autonomous claim adjudication with deterministic safety policy
           </p>
         </div>
 
         {/* Card */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-8 backdrop-blur-sm shadow-xl">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-8 shadow-sm">
           {successMsg ? (
             <div className="text-center py-4" role="status" aria-live="polite">
-              <div className="inline-flex p-3 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mb-4">
+              <div className="inline-flex p-3 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 mb-4">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
-              <h2 className="text-lg font-semibold text-white mb-2">Check your inbox</h2>
-              <p className="text-xs text-slate-300 mb-4 leading-relaxed">{successMsg}</p>
-              <div className="p-3 rounded-lg bg-blue-950/40 border border-blue-800/40 text-xs text-blue-300 mb-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-2">Check your inbox</h2>
+              <p className="text-xs text-slate-600 mb-4 leading-relaxed">{successMsg}</p>
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-900 mb-6">
                 <strong>Local Development Note:</strong> Open Mailpit at{" "}
                 <a
                   href="http://localhost:8025"
                   target="_blank"
                   rel="noreferrer"
-                  className="underline hover:text-white font-mono"
+                  className="underline hover:text-blue-700 font-mono"
                 >
                   http://localhost:8025
                 </a>{" "}
@@ -98,7 +98,7 @@ export default function RegisterPage() {
               </div>
               <Link
                 href="/login"
-                className="inline-flex items-center justify-center w-full min-h-[44px] px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition"
+                className="inline-flex items-center justify-center w-full min-h-[44px] px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm transition"
               >
                 Proceed to Sign In
               </Link>
@@ -109,20 +109,20 @@ export default function RegisterPage() {
                 <div
                   role="alert"
                   aria-live="assertive"
-                  className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-start gap-2"
+                  className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2"
                 >
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" aria-hidden="true" />
                   <span>{error}</span>
                 </div>
               )}
 
               {/* Name */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="name">
+                <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="name">
                   Full Name
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" aria-hidden="true" />
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" aria-hidden="true" />
                   <input
                     id="name"
                     type="text"
@@ -131,18 +131,18 @@ export default function RegisterPage() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Alice Smith"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
                   />
                 </div>
               </div>
 
               {/* Email */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="email">
+                <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="email">
                   Work Email
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" aria-hidden="true" />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" aria-hidden="true" />
                   <input
                     id="email"
                     type="email"
@@ -152,18 +152,18 @@ export default function RegisterPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="alice@company.com"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
                   />
                 </div>
               </div>
 
               {/* Password */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="password">
+                <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="password">
                   Password (min. 8 characters)
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" aria-hidden="true" />
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" aria-hidden="true" />
                   <input
                     id="password"
                     type={showPassword ? "text" : "password"}
@@ -172,12 +172,12 @@ export default function RegisterPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••••••"
-                    className="w-full pl-9 pr-10 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full pl-9 pr-10 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2.5 top-2 p-1 text-slate-500 hover:text-slate-300 transition rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    className="absolute right-2.5 top-2 p-1 text-slate-400 hover:text-slate-600 transition rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
@@ -187,11 +187,11 @@ export default function RegisterPage() {
 
               {/* Confirm Password */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="confirmPassword">
+                <label className="block text-xs font-medium text-slate-700 mb-1.5" htmlFor="confirmPassword">
                   Confirm Password
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" aria-hidden="true" />
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" aria-hidden="true" />
                   <input
                     id="confirmPassword"
                     type={showPassword ? "text" : "password"}
@@ -200,7 +200,7 @@ export default function RegisterPage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••••••"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
                   />
                 </div>
               </div>
@@ -209,7 +209,7 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full mt-2 min-h-[44px] py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-medium text-sm rounded-lg transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+                className="w-full mt-2 min-h-[44px] py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white font-medium text-sm rounded-lg transition flex items-center justify-center gap-2 shadow-sm"
               >
                 {loading ? "Creating Account..." : "Create Account"}
                 {!loading && <ArrowRight className="w-4 h-4" aria-hidden="true" />}
@@ -217,10 +217,10 @@ export default function RegisterPage() {
             </form>
           )}
 
-          <div className="mt-6 pt-6 border-t border-slate-800/80 text-center">
-            <p className="text-xs text-slate-400">
+          <div className="mt-6 pt-6 border-t border-slate-100 text-center">
+            <p className="text-xs text-slate-500">
               Already have an account?{" "}
-              <Link href="/login" className="text-blue-400 hover:text-blue-300 font-medium inline-block py-1">
+              <Link href="/login" className="text-blue-600 hover:text-blue-700 font-medium inline-block py-1">
                 Sign in
               </Link>
             </p>

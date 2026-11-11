@@ -84,22 +84,22 @@ export function PayoutActionToolbar({
       latestOp.status === "RECOVERING");
 
   return (
-    <Card className="border-slate-800 bg-slate-900 shadow-sm">
+    <Card className="border-slate-200/80 bg-white shadow-sm">
       <CardHeader className="py-4 px-6">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-sm">Operations & Execution Control</CardTitle>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <CardTitle className="text-sm">Operations &amp; Execution Control</CardTitle>
+            <p className="text-xs text-slate-500 mt-0.5">
               Cryptographically verified states with dual-custody authorization and idempotency guarantees.
             </p>
           </div>
 
           {latestOp && (
             <div className="text-right">
-              <span className="text-[10px] text-slate-400 font-mono block">
+              <span className="text-[10px] text-slate-500 font-mono block">
                 Active Op ID:
               </span>
-              <span className="text-xs font-mono font-semibold text-slate-200">
+              <span className="text-xs font-mono font-semibold text-slate-900">
                 {latestOp.id.slice(0, 8)}...
               </span>
             </div>
@@ -109,21 +109,21 @@ export function PayoutActionToolbar({
 
       <CardContent className="py-4 px-6 space-y-4">
         {pCase.dual_approval_required && (
-          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-3">
-            <div className="flex items-center gap-2 text-amber-400 font-semibold text-xs uppercase tracking-wider">
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-3">
+            <div className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wider">
               <Lock className="w-4 h-4" />
               <span>Dual-Custody Governance Policy Enforced</span>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="text-xs text-slate-700 leading-relaxed">
               This payout exceeds $250.00 USD or high risk threshold and mandates multi-party approval under
               the deterministic policy engine. Separation of duties is enforced at database and engine level:
               initiator and approver must be distinct compliance officers.
               {isAwaitingApproval ? (
-                <span className="text-amber-300 font-semibold">
+                <span className="text-amber-800 font-semibold">
                   {" "}Awaiting approval from a distinct officer.
                 </span>
               ) : latestOp?.status === "APPROVED" ? (
-                <span className="text-emerald-400 font-semibold">
+                <span className="text-emerald-700 font-semibold">
                   {" "}Approved by officer {latestOp.approved_by_user_id}. Ready for sandbox submission.
                 </span>
               ) : null}
@@ -137,13 +137,13 @@ export function PayoutActionToolbar({
                   onClick={onRequestApprove}
                   disabled={isInitiator || isFixture || !!actionLoading}
                   loading={actionLoading === "approve"}
-                  className="bg-emerald-600 hover:bg-emerald-500"
+                  className="bg-emerald-600 hover:bg-emerald-700"
                 >
                   <Lock className="w-4 h-4" />
                   <span>Approve Operation (Distinct Officer)</span>
                 </Button>
                 {isInitiator && (
-                  <span className="text-[11px] text-amber-400 font-mono">
+                  <span className="text-[11px] text-amber-800 font-mono">
                     Self-approval blocked by policy
                   </span>
                 )}
@@ -185,7 +185,7 @@ export function PayoutActionToolbar({
               onClick={onRequestApprove}
               loading={actionLoading === "approve"}
               disabled={isFixture || !!actionLoading}
-              className="bg-amber-600 hover:bg-amber-500 shadow-amber-950/30"
+              className="bg-amber-600 hover:bg-amber-700"
             >
               <Lock className="w-4 h-4" aria-hidden="true" />
               <span>Approve Payout (Dual Custody)</span>
@@ -242,7 +242,7 @@ export function PayoutActionToolbar({
               loading={actionLoading === "cancel"}
               disabled={isFixture || !!actionLoading}
               title={isFixture ? "Disabled: Synthetic Demo Fixture" : undefined}
-              className="text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 border-rose-900/40"
+              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
             >
               <XCircle className="w-4 h-4" aria-hidden="true" />
               <span>Cancel Payout</span>
@@ -250,8 +250,8 @@ export function PayoutActionToolbar({
           )}
 
           {isTerminalCase && (
-            <div className="text-xs text-slate-400 flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-slate-500" aria-hidden="true" />
+            <div className="text-xs text-slate-500 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-slate-400" aria-hidden="true" />
               <span>Case is in terminal state ({pCase.status}). No further operations permitted.</span>
             </div>
           )}

@@ -35,24 +35,24 @@ export function DualCustodyModal({
       description="Financial compliance policy mandates independent secondary officer authorization."
     >
       <div className="space-y-4">
-        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs font-mono">
           <div className="flex justify-between">
-            <span className="text-slate-400">Operation ID:</span>
-            <span className="text-white font-semibold">{operation.id}</span>
+            <span className="text-slate-500">Operation ID:</span>
+            <span className="text-slate-900 font-semibold">{operation.id}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Sender Batch ID:</span>
-            <span className="text-blue-400 font-semibold">{operation.sender_batch_id}</span>
+            <span className="text-slate-500">Sender Batch ID:</span>
+            <span className="text-blue-600 font-semibold">{operation.sender_batch_id}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Settlement Amount:</span>
-            <span className="text-emerald-400 font-bold">
+            <span className="text-slate-500">Settlement Amount:</span>
+            <span className="text-emerald-600 font-bold">
               {formatCentsToUSD(operation.amount_cents)}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Initiated By User:</span>
-            <span className="text-slate-300">{operation.initiated_by_user_id}</span>
+            <span className="text-slate-500">Initiated By User:</span>
+            <span className="text-slate-700">{operation.initiated_by_user_id}</span>
           </div>
         </div>
 
@@ -66,7 +66,7 @@ export function DualCustodyModal({
           </Alert>
         )}
 
-        <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+        <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
           <Button variant="secondary" size="md" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
@@ -76,7 +76,7 @@ export function DualCustodyModal({
             onClick={onConfirmApprove}
             disabled={loading || isSelfApproval}
             loading={loading}
-            className="bg-amber-600 hover:bg-amber-500 shadow-amber-950/30"
+            className="bg-amber-600 hover:bg-amber-700"
           >
             <Lock className="w-4 h-4" aria-hidden="true" />
             <span>Confirm Approval</span>

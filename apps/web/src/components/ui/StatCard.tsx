@@ -23,16 +23,16 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "p-5 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between gap-3 shadow-sm hover:border-slate-700/80 transition-colors",
+        "p-5 rounded-xl bg-white border border-slate-200/80 flex flex-col justify-between gap-3 shadow-sm hover:border-slate-300 transition-colors",
         className
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-slate-400 tracking-wide uppercase">
+        <span className="text-xs font-semibold text-slate-500 tracking-wide uppercase">
           {label}
         </span>
         {icon && (
-          <div className="p-2 rounded-lg bg-slate-800/80 text-slate-300">
+          <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 text-slate-600">
             {icon}
           </div>
         )}
@@ -40,16 +40,16 @@ export function StatCard({
 
       <div className="space-y-1">
         {loading ? (
-          <div className="h-8 w-24 bg-slate-800 animate-pulse rounded" />
+          <div className="h-8 w-24 bg-slate-100 animate-pulse rounded" />
         ) : (
-          <div className="text-2xl font-bold font-mono tracking-tight text-white flex items-baseline gap-2">
+          <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 flex items-baseline gap-2">
             <span>{value}</span>
             {badge && <span>{badge}</span>}
           </div>
         )}
 
         {hint && (
-          <p className="text-xs text-slate-400 leading-normal line-clamp-1">
+          <p className="text-xs text-slate-500 leading-normal line-clamp-1">
             {hint}
           </p>
         )}
@@ -57,4 +57,3 @@ export function StatCard({
     </div>
   );
 }
-

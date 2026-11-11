@@ -70,7 +70,7 @@ export function Drawer({
       {/* Backdrop */}
       <div
         onClick={onClose}
-        className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity animate-in fade-in-0 duration-200"
+        className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm transition-opacity animate-in fade-in-0 duration-200"
         aria-hidden="true"
       />
 
@@ -80,22 +80,22 @@ export function Drawer({
           ref={drawerRef}
           data-testid={dataTestId}
           className={cn(
-            "w-screen bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col overscroll-contain animate-in slide-in-from-right duration-200",
+            "w-screen bg-white border-l border-slate-200 shadow-2xl flex flex-col overscroll-contain animate-in slide-in-from-right duration-200 text-slate-900",
             widthStyles[width],
             className
           )}
         >
           {/* Header */}
-          <div className="p-6 border-b border-slate-800 flex items-start justify-between bg-slate-900/80">
+          <div className="p-6 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
             <div className="space-y-1 pr-4">
               <h2
                 id={titleId}
-                className="text-base font-semibold text-white tracking-tight"
+                className="text-base font-semibold text-slate-900 tracking-tight"
               >
                 {title}
               </h2>
               {description && (
-                <p id={descId} className="text-xs text-slate-400 leading-relaxed">
+                <p id={descId} className="text-xs text-slate-500 leading-relaxed">
                   {description}
                 </p>
               )}
@@ -105,13 +105,13 @@ export function Drawer({
               onClick={onClose}
               data-testid={closeButtonTestId}
               aria-label="Close panel"
-              className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               <X className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
 
-          {/* Content */}
+          {/* Body */}
           <div className="p-6 overflow-y-auto overscroll-contain flex-1">
             {children}
           </div>

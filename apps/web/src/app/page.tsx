@@ -9,17 +9,18 @@ import {
   Cpu,
   CheckCircle2,
   Brain,
-  Terminal,
-  User,
   LogIn,
   UserPlus,
   ArrowRight,
-  Sparkles,
-  KeyRound,
-  FileText,
+  User,
   Activity,
   AlertTriangle,
   XCircle,
+  Search,
+  FileCheck,
+  UserCheck,
+  ChevronRight,
+  Scale,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
@@ -57,7 +58,6 @@ export default function Home() {
         const json = await sandboxRes.json().catch(() => null);
 
         if (sandboxRes.ok) {
-          // Strictly validate the response contract
           if (
             json &&
             json.status === "authenticated" &&
@@ -79,7 +79,6 @@ export default function Home() {
             });
           }
         } else {
-          // Non-200 responses
           const errStr = json?.error || "";
           if (errStr.includes("Credentials not set") || errStr.includes("missing")) {
             setProbeState({
@@ -125,294 +124,372 @@ export default function Home() {
   };
 
   return (
-    <main id="main-content" tabIndex={-1} className="max-w-6xl mx-auto px-6 py-10 space-y-10 outline-none">
-      {/* Header */}
-      <header className="border-b border-slate-800 pb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-2 flex-wrap">
-            <span className="p-2 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30">
-              <ShieldCheck className="w-6 h-6" aria-hidden="true" />
-            </span>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              ClaimBridge
-            </h1>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              PayPal AI Hackathon 2026 • Sandbox Prototype
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+      {/* Restrained Dark Navy Navigation Frame */}
+      <nav
+        aria-label="Public Header Navigation"
+        className="border-b border-slate-800 bg-slate-950 text-slate-100 sticky top-0 z-40 shadow-sm"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="flex items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg p-1"
+            >
+              <span className="p-1.5 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30">
+                <ShieldCheck className="w-5 h-5" aria-hidden="true" />
+              </span>
+              <span className="font-bold text-base text-white tracking-tight">ClaimBridge</span>
+            </Link>
+
+            <span className="hidden sm:inline-block h-4 w-px bg-slate-800" aria-hidden="true" />
+
+            <span className="inline-flex items-center text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              Sandbox Prototype
             </span>
           </div>
-          <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={checkGatewayHealth}
+              disabled={loading}
+              className="min-h-[38px] px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-blue-500"
+              aria-label="Probe Gateway Health"
+            >
+              <Server className="w-3.5 h-3.5 text-blue-400" aria-hidden="true" />
+              <span>{loading ? "Probing..." : "Probe Gateway"}</span>
+            </button>
+
+            {!authLoading && user ? (
+              <Link
+                href="/app"
+                className="min-h-[38px] px-4 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1.5 shadow-sm focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <User className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Enter Workspace</span>
+                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+              </Link>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/login"
+                  className="min-h-[38px] px-3.5 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                  <span>Sign In</span>
+                </Link>
+                <Link
+                  href="/register"
+                  className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1.5 shadow-sm focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <UserPlus className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Create Account</span>
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Operational Workspace */}
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-12 space-y-16 outline-none">
+        {/* Discreet Gateway Diagnostic Panel */}
+        {probeState && (
+          <div
+            className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm space-y-3 text-xs"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                <span className="font-semibold text-slate-900 uppercase tracking-wider text-[11px]">
+                  System Diagnostic Probe
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-slate-500 font-mono">{probeState.timestamp}</span>
+                <button
+                  onClick={() => setProbeState(null)}
+                  className="text-xs text-slate-500 hover:text-slate-800 transition"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+                <span className="text-slate-600 font-medium">API Gateway:</span>
+                {probeState.gateway === "online" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Online &amp; Reachable
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                    Offline
+                  </span>
+                )}
+              </div>
+
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+                <span className="text-slate-600 font-medium">PayPal Sandbox:</span>
+                {probeState.sandbox === "authenticated" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    OAuth Verified
+                  </span>
+                ) : probeState.sandbox === "blocked" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                    Unconfigured / Blocked
+                  </span>
+                ) : probeState.sandbox === "rejected" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                    Auth Rejected
+                  </span>
+                ) : probeState.sandbox === "unreachable" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                    Unreachable
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                    Provider Error / Unknown
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <p className="text-slate-700 text-xs leading-relaxed font-mono bg-slate-50 p-2.5 rounded border border-slate-200/80">
+              {probeState.message}
+            </p>
+          </div>
+        )}
+
+        {/* Hero Section */}
+        <section className="text-center max-w-3xl mx-auto space-y-6 pt-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium">
+            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Enterprise Financial Operations Platform</span>
+          </div>
+
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-slate-900 leading-[1.15]">
+            <span className="text-blue-600 block sm:inline">ClaimBridge:</span> Autonomous Payout Investigation &amp; Controlled Financial Resolution
+          </h1>
+
+          <p className="text-base sm:text-lg text-slate-600 leading-relaxed max-w-2xl mx-auto">
             ClaimBridge helps payout operators investigate unresolved payouts using provider status records, evidence-grounded AI explanations, and deterministic safety policy enforcement.
           </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            onClick={checkGatewayHealth}
-            disabled={loading}
-            className="min-h-[44px] px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-2"
-          >
-            <Server className="w-3.5 h-3.5 text-blue-400" aria-hidden="true" />
-            {loading ? "Probing..." : "Probe Gateway"}
-          </button>
-
-          {!authLoading && user ? (
-            <Link
-              href="/app"
-              className="min-h-[44px] px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
-            >
-              <User className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Enter Workspace</span>
-              <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
-            </Link>
-          ) : (
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            {!authLoading && user ? (
               <Link
-                href="/login"
-                className="min-h-[44px] px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5"
+                href="/app"
+                className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2 shadow-sm"
               >
-                <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Sign In</span>
+                <span>Enter Workspace</span>
+                <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </Link>
-              <Link
-                href="/register"
-                className="min-h-[44px] px-3.5 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
-              >
-                <UserPlus className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Register</span>
-              </Link>
-            </div>
-          )}
-        </div>
-      </header>
-
-      {probeState && (
-        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3 text-xs shadow-lg" role="status" aria-live="polite">
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-blue-400" aria-hidden="true" />
-              <span className="font-semibold text-white uppercase tracking-wider text-[11px]">System Diagnostic Probe</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-[10px] text-slate-500 font-mono">{probeState.timestamp}</span>
-              <button
-                onClick={() => setProbeState(null)}
-                className="text-xs text-slate-500 hover:text-slate-300 font-sans transition"
-              >
-                Dismiss
-              </button>
-            </div>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <span>Enter Workspace</span>
+                  <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                </Link>
+                <Link
+                  href="/register"
+                  className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-lg bg-white hover:bg-slate-50 text-slate-800 font-semibold text-sm border border-slate-200 shadow-sm transition flex items-center justify-center gap-2"
+                >
+                  <span>Create Account</span>
+                </Link>
+              </>
+            )}
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 flex items-center justify-between">
-              <span className="text-slate-400 font-medium">API Gateway:</span>
-              {probeState.gateway === "online" ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Online &amp; Reachable
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                  Offline
-                </span>
-              )}
-            </div>
-
-            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 flex items-center justify-between">
-              <span className="text-slate-400 font-medium">PayPal Sandbox:</span>
-              {probeState.sandbox === "authenticated" ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  OAuth Verified
-                </span>
-              ) : probeState.sandbox === "blocked" ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  Unconfigured / Blocked
-                </span>
-              ) : probeState.sandbox === "rejected" ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                  <XCircle className="w-3.5 h-3.5" />
-                  Auth Rejected
-                </span>
-              ) : probeState.sandbox === "unreachable" ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
-                  Unreachable
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                  Provider Error / Unknown
-                </span>
-              )}
-            </div>
-          </div>
-
-          <p className="text-slate-300 text-xs leading-relaxed font-mono bg-slate-950/50 p-2.5 rounded border border-slate-800/60">
-            {probeState.message}
-          </p>
-        </div>
-      )}
-
-      {/* Evaluator Quick-Start Credentials Banner (Demo Mode Only) */}
-      {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
-        <section className="p-5 rounded-xl bg-gradient-to-r from-blue-950/40 via-slate-900/60 to-purple-950/40 border border-blue-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-semibold text-blue-400">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>Local Evaluation Fixtures (Demo Mode Enabled)</span>
-            </div>
-            <p className="text-xs text-slate-300">
-              Pre-seeded accounts are local testing fixtures for evaluation purposes only. Normal registration and authentication remain fully active:
-            </p>
-            <div className="flex flex-wrap gap-4 text-xs font-mono text-slate-400 pt-1">
-              <span>Operator: <code className="text-blue-300">operator@claimbridge.internal</code> (Pass: <code className="text-slate-200">OperatorPass123!</code>)</span>
-              <span>Signer: <code className="text-purple-300">officer@claimbridge.internal</code> (Pass: <code className="text-slate-200">OfficerPass123!</code>)</span>
-            </div>
-          </div>
-
-          <Link
-            href="/login"
-            className="self-start md:self-center px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shrink-0 transition"
-          >
-            <span>Sign In to Demo Workspace</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
         </section>
-      )}
 
-      {/* 4 Architectural Pillars */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-        {/* Pillar 1: Go Orchestration Gateway */}
-        <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <Server className="w-4 h-4" />
+        {/* 5-Step Workflow Section */}
+        <section className="space-y-8">
+          <div className="text-center space-y-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+              Grounded End-to-End Investigation Workflow
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+              Every payout operation passes through five rigorous stages to eliminate ambiguity, enforce dual custody, and ensure provable compliance.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {/* Step 1 */}
+            <div className="p-5 rounded-xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold font-mono">
+                    01
+                  </span>
+                  <Search className="w-4 h-4 text-slate-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">Investigate Payouts</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Identify unresolved, unconfirmed, or disputed transfers across multi-tenant ledger partitions.
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 font-mono">
+                Lifecycle Tracking
+              </div>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              Go Gateway
-            </span>
-          </div>
-          <h2 className="text-sm font-bold text-white">Go API Orchestrator</h2>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            High-concurrency HTTP API with Argon2id auth, organization isolation, 1MB payload limits, and durable operation lifecycle.
-          </p>
-          <ul className="text-[11px] text-slate-300 space-y-1.5 border-t border-slate-800/80 pt-3">
-            <li className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Durable sender_batch_id locking</span>
-            </li>
-            <li className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Stream log secret sanitization</span>
-            </li>
-          </ul>
-        </div>
 
-        {/* Pillar 2: Deterministic Rust Policy Engine */}
-        <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              <Cpu className="w-4 h-4" />
+            {/* Step 2 */}
+            <div className="p-5 rounded-xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold font-mono">
+                    02
+                  </span>
+                  <FileCheck className="w-4 h-4 text-slate-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">Review Evidence</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Inspect raw PayPal status, item batches, timestamps, and immutable PostgreSQL audit trails.
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 font-mono">
+                Cryptographic Audit
+              </div>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              Rust Engine
-            </span>
-          </div>
-          <h2 className="text-sm font-bold text-white">Deterministic Safety Policy</h2>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Isolated Rust engine enforcing fail-closed invariant validation, $500 ceiling, and separation-of-duties dual-custody approval.
-          </p>
-          <ul className="text-[11px] text-slate-300 space-y-1.5 border-t border-slate-800/80 pt-3">
-            <li className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span>Mandatory dual-approval (&gt; $250.00)</span>
-            </li>
-            <li className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span>17/17 deterministic tests passed</span>
-            </li>
-          </ul>
-        </div>
 
-        {/* Pillar 3: AI Investigation Engine */}
-        <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
-              <Brain className="w-4 h-4" />
+            {/* Step 3 */}
+            <div className="p-5 rounded-xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold font-mono">
+                    03
+                  </span>
+                  <Brain className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">AI Recommendations</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Receive structured triage recommendations grounded strictly in verified provider evidence without hallucination.
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 font-mono">
+                Evidence-Grounded
+              </div>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
-              Grounded AI
-            </span>
-          </div>
-          <h2 className="text-sm font-bold text-white">AI Investigation Engine</h2>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Replaceable free-first model provider (local Ollama Llama 3.2) generating structured explanations with strict evidence grounding.
-          </p>
-          <ul className="text-[11px] text-slate-300 space-y-1.5 border-t border-slate-800/80 pt-3">
-            <li className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-              <span>Hallucinated evidence rejected (422)</span>
-            </li>
-            <li className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-              <span>6-action strict recommendation whitelist</span>
-            </li>
-          </ul>
-        </div>
 
-        {/* Pillar 4: PayPal Payouts REST Boundary */}
-        <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              <Lock className="w-4 h-4" />
+            {/* Step 4 */}
+            <div className="p-5 rounded-xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold font-mono">
+                    04
+                  </span>
+                  <Scale className="w-4 h-4 text-slate-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">Deterministic Policy</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Rust policy engine enforces fail-closed ceilings, dual-custody thresholds, and integer-cent precision.
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 font-mono">
+                Fail-Closed Rust
+              </div>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              PayPal REST
-            </span>
-          </div>
-          <h2 className="text-sm font-bold text-white">PayPal Sandbox Boundary</h2>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Direct server-side OAuth2 integration with token caching, live status synchronization, and UNCLAIMED payout cancellation.
-          </p>
-          <ul className="text-[11px] text-slate-300 space-y-1.5 border-t border-slate-800/80 pt-3">
-            <li className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-              <span>Zero browser secret exposure</span>
-            </li>
-            <li className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-              <span>Ambiguous timeout quarantine</span>
-            </li>
-          </ul>
-        </div>
-      </div>
 
-      {/* Operator Verification Commands */}
-      <section className="p-6 rounded-xl bg-slate-900/40 border border-slate-800 space-y-4">
-        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-          <Terminal className="w-4 h-4 text-blue-400" />
-          <span>Operator Verification & Diagnostic Commands</span>
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 font-mono text-[11px] space-y-1">
-            <span className="text-slate-500 block"># 32 Acceptance Scenarios</span>
-            <code className="text-emerald-400 block">go run ./cmd/acceptance</code>
+            {/* Step 5 */}
+            <div className="p-5 rounded-xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold font-mono">
+                    05
+                  </span>
+                  <UserCheck className="w-4 h-4 text-slate-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">Authorized Human Approval</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Require distinct compliance officer approval. Self-approval is strictly prohibited and blocked fail-closed.
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 font-mono">
+                Dual Custody Enforced
+              </div>
+            </div>
           </div>
-          <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 font-mono text-[11px] space-y-1">
-            <span className="text-slate-500 block"># Pre-Demo Readiness Probe</span>
-            <code className="text-blue-400 block">go run ./cmd/readiness</code>
+        </section>
+
+        {/* Financial Trust & Safeguards Section */}
+        <section className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm space-y-6">
+          <div className="max-w-2xl">
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+              Institutional Financial Safeguards
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
+              Engineered with strict zero-trust boundaries to protect capital and prevent unauthorized disbursements.
+            </p>
           </div>
-          <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 font-mono text-[11px] space-y-1">
-            <span className="text-slate-500 block"># Seed Demo Fixtures</span>
-            <code className="text-purple-400 block">go run ./cmd/seed</code>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
+                <span>Deterministic Safety</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Rust policy engine enforces a hard fail-closed $500 disbursement ceiling and verified risk thresholds with zero AI bypass.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
+                <span>Dual-Custody Approvals</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Transactions over $250.00 mandate independent officer authorization. Initiator self-approval is blocked fail-closed.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
+                <span>Preflight Idempotency</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Durable pre-generation and database-locking of sender_batch_id ensures ambiguous timeouts can never cause double disbursement.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
+                <span>Secret Isolation</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                OAuth2 credentials never cross the server boundary into browser bundles. PayPal production hosts are permanently rejected.
+              </p>
+            </div>
           </div>
-          <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 font-mono text-[11px] space-y-1">
-            <span className="text-slate-500 block"># Rust Policy Engine Tests</span>
-            <code className="text-amber-400 block">cargo test</code>
+        </section>
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-200 bg-white py-6 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-blue-600" aria-hidden="true" />
+            <span className="font-semibold text-slate-900">ClaimBridge</span>
+            <span>• Financial Operations Platform</span>
+          </div>
+          <div className="text-[11px] text-slate-400">
+            Evaluation Build • Strict Financial Controls Enforced
           </div>
         </div>
-      </section>
-    </main>
+      </footer>
+    </div>
   );
 }

@@ -32,22 +32,22 @@ export function RecoveryModal({
       description="Safely resolve indeterminate network outcomes without risk of duplicate payment."
     >
       <div className="space-y-4">
-        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs font-mono">
           <div className="flex justify-between">
-            <span className="text-slate-400">Operation ID:</span>
-            <span className="text-white font-semibold">{operation.id}</span>
+            <span className="text-slate-500">Operation ID:</span>
+            <span className="text-slate-900 font-semibold">{operation.id}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Durable Sender Batch ID:</span>
-            <span className="text-blue-400 font-semibold">{operation.sender_batch_id}</span>
+            <span className="text-slate-500">Durable Sender Batch ID:</span>
+            <span className="text-blue-600 font-semibold">{operation.sender_batch_id}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Quarantined Status:</span>
-            <span className="text-rose-400 font-bold">{operation.status}</span>
+            <span className="text-slate-500">Quarantined Status:</span>
+            <span className="text-rose-600 font-bold">{operation.status}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-400">Amount:</span>
-            <span className="text-emerald-400 font-bold">
+            <span className="text-slate-500">Amount:</span>
+            <span className="text-emerald-600 font-bold">
               {formatCentsToUSD(operation.amount_cents)}
             </span>
           </div>
@@ -57,7 +57,7 @@ export function RecoveryModal({
           ClaimBridge uses the exact sender batch ID committed to PostgreSQL before the original request. PayPal will either return the original accepted batch ID without re-executing payment, or safely accept the pending item if never received.
         </Alert>
 
-        <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+        <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
           <Button variant="secondary" size="md" onClick={onClose} disabled={loading}>
             Dismiss
           </Button>
@@ -77,4 +77,3 @@ export function RecoveryModal({
     </Modal>
   );
 }
-
