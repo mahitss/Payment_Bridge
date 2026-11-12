@@ -115,3 +115,4 @@ All test suites in `apps/web/e2e` were executed against the running Go API and N
 In accordance with modern web engineering standards, the following guidelines were applied across frontend implementations:
 - **Accessibility:** Applied explicit `:focus-visible` styling with `outline` and `outline-offset` ("When defining custom focus indicators, always style the `:focus-visible` state (not `:focus`) explicitly").
 - **Forms & Touch Targets:** Ensured touch targets meet 44px minimum and form inputs have explicit accessible labels ("size interactive elements to have a target of at least 24x24 CSS pixels" and recommended 44x44px for primary mobile actions).
+

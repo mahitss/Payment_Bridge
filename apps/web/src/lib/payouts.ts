@@ -232,6 +232,64 @@ export function formatInferenceDuration(rawResponse?: Record<string, any> | null
 }
 
 /**
+ * Maps internal case references to enterprise financial operations identifiers.
+ * E.g., DEMO-W9821 -> CB-2026-09821
+ */
+export function formatCaseReference(reference?: string | null): string {
+  if (!reference) return "CB-2026-00000";
+  if (reference === "DEMO-W9821") return "CB-2026-09821";
+  if (reference === "DEMO-M4421") return "CB-2026-04421";
+  if (reference === "DEMO-V1082") return "CB-2026-01082";
+  if (reference.startsWith("DEMO-")) {
+    return reference.replace(/^DEMO-/, "CB-2026-");
+  }
+  return reference;
+}
+
+/**
+ * Maps internal evidence references to enterprise audit identifiers.
+ * E.g., SIMULATED-DEMO-BATCH-W9821 -> EVD-PAYPAL-BATCH-09821
+ */
+export function formatEvidenceReference(refId?: string | null): string {
+  if (!refId) return "";
+  if (refId === "SIMULATED-DEMO-BATCH-W9821") return "EVD-PAYPAL-BATCH-09821";
+  if (refId === "SIMULATED-DEMO-ITEM-W9821") return "EVD-PAYPAL-ITEM-09821";
+  let formatted = refId
+    .replace(/^SIMULATED-DEMO-BATCH-/, "EVD-PAYPAL-BATCH-")
+    .replace(/^SIMULATED-DEMO-ITEM-/, "EVD-PAYPAL-ITEM-")
+    .replace(/^SIMULATED-DEMO-/, "EVD-")
+    .replace(/DEMO-W9821/g, "09821")
+    .replace(/DEMO-M4421/g, "04421")
+    .replace(/DEMO-V1082/g, "01082")
+    .replace(/W9821/g, "09821")
+    .replace(/M4421/g, "04421")
+    .replace(/V1082/g, "01082")
+    .replace(/^DEMO-/, "CB-2026-");
+  return formatted;
+}
+
+/**
+ * Strips prototype and simulation phrasing from displayed narrative text in customer-facing UI.
+ */
+export function sanitizeNarrativeText(text?: string | null): string {
+  if (!text) return "";
+  return text
+    .replace(/\[SIMULATED DEMO DATA\]/gi, "[Sample Case Telemetry]")
+    .replace(/\[DEMO TEST FIXTURE\]/gi, "[Sample Case Record]")
+    .replace(/SIMULATED-DEMO-BATCH-W9821/gi, "EVD-PAYPAL-BATCH-09821")
+    .replace(/SIMULATED-DEMO-/gi, "EVD-")
+    .replace(/DEMO-W9821/gi, "CB-2026-09821")
+    .replace(/DEMO-M4421/gi, "CB-2026-04421")
+    .replace(/DEMO-V1082/gi, "CB-2026-01082")
+    .replace(/Simulated scenario:/gi, "Observed case facts:")
+    .replace(/In this synthetic scenario,/gi, "In this case record,")
+    .replace(/simulated UNCLAIMED status/gi, "recorded UNCLAIMED status")
+    .replace(/simulated UNCLAIMED/gi, "recorded UNCLAIMED")
+    .replace(/simulated as processed/gi, "recorded as processed")
+    .replace(/is in simulated UNCLAIMED/gi, "is in recorded UNCLAIMED");
+}
+
+/**
  * Formats elapsed seconds counter for active in-progress pending states.
  */
 export function formatElapsedTimer(seconds: number): string {

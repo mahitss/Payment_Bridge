@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { ShieldCheck, Clock, FileText, AlertTriangle, Info, X } from "lucide-react";
-import { EvidenceResolution, formatDate } from "@/lib/payouts";
+import { EvidenceResolution, formatDate, formatEvidenceReference } from "@/lib/payouts";
 
 export interface EvidenceInspectorDrawerProps {
   isOpen: boolean;
@@ -163,7 +163,7 @@ export function EvidenceInspectorDrawer({
               data-testid="evidence-inspector-ref-id"
               className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200 font-mono"
             >
-              {activeEvidenceRef || evidence?.reference_id}
+              {formatEvidenceReference(activeEvidenceRef || evidence?.reference_id)}
             </span>
           </div>
 
@@ -262,11 +262,10 @@ export function EvidenceInspectorDrawer({
                   </span>
                   <span
                     data-testid="evidence-provenance"
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold border ${
-                      evidence.is_synthetic_fixture
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold border ${evidence.is_synthetic_fixture
                         ? "bg-amber-50 text-amber-800 border-amber-200"
                         : "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    }`}
+                      }`}
                   >
                     {evidence.is_synthetic_fixture
                       ? "Sample Record (Isolated Data)"
