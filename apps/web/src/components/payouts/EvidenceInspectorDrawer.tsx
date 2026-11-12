@@ -269,13 +269,13 @@ export function EvidenceInspectorDrawer({
                     }`}
                   >
                     {evidence.is_synthetic_fixture
-                      ? "Simulated Demo Fixture (Local Data)"
-                      : "Live Authorized Record"}
+                      ? "Sample Record (Isolated Data)"
+                      : "Authorized Live Record"}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500">
                   {evidence.is_synthetic_fixture
-                    ? "Guaranteed zero financial mutation: strictly isolated from live PayPal destinations."
+                    ? "Guaranteed zero financial mutation: strictly isolated from live PayPal accounts."
                     : "Verified record scoped to authenticated tenant organization."}
                 </p>
               </div>

@@ -164,7 +164,7 @@ async function run() {
     await caseHeading.waitFor({ state: 'visible', timeout: 8000 });
 
     // Assert provenance warning banner
-    const banner = page.locator('text=SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION');
+    const banner = page.locator('text=Sample Record (PayPal Sandbox Safeguard)');
     await banner.waitFor({ state: 'visible', timeout: 5000 });
 
     // Assert disabled external controls

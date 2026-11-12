@@ -486,7 +486,7 @@ export default function PayoutInvestigationPage() {
                     {selectedInvestigation.requires_human_review && (
                       <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
-                        <span>Human Review Recommended by AI Evaluator.</span>
+                        <span>Independent Human Review Required by Governance Policy.</span>
                       </div>
                     )}
                   </CardContent>

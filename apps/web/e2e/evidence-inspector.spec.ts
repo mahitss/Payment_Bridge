@@ -130,7 +130,7 @@ test.describe("Mission 026: Grounded Evidence Inspector", () => {
     // Check Provenance badge
     const provenanceBadge = page.locator('[data-testid="evidence-provenance"]');
     await expect(provenanceBadge).toBeVisible();
-    await expect(provenanceBadge).toHaveText("Simulated Demo Fixture (Local Data)");
+    await expect(provenanceBadge).toHaveText("Sample Record (Isolated Data)");
 
     // Check Grounding vs Fact distinction caveat
     const caveat = page.locator('[data-testid="evidence-grounding-caveat"]');

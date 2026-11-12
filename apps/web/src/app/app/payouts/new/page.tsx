@@ -407,7 +407,7 @@ export default function NewPayoutCasePage() {
                   </Badge>
                 </div>
                 <CardDescription>
-                  Pre-flight simulation matching server-side Rust and Go policy invariants.
+                  Deterministic pre-flight verification matching server-side financial controls.
                 </CardDescription>
               </CardHeader>
 

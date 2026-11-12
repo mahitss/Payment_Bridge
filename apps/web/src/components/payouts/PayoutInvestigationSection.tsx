@@ -81,13 +81,13 @@ export function PayoutInvestigationSection({
                 </Badge>
                 {pCase.is_synthetic_fixture && (
                   <Badge variant="warning" size="sm">
-                    Simulated Evaluation Fixture
+                    Sample Record
                   </Badge>
                 )}
               </div>
               <p className="text-xs text-slate-500">
                 {pCase.is_synthetic_fixture
-                  ? "Forensic root-cause analysis based on pre-seeded synthetic evaluation records (isolated from live provider networks)."
+                  ? "Forensic root-cause analysis based on pre-seeded sample records (isolated from live provider networks)."
                   : "Forensic root-cause analysis grounded in immutable case and provider records."}
               </p>
             </div>

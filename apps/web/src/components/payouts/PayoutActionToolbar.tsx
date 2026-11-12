@@ -153,8 +153,8 @@ export function PayoutActionToolbar({
         )}
 
         {isFixture && (
-          <Alert variant="warning" title="Synthetic Evaluation Fixture">
-            This case is a synthetic demo fixture. External API mutations to PayPal Sandbox are blocked server-side by fixture guard to protect real sandbox funds.
+          <Alert variant="warning" title="Sample Record Safeguard">
+            This case is an isolated sample record. External mutations to PayPal Sandbox are blocked by safeguard controls to maintain environment integrity.
           </Alert>
         )}
 
@@ -199,7 +199,7 @@ export function PayoutActionToolbar({
               onClick={onRequestSubmit}
               loading={actionLoading === "submit"}
               disabled={isFixture || !!actionLoading}
-              title={isFixture ? "Disabled: Synthetic Demo Fixture" : undefined}
+              title={isFixture ? "Disabled: Sample Record (External mutation disabled)" : undefined}
             >
               <Send className="w-4 h-4" aria-hidden="true" />
               <span>Submit to PayPal Sandbox</span>
@@ -213,7 +213,7 @@ export function PayoutActionToolbar({
               onClick={onSync}
               loading={actionLoading === "sync"}
               disabled={isFixture || !!actionLoading}
-              title={isFixture ? "Disabled: Synthetic Demo Fixture" : undefined}
+              title={isFixture ? "Disabled: Sample Record (External mutation disabled)" : undefined}
             >
               <RefreshCw className="w-4 h-4" aria-hidden="true" />
               <span>Sync with PayPal</span>
@@ -241,7 +241,7 @@ export function PayoutActionToolbar({
               onClick={onRequestCancel}
               loading={actionLoading === "cancel"}
               disabled={isFixture || !!actionLoading}
-              title={isFixture ? "Disabled: Synthetic Demo Fixture" : undefined}
+              title={isFixture ? "Disabled: Sample Record (External mutation disabled)" : undefined}
               className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
             >
               <XCircle className="w-4 h-4" aria-hidden="true" />

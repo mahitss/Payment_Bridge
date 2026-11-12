@@ -427,11 +427,11 @@ jobs:
           curl -fsSL http://127.0.0.1:3000/readyz | grep -q '"database":"connected"'
           curl -fsSL http://127.0.0.1:3000/readyz | grep -q '"status":"ready"'
 
-          echo "Verifying build-time NEXT_PUBLIC_DEMO_MODE compilation in HTML..."
+          echo "Verifying build-time landing page compilation in HTML..."
           landing_html=$(curl -fsSL http://127.0.0.1:3000/)
-          echo "$landing_html" | grep -q "Local Evaluation Fixtures (Demo Mode Enabled)"
-          echo "$landing_html" | grep -q "operator@claimbridge.internal"
-          echo "Evaluator banner successfully verified in containerized bundle."
+          echo "$landing_html" | grep -q "ClaimBridge"
+          echo "$landing_html" | grep -q "PayPal Sandbox Environment"
+          echo "Landing page successfully verified in containerized bundle."
 
       - name: Run Playwright E2E Suite Against Docker Compose Stack
         working-directory: apps/web
@@ -488,10 +488,10 @@ jobs:
             sleep 1
           done
 
-          echo "Verifying landing page and evaluator banner after restart..."
+          echo "Verifying landing page after restart..."
           for i in {1..30}; do
-            if curl -fsSL http://127.0.0.1:3000/ | grep -q "Local Evaluation Fixtures (Demo Mode Enabled)"; then
-              echo "Next.js web container restarted and serving evaluator demo banner."
+            if curl -fsSL http://127.0.0.1:3000/ | grep -q "PayPal Sandbox Environment"; then
+              echo "Next.js web container restarted and serving landing page."
               break
             fi
             sleep 1

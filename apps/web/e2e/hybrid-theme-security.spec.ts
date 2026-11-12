@@ -14,14 +14,11 @@ test.describe("ClaimBridge Hybrid Theme & Demo Credential Security", () => {
     expect(bodyText).not.toContain(DEMO_OPERATOR_PASSWORD);
     expect(bodyText).not.toContain(DEMO_OFFICER_PASSWORD);
 
-    // 2. If evaluator demo mode banner is active, assert passwords remain strictly absent
+    // 2. Assert evaluator demo mode banner and accounts are strictly absent from public landing page
     const demoBanner = page.locator("text=Local Evaluation Fixtures (Demo Mode Enabled)");
-    if (await demoBanner.isVisible()) {
-      await expect(page.locator("text=operator@claimbridge.internal")).toBeVisible();
-      await expect(page.locator("text=officer@claimbridge.internal")).toBeVisible();
-      await expect(page.locator(`text=${DEMO_OPERATOR_PASSWORD}`)).not.toBeVisible();
-      await expect(page.locator(`text=${DEMO_OFFICER_PASSWORD}`)).not.toBeVisible();
-    }
+    await expect(demoBanner).not.toBeVisible();
+    await expect(page.locator("text=operator@claimbridge.internal")).not.toBeVisible();
+    await expect(page.locator("text=officer@claimbridge.internal")).not.toBeVisible();
   });
 
   test("landing page presents approved hybrid theme hierarchy", async ({
@@ -39,11 +36,11 @@ test.describe("ClaimBridge Hybrid Theme & Demo Credential Security", () => {
     await expect(body).toHaveClass(/bg-slate-50/);
 
     // Workflow steps must be present
-    await expect(page.locator("text=Investigate Payouts")).toBeVisible();
-    await expect(page.locator("text=Review Evidence")).toBeVisible();
-    await expect(page.locator("text=AI Recommendations")).toBeVisible();
-    await expect(page.locator("text=Deterministic Policy")).toBeVisible();
-    await expect(page.locator("text=Authorized Human Approval")).toBeVisible();
+    await expect(page.locator("text=Investigate Payouts").first()).toBeVisible();
+    await expect(page.locator("text=Review Evidence").first()).toBeVisible();
+    await expect(page.locator("text=AI Recommendations").first()).toBeVisible();
+    await expect(page.locator("text=Deterministic Policy").first()).toBeVisible();
+    await expect(page.locator("text=Authorized Human Approval").first()).toBeVisible();
   });
 
   test("authenticated workspace maintains hybrid layout and white card surfaces", async ({
