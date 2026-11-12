@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -84,10 +85,26 @@ func (e *Engine) Evaluate(ctx context.Context, req EvaluationRequest) (*Evaluati
 		if err == nil {
 			return res, nil
 		}
-		// If binary fails, we fail-closed or fall back to native deterministic checks
+		slog.WarnContext(ctx, "Rust policy engine binary execution failed; falling back to deterministic Go evaluator",
+			slog.String("binary_path", e.binaryPath),
+			slog.String("error", err.Error()),
+		)
 	}
 
 	return e.evaluateDeterministically(req)
+}
+
+// AuthorityMode returns whether the engine is configured to execute the Rust binary or native Go evaluator.
+func (e *Engine) AuthorityMode() string {
+	if e.binaryPath != "" {
+		return "rust_binary"
+	}
+	return "go_deterministic_fallback"
+}
+
+// BinaryPath returns the configured path to the Rust policy binary.
+func (e *Engine) BinaryPath() string {
+	return e.binaryPath
 }
 
 func (e *Engine) evaluateViaBinary(ctx context.Context, req EvaluationRequest) (*EvaluationResponse, error) {
