@@ -7,7 +7,6 @@ import {
   Sparkles,
   ArrowLeft,
   RefreshCw,
-  Cpu,
   ShieldCheck,
   Bot,
   Brain,
@@ -20,6 +19,8 @@ import {
   ExternalLink,
   ChevronDown,
   Info,
+  Building2,
+  ArrowRight,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import Header from "@/components/Header";
@@ -55,7 +56,6 @@ export default function PayoutInvestigationPage() {
   const [operations, setOperations] = useState<PayoutOperation[]>([]);
   const [loadingCase, setLoadingCase] = useState<boolean>(true);
 
-  // Investigation state
   const [investigations, setInvestigations] = useState<PayoutInvestigation[]>([]);
   const [selectedInvestigation, setSelectedInvestigation] = useState<PayoutInvestigation | null>(null);
   const [investigating, setInvestigating] = useState<boolean>(false);
@@ -64,13 +64,14 @@ export default function PayoutInvestigationPage() {
   const [investigationError, setInvestigationError] = useState<string | null>(null);
   const [investigationSuccess, setInvestigationSuccess] = useState<string | null>(null);
 
-  // Evidence Inspector Drawer
   const [activeEvidenceRef, setActiveEvidenceRef] = useState<string | null>(null);
   const [selectedEvidence, setSelectedEvidence] = useState<EvidenceResolution | null>(null);
   const [evidenceLoading, setEvidenceLoading] = useState<boolean>(false);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [isEvidenceInspectorOpen, setIsEvidenceInspectorOpen] = useState<boolean>(false);
   const lastTriggerElementRef = useRef<HTMLElement | null>(null);
+
+  const [technicalDetailsOpen, setTechnicalDetailsOpen] = useState<boolean>(false);
 
   useEffect(() => {
     return () => {
@@ -235,7 +236,6 @@ export default function PayoutInvestigationPage() {
 
   const handleCloseEvidenceInspector = () => {
     setIsEvidenceInspectorOpen(false);
-    // Restore focus to triggering chip
     setTimeout(() => {
       lastTriggerElementRef.current?.focus();
     }, 50);
@@ -246,7 +246,7 @@ export default function PayoutInvestigationPage() {
       <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-mono">Loading investigation workspace...</span>
+          <span className="text-sm text-slate-500">Loading investigation workspace...</span>
         </div>
       </div>
     );
@@ -272,8 +272,10 @@ export default function PayoutInvestigationPage() {
     );
   }
 
+  const latestOp = operations.length > 0 ? operations[operations.length - 1] : null;
   const transportInfo = getInvestigationTransportInfo(selectedInvestigation);
   const inferenceDuration = formatInferenceDuration(selectedInvestigation?.raw_response);
+  const highRisk = (pCase.risk_score || 0) > 20;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
@@ -284,44 +286,71 @@ export default function PayoutInvestigationPage() {
         tabIndex={-1}
         className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6 outline-none"
       >
-        {/* Workspace Top Navigation */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Link href={`/app/payouts/${pCase.id}`}>
-              <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 text-slate-600 hover:text-slate-900">
-                <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-                <span>Back to Case Detail</span>
-              </Button>
-            </Link>
+        {/* Page header with breadcrumb and status */}
+        <div className="flex flex-col gap-4">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-slate-500">
+            <Link href="/app" className="hover:text-slate-900">Workspace</Link>
             <span className="text-slate-300">/</span>
-            <span className="text-xs font-mono text-blue-600 font-semibold">
-              {pCase.reference}
-            </span>
-          </div>
+            <Link href="/app/payouts" className="hover:text-slate-900">Payouts</Link>
+            <span className="text-slate-300">/</span>
+            <span className="font-mono text-blue-600 font-semibold">{pCase.reference}</span>
+          </nav>
 
-          <div className="flex items-center gap-3">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => handleRunInvestigation(false)}
-              disabled={investigating}
-              loading={investigating}
-              className="gap-2"
-            >
-              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Investigation Workspace</h1>
+                <Badge variant={pCase.status === "COMPLETED" ? "success" : "neutral"} size="sm" dot>
+                  {pCase.status}
+                </Badge>
+                {highRisk && (
+                  <Badge variant="danger" size="sm" dot>
+                    High Risk
+                  </Badge>
+                )}
+                {selectedInvestigation && (
+                  <Badge
+                    variant={
+                      selectedInvestigation.confidence === "HIGH"
+                        ? "success"
+                        : selectedInvestigation.confidence === "MEDIUM"
+                        ? "warning"
+                        : "danger"
+                    }
+                    size="sm"
+                  >
+                    AI Confidence: {selectedInvestigation.confidence}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-slate-500">
+                Forensic review, provider evidence, and deterministic policy assessment for this payout case.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <Link href={`/app/payouts/${pCase.id}`}>
+                <Button variant="secondary" size="sm" className="gap-1.5">
+                  <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+                  Case Detail
+                </Button>
+              </Link>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => handleRunInvestigation(false)}
+                disabled={investigating}
+                loading={investigating}
+                className="gap-2"
+              >
+                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
                 {investigating
                   ? `Analyzing... (${formatElapsedTimer(investigationElapsedSeconds)})`
                   : "Run Forensic AI Triage"}
-              </span>
-            </Button>
+              </Button>
+            </div>
           </div>
         </div>
-
-        {/* Advisory Supervention Banner */}
-        <Alert variant="info" title="Advisory Supervention Architecture">
-          Forensic AI recommendations are strictly advisory and run on local inference with anti-hallucination grounding. Deterministic Rust policies permanently supervene on all execution gates.
-        </Alert>
 
         {investigationError && (
           <Alert variant="danger" title="Investigation Notice" onDismiss={() => setInvestigationError(null)}>
@@ -335,382 +364,353 @@ export default function PayoutInvestigationPage() {
           </Alert>
         )}
 
-        {/* 3-Panel Workspace Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Panel: Case Context & Snapshots Timeline (3 cols) */}
-          <div className="lg:col-span-3 space-y-4">
-            <Card>
-              <CardHeader className="py-4 px-5">
-                <CardTitle className="text-xs uppercase tracking-wider text-slate-500">
-                  Case Overview
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="py-2 px-5 space-y-3 text-xs">
-                <div>
-                  <span className="text-slate-500 block text-[11px]">Title</span>
-                  <span className="font-semibold text-slate-900">{pCase.title}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[11px]">Recipient</span>
-                  <span className="font-mono text-slate-700">{pCase.recipient_email}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[11px]">Settlement Amount</span>
-                  <span className="font-mono font-bold text-emerald-600">
-                    {formatCentsToUSD(pCase.amount_cents)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 block text-[11px]">Case Status</span>
-                  <Badge variant="neutral" size="sm">
-                    {pCase.status}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
+        {/* Advisory note */}
+        <Alert variant="info" title="Advisory Supervision">
+          AI recommendations are advisory only. Deterministic financial policy and independent human approval always govern execution.
+        </Alert>
 
-            {/* Provider Operations Snapshots */}
-            <Card>
-              <CardHeader className="py-4 px-5">
-                <CardTitle className="text-xs uppercase tracking-wider text-slate-500">
-                  Operations &amp; Snapshots
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="py-2 px-5 space-y-3 text-xs">
-                {operations.length === 0 ? (
-                  <p className="text-slate-500 text-[11px]">No operations recorded.</p>
-                ) : (
-                  operations.map((op, idx) => (
-                    <div
-                      key={op.id}
-                      className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1 font-mono text-[11px]"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-blue-600 font-semibold">Op #{idx + 1}</span>
-                        <Badge variant="neutral" size="sm">
-                          {op.status}
-                        </Badge>
-                      </div>
-                      <div className="text-slate-600 truncate">
-                        Batch: {op.sender_batch_id}
-                      </div>
-                      {op.paypal_payout_batch_id && (
-                        <div className="text-slate-800 truncate">
-                          PayPal: {op.paypal_payout_batch_id}
-                        </div>
-                      )}
-                      <div className="text-[10px] text-slate-400 pt-1">
-                        {formatDate(op.created_at)}
-                      </div>
+        {/* Section A: Investigation summary */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">A. Investigation Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="block text-xs text-slate-500">Case Reference</span>
+                <span className="font-mono font-semibold text-slate-900">{pCase.reference}</span>
+              </div>
+              <div>
+                <span className="block text-xs text-slate-500">Payout Amount</span>
+                <span className="font-mono font-bold text-emerald-600">{formatCentsToUSD(pCase.amount_cents)}</span>
+                <span className="ml-1 text-xs text-slate-500">{pCase.currency}</span>
+              </div>
+              <div>
+                <span className="block text-xs text-slate-500">Current Provider Status</span>
+                <span className="font-medium text-slate-900">{latestOp?.paypal_item_status || latestOp?.status || "Not submitted"}</span>
+              </div>
+              <div>
+                <span className="block text-xs text-slate-500">Investigation Status</span>
+                <span className="font-medium text-slate-900">{selectedInvestigation?.status || "No investigation run"}</span>
+              </div>
+              <div>
+                <span className="block text-xs text-slate-500">Case Status</span>
+                <Badge variant="neutral" size="sm">{pCase.status}</Badge>
+              </div>
+              <div>
+                <span className="block text-xs text-slate-500">Risk Score</span>
+                <span className="font-mono text-slate-900">{pCase.risk_score}</span>
+              </div>
+              <div>
+                <span className="block text-xs text-slate-500">Dual Approval Required</span>
+                <span className="text-slate-900">{pCase.dual_approval_required ? "Yes" : "No"}</span>
+              </div>
+              <div>
+                <span className="block text-xs text-slate-500">Last Updated</span>
+                <span className="text-slate-900">{formatDate(pCase.updated_at)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section B: Provider evidence */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+              <CardTitle className="text-base">B. Provider Evidence</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {operations.length === 0 ? (
+              <p className="text-sm text-slate-500">No provider operations recorded for this case.</p>
+            ) : (
+              operations.map((op, idx) => (
+                <div key={op.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-sm font-semibold text-slate-900">Operation {idx + 1}</span>
+                    <Badge variant="neutral" size="sm">{op.status}</Badge>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="block text-xs text-slate-500">Verified Provider Status</span>
+                      <span className="text-slate-900">{op.paypal_item_status || op.paypal_batch_status || "Pending"}</span>
                     </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                    <div>
+                      <span className="block text-xs text-slate-500">Batch Correlation</span>
+                      <span className="font-mono text-xs text-slate-900 break-all">{op.sender_batch_id}</span>
+                    </div>
+                    <div>
+                      <span className="block text-xs text-slate-500">Evidence Reference</span>
+                      <span className="font-mono text-xs text-blue-700">{op.id}</span>
+                    </div>
+                    <div>
+                      <span className="block text-xs text-slate-500">Recorded At</span>
+                      <span className="text-slate-900">{formatDate(op.created_at)}</span>
+                    </div>
+                  </div>
 
-          {/* Center Panel: Forensic AI Analysis (6 cols) */}
-          <div className="lg:col-span-6 space-y-4">
-            {!selectedInvestigation ? (
-              <Card>
-                <CardContent className="py-16 text-center space-y-4">
-                  <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center mx-auto text-blue-600">
-                    <Sparkles className="w-6 h-6" aria-hidden="true" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="text-base font-semibold text-slate-900">No Forensic Triage Record</h3>
-                    <p className="text-xs text-slate-500 max-w-md mx-auto">
-                      Run an autonomous investigation to evaluate observed case facts, inspect provider telemetry, and detect settlement discrepancies.
-                    </p>
-                  </div>
-                  <Button
-                    variant="primary"
-                    size="md"
-                    onClick={() => handleRunInvestigation(false)}
-                    disabled={investigating}
-                    loading={investigating}
-                    className="gap-2"
+                  <button
+                    type="button"
+                    onClick={() => setTechnicalDetailsOpen((v) => !v)}
+                    className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
                   >
-                    <Sparkles className="w-4 h-4" aria-hidden="true" />
-                    <span>Run First Investigation</span>
-                  </Button>
-                </CardContent>
-              </Card>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${technicalDetailsOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+                    Technical provider identifiers
+                  </button>
+                  {technicalDetailsOpen && (
+                    <div className="rounded-md bg-white border border-slate-200 p-3 space-y-1 text-xs font-mono text-slate-700">
+                      <div className="break-all">sender_batch_id: {op.sender_batch_id}</div>
+                      <div className="break-all">sender_item_id: {op.sender_item_id}</div>
+                      {op.paypal_payout_batch_id && <div className="break-all">paypal_payout_batch_id: {op.paypal_payout_batch_id}</div>}
+                      {op.paypal_payout_item_id && <div className="break-all">paypal_payout_item_id: {op.paypal_payout_item_id}</div>}
+                      <div>amount_cents: {op.amount_cents}</div>
+                      <div>currency: {op.currency}</div>
+                    </div>
+                  )}
+
+                  {op.paypal_payout_batch_id && (
+                    <button
+                      type="button"
+                      onClick={(e) => inspectEvidence(op.paypal_payout_batch_id as string, e)}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-mono bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors"
+                    >
+                      Inspect evidence <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Section C: AI assessment */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Brain className="w-4 h-4 text-blue-600" aria-hidden="true" />
+              <CardTitle className="text-base">C. AI Assessment</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!selectedInvestigation ? (
+              <div className="text-center py-8 space-y-3">
+                <Sparkles className="w-8 h-8 text-blue-600 mx-auto" aria-hidden="true" />
+                <p className="text-sm text-slate-500">No forensic triage record yet. Run an investigation to generate an AI assessment.</p>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleRunInvestigation(false)}
+                  disabled={investigating}
+                  loading={investigating}
+                  className="gap-2"
+                >
+                  <Sparkles className="w-4 h-4" aria-hidden="true" />
+                  Run First Investigation
+                </Button>
+              </div>
             ) : (
               <>
-                {/* Executive Summary Card */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center gap-2">
-                        <Brain className="w-4 h-4 text-blue-600" aria-hidden="true" />
-                        <CardTitle className="text-base">Executive Triage Summary</CardTitle>
-                      </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="neutral" size="sm">Model: {selectedInvestigation.model}</Badge>
+                  <Badge variant="outline" size="sm">{transportInfo.badgeLabel}</Badge>
+                  {inferenceDuration && <span className="text-xs text-slate-500">{inferenceDuration}</span>}
+                </div>
 
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge
-                          variant={
-                            selectedInvestigation.confidence === "HIGH"
-                              ? "success"
-                              : selectedInvestigation.confidence === "MEDIUM"
-                              ? "warning"
-                              : "danger"
-                          }
-                          size="sm"
-                          dot
-                        >
-                          Confidence: {selectedInvestigation.confidence}
-                        </Badge>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-1">Recommendation</h3>
+                  <p className="text-sm text-slate-800 leading-relaxed">{selectedInvestigation.summary}</p>
+                </div>
 
-                        <Badge variant="neutral" size="sm">
-                          Model: {selectedInvestigation.model}
-                        </Badge>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-1">Confidence</h3>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={
+                        selectedInvestigation.confidence === "HIGH"
+                          ? "success"
+                          : selectedInvestigation.confidence === "MEDIUM"
+                          ? "warning"
+                          : "danger"
+                      }
+                      size="sm"
+                      dot
+                    >
+                      {selectedInvestigation.confidence}
+                    </Badge>
+                    <span className="text-xs text-slate-500">
+                      Grounded in model output and verified evidence references.
+                    </span>
+                  </div>
+                </div>
 
-                        <Badge variant="outline" size="sm">
-                          {transportInfo.badgeLabel}
-                        </Badge>
-
-                        {inferenceDuration && (
-                          <span className="text-[11px] text-slate-500 font-mono">
-                            {inferenceDuration}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <p className="text-xs text-slate-800 leading-relaxed font-sans">
-                      {selectedInvestigation.summary}
-                    </p>
-
-                    {selectedInvestigation.requires_human_review && (
-                      <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
-                        <span>Independent Human Review Required by Governance Policy.</span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Grounded Forensic Findings */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden="true" />
-                      <CardTitle className="text-sm">
-                        Grounded Forensic Findings ({selectedInvestigation.findings.length})
-                      </CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {selectedInvestigation.findings.length === 0 ? (
-                      <p className="text-xs text-slate-500">No specific discrepancies detected.</p>
-                    ) : (
-                      selectedInvestigation.findings.map((f, i) => (
-                        <div
-                          key={i}
-                          className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2 text-xs"
-                        >
-                          <p className="text-slate-800 leading-relaxed">
-                            {f.explanation}
-                          </p>
-
+                {selectedInvestigation.findings.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900 mb-2">Supporting Evidence</h3>
+                    <div className="space-y-2">
+                      {selectedInvestigation.findings.map((f, i) => (
+                        <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm space-y-2">
+                          <p className="text-slate-800 leading-relaxed">{f.explanation}</p>
                           {f.evidence_references && f.evidence_references.length > 0 && (
-                            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                              <span className="text-[11px] text-slate-500 font-mono">
-                                Grounded Evidence:
-                              </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs text-slate-500">Evidence:</span>
                               {f.evidence_references.map((refId) => (
                                 <button
                                   key={refId}
                                   type="button"
-                                  data-testid={`evidence-chip-${refId}`}
                                   onClick={(e) => inspectEvidence(refId, e)}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors"
                                 >
-                                  <span>{refId}</span>
+                                  {refId}
                                   <ExternalLink className="w-2.5 h-2.5 opacity-60" aria-hidden="true" />
                                 </button>
                               ))}
                             </div>
                           )}
                         </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Recommended Next Steps */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
-                      <CardTitle className="text-sm">
-                        Recommended Next Steps ({selectedInvestigation.recommended_next_steps.length})
-                      </CardTitle>
+                      ))}
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {selectedInvestigation.recommended_next_steps.length === 0 ? (
-                      <p className="text-xs text-slate-500">No further action necessary.</p>
-                    ) : (
-                      selectedInvestigation.recommended_next_steps.map((step, i) => (
-                        <div
-                          key={i}
-                          className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 flex items-start justify-between gap-3 text-xs"
-                        >
-                          <div className="space-y-1">
-                            <div className="font-semibold text-slate-900">
-                              {step.action.replace(/_/g, " ")}
-                            </div>
-                            <p className="text-slate-600 text-[11px] leading-relaxed">
-                              {step.reason}
-                            </p>
-                          </div>
+                  </div>
+                )}
 
-                          <div className="shrink-0">
-                            {step.deterministic_policy_permitted ? (
-                              <Badge variant="success" size="sm">
-                                Policy Permitted
-                              </Badge>
-                            ) : (
-                              <Badge variant="danger" size="sm">
-                                Policy Prohibited
-                              </Badge>
-                            )}
+                {selectedInvestigation.recommended_next_steps.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900 mb-2">Recommended Next Steps</h3>
+                    <div className="space-y-2">
+                      {selectedInvestigation.recommended_next_steps.map((step, i) => (
+                        <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium text-slate-900">{step.action.replace(/_/g, " ")}</div>
+                            <p className="text-xs text-slate-600 mt-0.5">{step.reason}</p>
                           </div>
+                          <Badge variant={step.deterministic_policy_permitted ? "success" : "danger"} size="sm">
+                            {step.deterministic_policy_permitted ? "Policy Permitted" : "Policy Prohibited"}
+                          </Badge>
                         </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                {/* Risk Flags & Missing Information */}
-                {(selectedInvestigation.risk_flags.length > 0 ||
-                  selectedInvestigation.missing_information.length > 0) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {selectedInvestigation.risk_flags.length > 0 && (
-                      <Card>
-                        <CardHeader className="py-3 px-4">
-                          <CardTitle className="text-xs uppercase tracking-wider text-rose-600">
-                            Risk Flags Detected
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="py-2 px-4 space-y-1.5">
-                          {selectedInvestigation.risk_flags.map((flag, i) => (
-                            <div key={i} className="text-xs text-rose-700 flex items-start gap-1.5">
-                              <span className="text-rose-600 font-bold">&bull;</span>
-                              <span>{flag}</span>
-                            </div>
-                          ))}
-                        </CardContent>
-                      </Card>
-                    )}
+                <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+                  AI recommendation is not an authorised action. Human approval is required before any payout execution.
+                </div>
 
-                    {selectedInvestigation.missing_information.length > 0 && (
-                      <Card>
-                        <CardHeader className="py-3 px-4">
-                          <CardTitle className="text-xs uppercase tracking-wider text-amber-600">
-                            Missing Information
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="py-2 px-4 space-y-1.5">
-                          {selectedInvestigation.missing_information.map((item, i) => (
-                            <div key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
-                              <span className="text-amber-600 font-bold">&bull;</span>
-                              <span>{item}</span>
-                            </div>
-                          ))}
-                        </CardContent>
-                      </Card>
-                    )}
+                {selectedInvestigation.requires_human_review && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
+                    Independent human review required by governance policy.
                   </div>
                 )}
               </>
             )}
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* Right Panel: Policy Governance & History (3 cols) */}
-          <div className="lg:col-span-3 space-y-4">
-            {/* Deterministic Policy Supervention */}
-            <Card>
-              <CardHeader className="py-4 px-5">
-                <div className="flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-blue-600" aria-hidden="true" />
-                  <CardTitle className="text-xs uppercase tracking-wider text-slate-500">
-                    Policy Engine Rules
-                  </CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent className="py-2 px-5 space-y-3 text-xs">
-                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Max Limit:</span>
-                    <span className="font-mono text-slate-900 font-semibold">$500.00 USD</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Dual Custody:</span>
-                    <span className="font-mono text-amber-600 font-semibold">&gt; $250.00 USD</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Risk Threshold:</span>
-                    <span className="font-mono text-amber-600 font-semibold">&gt; 20.0 Score</span>
-                  </div>
-                </div>
+        {/* Section D: Financial policy decision */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-blue-600" aria-hidden="true" />
+              <CardTitle className="text-base">D. Financial Policy Decision</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <span className="block text-xs text-slate-500">Ceiling Check</span>
+                <span className="font-mono text-slate-900">$500.00 USD maximum single payout</span>
+                <div className="text-xs text-slate-500 mt-1">Case amount {formatCentsToUSD(pCase.amount_cents)} is within ceiling.</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <span className="block text-xs text-slate-500">Dual-Approval Requirement</span>
+                <span className="text-slate-900">Required above $250.00 USD</span>
+                <div className="text-xs text-slate-500 mt-1">This case: {pCase.dual_approval_required ? "Yes" : "No"}.</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <span className="block text-xs text-slate-500">Self-Approval Restriction</span>
+                <span className="text-slate-900">Initiator cannot approve own payout.</span>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <span className="block text-xs text-slate-500">Applicable Governance Rule</span>
+                <span className="text-slate-900">Deterministic Rust policy engine (fail-closed).</span>
+              </div>
+            </div>
+            <div className="rounded-lg bg-slate-900 text-slate-100 p-3 text-xs">
+              Policy outcome: {selectedInvestigation ? "AI recommendations evaluated against policy rules; prohibited actions blocked." : "Run investigation to evaluate policy outcomes."}
+            </div>
+          </CardContent>
+        </Card>
 
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  In case of disagreement between AI outputs and policy rules, server-side policies strictly supervene.
-                </p>
-              </CardContent>
-            </Card>
+        {/* Section E: Approval and resolution */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+              <CardTitle className="text-base">E. Approval and Resolution</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <span className="block text-xs text-slate-500">Required Approver</span>
+                <span className="text-slate-900">Distinct compliance officer (separation of duties).</span>
+              </div>
+              <div>
+                <span className="block text-xs text-slate-500">Current Approval State</span>
+                <span className="text-slate-900">{latestOp?.approved_by_user_id ? "Approved" : "Pending approval"}</span>
+              </div>
+            </div>
 
-            {/* Historical Investigations Timeline */}
-            <Card>
-              <CardHeader className="py-4 px-5">
-                <div className="flex items-center gap-2">
-                  <History className="w-4 h-4 text-blue-600" aria-hidden="true" />
-                  <CardTitle className="text-xs uppercase tracking-wider text-slate-500">
-                    Investigation History ({investigations.length})
-                  </CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent className="py-2 px-5 space-y-2 text-xs">
+            <div>
+              <span className="block text-xs text-slate-500 mb-2">Available Authorised Actions</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Link href={`/app/payouts/${pCase.id}`}>
+                  <Button variant="secondary" size="sm">Open Case Detail</Button>
+                </Link>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleRunInvestigation(true)}
+                  disabled={investigating}
+                  loading={investigating}
+                >
+                  Re-run with Sync
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <span className="block text-xs text-slate-500 mb-2">Audit Timeline</span>
+              <div className="space-y-2">
                 {investigations.length === 0 ? (
-                  <p className="text-slate-500 text-[11px]">No previous runs.</p>
+                  <p className="text-xs text-slate-500">No investigation history.</p>
                 ) : (
-                  investigations.map((inv) => {
-                    const active = selectedInvestigation?.id === inv.id;
-                    return (
-                      <button
-                        key={inv.id}
-                        type="button"
-                        onClick={() => setSelectedInvestigation(inv)}
-                        className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                          active
-                            ? "bg-blue-50 border-blue-200 text-blue-900 shadow-sm"
-                            : "bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between text-[11px] font-mono">
-                          <span className="font-semibold text-blue-600">
-                            {inv.model}
-                          </span>
-                          <span>{inv.confidence}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1">
-                          {formatDate(inv.created_at)}
-                        </div>
-                      </button>
-                    );
-                  })
+                  investigations.map((inv) => (
+                    <button
+                      key={inv.id}
+                      type="button"
+                      onClick={() => setSelectedInvestigation(inv)}
+                      className={`w-full text-left rounded-lg border p-3 text-xs transition-colors ${
+                        selectedInvestigation?.id === inv.id
+                          ? "bg-blue-50 border-blue-200"
+                          : "bg-white border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-slate-900">{inv.model}</span>
+                        <span className="text-slate-500">{formatDate(inv.created_at)}</span>
+                      </div>
+                      <div className="text-slate-500 mt-0.5">Confidence: {inv.confidence} · {inv.status}</div>
+                    </button>
+                  ))
                 )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </main>
 
-      {/* Grounded Evidence Inspector Drawer */}
       <EvidenceInspectorDrawer
         isOpen={isEvidenceInspectorOpen}
         onClose={handleCloseEvidenceInspector}

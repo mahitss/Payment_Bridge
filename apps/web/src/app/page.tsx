@@ -343,18 +343,14 @@ export default function Home() {
         {/* Product Preview Showcase: Genuine Operational Interface */}
         <section aria-label="Operational Product Preview" className="max-w-5xl mx-auto">
           <div className="rounded-2xl border border-slate-200/90 bg-white shadow-lg overflow-hidden">
-            {/* Mock Header Bar */}
-            <div className="border-b border-slate-100 bg-slate-900 px-5 py-3.5 text-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-                </div>
-                <span className="text-xs font-mono text-slate-400">claimbridge.internal/app/payouts/DEMO-W9821</span>
+            {/* Preview Header Bar */}
+            <div className="border-b border-slate-100 bg-white px-5 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                <span className="text-sm font-semibold text-slate-900">Investigation Workspace Preview</span>
               </div>
-              <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                Active Adjudication
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                Case CB-2026-09821
               </span>
             </div>
 
