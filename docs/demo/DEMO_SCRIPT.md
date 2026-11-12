@@ -50,7 +50,7 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 ### Scene B — Authentication & Payout Policy Enforcement [00:25 – 00:55] (30 seconds)
 
 **Visual:**
-- Sign in with evaluator account `operator@claimbridge.internal` / `OperatorPass123!`.
+- Sign in with evaluator account `operator@claimbridge.internal` (using locally provisioned credentials).
 - Land on the Overview Dashboard (`/app`).
 - Navigate to **New Payout** (`/app/payouts/new`), heading: `Create Payout Settlement Case`.
 - Enter Case Reference (unique), Title, Recipient: `claimant-demo@sandbox.example.com`, Amount: `$350.00` USD, Risk Score: `25.0`.
@@ -71,7 +71,7 @@ ClaimBridge supports two distinct, truthful demonstration tracks:
 - Submit the case. Land on Case Details (`/app/payouts/[id]`).
 - Click **Initiate Sandbox Payout Operation**. Operation shows status `AWAITING_APPROVAL`.
 - Highlight that self-approval is blocked fail-closed for the initiator: `Self-approval blocked by policy`.
-- Click the header sign-out button (`Sign Out of ClaimBridge`), and sign in as distinct compliance officer `officer@claimbridge.internal` / `OfficerPass123!`.
+- Click the header sign-out button (`Sign Out of ClaimBridge`), and sign in as distinct compliance officer `officer@claimbridge.internal` (using locally provisioned credentials).
 - Navigate to `/app/payouts`, locate the case, open it, and click **Approve Operation (Distinct Officer)**.
 - Confirm in modal (`Authorize Dual-Custody Approval`).
 - Verify status transitions to `Approved by officer` and remains in internal `DRAFT` status without automatically submitting to PayPal.

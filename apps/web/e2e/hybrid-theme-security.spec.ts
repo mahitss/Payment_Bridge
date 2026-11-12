@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { DEMO_OPERATOR_PASSWORD, DEMO_OFFICER_PASSWORD } from "./test-credentials";
 
 test.describe("ClaimBridge Hybrid Theme & Demo Credential Security", () => {
   test("landing page strictly conceals demo credentials and fixtures banner", async ({
@@ -10,14 +11,16 @@ test.describe("ClaimBridge Hybrid Theme & Demo Credential Security", () => {
     const bodyText = await page.innerText("body");
     expect(bodyText).not.toContain("OperatorPass123!");
     expect(bodyText).not.toContain("OfficerPass123!");
+    expect(bodyText).not.toContain(DEMO_OPERATOR_PASSWORD);
+    expect(bodyText).not.toContain(DEMO_OFFICER_PASSWORD);
 
     // 2. If evaluator demo mode banner is active, assert passwords remain strictly absent
     const demoBanner = page.locator("text=Local Evaluation Fixtures (Demo Mode Enabled)");
     if (await demoBanner.isVisible()) {
       await expect(page.locator("text=operator@claimbridge.internal")).toBeVisible();
       await expect(page.locator("text=officer@claimbridge.internal")).toBeVisible();
-      await expect(page.locator("text=OperatorPass123!")).not.toBeVisible();
-      await expect(page.locator("text=OfficerPass123!")).not.toBeVisible();
+      await expect(page.locator(`text=${DEMO_OPERATOR_PASSWORD}`)).not.toBeVisible();
+      await expect(page.locator(`text=${DEMO_OFFICER_PASSWORD}`)).not.toBeVisible();
     }
   });
 
@@ -49,7 +52,7 @@ test.describe("ClaimBridge Hybrid Theme & Demo Credential Security", () => {
     // Sign in as operator
     await page.goto("/login");
     await page.fill("#email", "operator@claimbridge.internal");
-    await page.fill("#password", "OperatorPass123!");
+    await page.fill("#password", DEMO_OPERATOR_PASSWORD);
     await page.click('button[type="submit"]');
 
     // Should redirect to /app

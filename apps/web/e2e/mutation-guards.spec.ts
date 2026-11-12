@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { DEMO_OPERATOR_PASSWORD } from "./test-credentials";
 
 test.describe("E. Backend Mutation Guards and Readiness Truthfulness", () => {
   let sessionCookie = "";
@@ -10,7 +11,7 @@ test.describe("E. Backend Mutation Guards and Readiness Truthfulness", () => {
     const loginRes = await request.post("/api/v1/auth/login", {
       data: {
         email: "operator@claimbridge.internal",
-        password: "OperatorPass123!",
+        password: DEMO_OPERATOR_PASSWORD,
       },
     });
     expect(loginRes.status()).toBe(200);

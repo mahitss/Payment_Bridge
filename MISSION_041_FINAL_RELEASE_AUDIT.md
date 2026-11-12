@@ -168,7 +168,7 @@ This script is structured for evaluators or presenters demonstrating ClaimBridge
 |               | depletion. ClaimBridge decouples AI analysis from deterministic Rust enforcement.  |
 +---------------+-----------------------------------------------------------------------------------+
 | 00:25 - 00:55 | Scene 2: Payout Intake & Real-Time Policy Gating                                  |
-|               | Log in as operator (operator@claimbridge.internal / OperatorPass123!).            |
+|               | Log in as operator (operator@claimbridge.internal / [DEMO_OPERATOR_PASSWORD]).            |
 |               | Navigate to New Payout (/app/payouts/new).                                        |
 |               | Enter a $350.00 claim. Show real-time badge: "DUAL-CUSTODY MANDATED (Amount > 250)|
 |               | Submit case. Show operation created in AWAITING_APPROVAL.                          |

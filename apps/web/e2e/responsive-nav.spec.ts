@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { DEMO_OPERATOR_PASSWORD } from "./test-credentials";
 
 test.describe("F. Responsive UX, Navigation, and Accessibility Hardening", () => {
   test("desktop navigation exposes all primary workspace links and marks the active route", async ({
@@ -9,7 +10,7 @@ test.describe("F. Responsive UX, Navigation, and Accessibility Hardening", () =>
     // Log in as operator
     await page.goto("/login");
     await page.fill("#email", "operator@claimbridge.internal");
-    await page.fill("#password", "OperatorPass123!");
+    await page.fill("#password", DEMO_OPERATOR_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/app/);
 
@@ -48,7 +49,7 @@ test.describe("F. Responsive UX, Navigation, and Accessibility Hardening", () =>
     // Log in
     await page.goto("/login");
     await page.fill("#email", "operator@claimbridge.internal");
-    await page.fill("#password", "OperatorPass123!");
+    await page.fill("#password", DEMO_OPERATOR_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/app/);
 
@@ -95,7 +96,7 @@ test.describe("F. Responsive UX, Navigation, and Accessibility Hardening", () =>
     // Log in
     await page.goto("/login");
     await page.fill("#email", "operator@claimbridge.internal");
-    await page.fill("#password", "OperatorPass123!");
+    await page.fill("#password", DEMO_OPERATOR_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/app/);
 
@@ -180,7 +181,7 @@ test.describe("F. Responsive UX, Navigation, and Accessibility Hardening", () =>
     // Log in
     await page.goto("/login");
     await page.fill("#email", "operator@claimbridge.internal");
-    await page.fill("#password", "OperatorPass123!");
+    await page.fill("#password", DEMO_OPERATOR_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/app/);
 

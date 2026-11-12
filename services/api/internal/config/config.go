@@ -60,6 +60,8 @@ type Config struct {
 	WebhookRecoveryInterval  time.Duration
 	WebhookRecoveryOlderThan time.Duration
 	WebhookRecoveryBatchSize int
+	AuthRateLimitMax         int
+	AuthRateLimitWindow      time.Duration
 }
 
 // LoadFromEnv loads configuration from environment variables with strict validation.
@@ -114,6 +116,15 @@ func LoadFromEnv() (*Config, error) {
 		aiContextSize = val
 	}
 
+	authRateLimitMax := getEnvInt("AUTH_RATE_LIMIT_MAX", 120)
+	if authRateLimitMax <= 0 {
+		authRateLimitMax = 120
+	}
+	authRateLimitWindowSec := getEnvInt("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60)
+	if authRateLimitWindowSec <= 0 {
+		authRateLimitWindowSec = 60
+	}
+
 	cfg := &Config{
 		AppEnv:                 appEnv,
 		Port:                   getEnv("PORT", "8080"),
@@ -152,6 +163,8 @@ func LoadFromEnv() (*Config, error) {
 		WebhookRecoveryInterval:  time.Duration(getEnvInt("WEBHOOK_RECOVERY_INTERVAL_SECONDS", 30)) * time.Second,
 		WebhookRecoveryOlderThan: time.Duration(getEnvInt("WEBHOOK_RECOVERY_OLDER_THAN_SECONDS", 60)) * time.Second,
 		WebhookRecoveryBatchSize: getEnvInt("WEBHOOK_RECOVERY_BATCH_SIZE", 50),
+		AuthRateLimitMax:         authRateLimitMax,
+		AuthRateLimitWindow:      time.Duration(authRateLimitWindowSec) * time.Second,
 	}
 
 	// Validate AI Base URL

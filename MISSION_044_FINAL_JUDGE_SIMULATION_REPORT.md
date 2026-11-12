@@ -69,8 +69,8 @@
 ### Area 4: Demo Accounts & Expected Workflows
 - **Grade:** **A** (PASS)
 - **Observations:** Evaluator credentials are prominently displayed on the landing page in Demo Mode and documented in the runbook:
-  - Primary Operator: `operator@claimbridge.internal` / `OperatorPass123!`
-  - Compliance Officer: `officer@claimbridge.internal` / `OfficerPass123!`
+  - Primary Operator: `operator@claimbridge.internal` (locally provisioned password)
+  - Compliance Officer: `officer@claimbridge.internal` (locally provisioned password)
   - Organization: `PayPal AI Hackathon Adjudications`
   Both accounts are pre-seeded idempotently in `demoOrg`.
 
@@ -220,7 +220,7 @@ curl -s http://localhost:8080/readyz
 
 # 4. Open browser
 # URL: http://localhost:3000
-# Sign in with: operator@claimbridge.internal / OperatorPass123!
+# Sign in with: operator@claimbridge.internal (locally provisioned password)
 ```
 
 ### Method B: Native Host Verification
