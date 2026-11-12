@@ -126,3 +126,4 @@ Codebase search for `DEMO`, `SIMULATION`, `PROTOTYPE`, `EVALUATOR`, `DEMO MODE`,
 The fresh recording-ready screenshot of `/app/payouts/[id]/investigate` has been verified at:
 - `docs/assets/mission_049_screenshots/07_investigation_workspace.png`
 - Artifact: `file:///C:/Users/pc/.gemini/antigravity/brain/5afcb402-df65-47fc-8a01-1316179b7bc5/screenshots/07_investigation_workspace.png`
+

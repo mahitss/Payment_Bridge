@@ -40,11 +40,6 @@ export default function Header() {
     { label: "PayPal Sandbox", href: "/app/settings/integrations", icon: PlugZap },
   ];
 
-  // Sanitize internal hostnames in visible chrome
-  const displayEmail = user?.email
-    ? user.email.replace(/\.internal$/i, ".com")
-    : "";
-
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -119,7 +114,7 @@ export default function Header() {
           {user && (
             <div className="hidden lg:flex items-center gap-1.5 text-xs text-slate-400 font-mono">
               <User className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-              <span className="truncate max-w-[160px]">{displayEmail}</span>
+              <span className="truncate max-w-[160px]">{user.email}</span>
             </div>
           )}
 
@@ -185,7 +180,7 @@ export default function Header() {
             {user && (
               <div className="flex items-center gap-1.5 text-slate-400 font-mono text-[11px] truncate">
                 <User className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" aria-hidden="true" />
-                <span className="truncate">{displayEmail}</span>
+                <span className="truncate">{user.email}</span>
               </div>
             )}
           </div>
