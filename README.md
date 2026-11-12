@@ -156,10 +156,10 @@ curl -s http://localhost:8080/readyz
 - **Mailpit Web Inbox:** [http://localhost:8025](http://localhost:8025)
 
 #### Seeded Evaluation Accounts:
-| Role | Email Address | Password | Permissions & Purpose |
+| Role | Email Address | Password Provisioning | Permissions & Purpose |
 | :--- | :--- | :--- | :--- |
-| **Lead Operator** | `operator@claimbridge.internal` | `OperatorPass123!` | Case creation, initiation. Self-approval is blocked fail-closed. |
-| **Compliance Officer** | `officer@claimbridge.internal` | `OfficerPass123!` | Distinct approver for dual-custody disbursements (> $250.00). |
+| **Lead Operator** | `operator@claimbridge.internal` | Set via `DEMO_OPERATOR_PASSWORD` in `.env` (or displayed in local seeder console) | Case creation, initiation. Self-approval is blocked fail-closed. |
+| **Compliance Officer** | `officer@claimbridge.internal` | Set via `DEMO_OFFICER_PASSWORD` in `.env` (or displayed in local seeder console) | Distinct approver for dual-custody disbursements (> $250.00). |
 
 #### Offline Synthetic Track vs. Live External Track:
 - **Offline Synthetic Track (Active by Default):** Pre-seeded cases (`DEMO-W9821`, `DEMO-M4421`, `DEMO-V1082`) display persisted forensic evidence. External PayPal mutations (submit, sync, cancel) are protected by server-side guards returning HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN` with zero outbound PayPal network requests.
@@ -316,7 +316,7 @@ ClaimBridge features a reproducible, zero-budget **Offline Simulated Walkthrough
 - **Narrative:** "Automated payout systems face critical risks: LLMs hallucinating fund transfers, duplicate disbursements during flaky network retries, and leaked credentials. ClaimBridge solves this by decoupling non-deterministic AI investigation from deterministic, fail-closed Rust policy enforcement."
 
 ### [00:25 - 01:25] Dual-Custody Payout & Separation of Duties
-- **Visual:** Log in as demo operator (`operator@claimbridge.internal` / `OperatorPass123!`). Navigate to **New Payout** (`/app/payouts/new`).
+- **Visual:** Log in as demo operator (`operator@claimbridge.internal` with locally provisioned password). Navigate to **New Payout** (`/app/payouts/new`).
 - **Action:** Enter a payout for $350.00 USD (exceeds $250.00 threshold). Point out the real-time UI threshold preview badge: `DUAL-CUSTODY MANDATED (Amount > $250.00)` (authoritatively enforced by Go backend and Rust policy engine upon creation).
 - **Action:** Submit case. Show the active operation in `AWAITING_APPROVAL`.
 - **Action:** Demonstrate self-approval blocked fail-closed for the creator (`Self-approval blocked by policy`).

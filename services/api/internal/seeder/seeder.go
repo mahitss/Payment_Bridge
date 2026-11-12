@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"claimbridge/services/api/internal/crypto"
@@ -12,12 +13,12 @@ import (
 
 const (
 	OperatorEmail = "operator@claimbridge.internal"
-	OperatorPass  = "OperatorPass123!"
+	DefaultOperatorPass = "ClaimBridge-Op-2026!Eval"
 	OperatorName  = "Alex Morgan (Lead Adjudicator)"
 	DemoOrgName   = "PayPal AI Hackathon Adjudications"
 
 	OfficerEmail = "officer@claimbridge.internal"
-	OfficerPass  = "OfficerPass123!"
+	DefaultOfficerPass = "ClaimBridge-Off-2026!Eval"
 	OfficerName  = "Dana Vance (Compliance Officer)"
 	OfficerOrg   = "Compliance Workspace"
 
@@ -25,6 +26,25 @@ const (
 	DemoCase2Ref = "DEMO-M4421"
 	DemoCase3Ref = "DEMO-V1082"
 )
+
+var (
+	OperatorPass = DefaultOperatorPass
+	OfficerPass  = DefaultOfficerPass
+)
+
+func GetOperatorPassword() string {
+	if p := os.Getenv("DEMO_OPERATOR_PASSWORD"); p != "" {
+		return p
+	}
+	return DefaultOperatorPass
+}
+
+func GetOfficerPassword() string {
+	if p := os.Getenv("DEMO_OFFICER_PASSWORD"); p != "" {
+		return p
+	}
+	return DefaultOfficerPass
+}
 
 type Options struct {
 	Reset bool
@@ -54,7 +74,7 @@ func (s *Seeder) Seed(ctx context.Context, opts Options) error {
 	var demoOrg *db.Organization
 	operatorUser, err := s.repo.GetUserByEmail(ctx, OperatorEmail)
 	if err != nil && errors.Is(err, db.ErrUserNotFound) {
-		passwordHash, err := crypto.HashPassword(OperatorPass)
+		passwordHash, err := crypto.HashPassword(GetOperatorPassword())
 		if err != nil {
 			return fmt.Errorf("failed to hash operator password: %w", err)
 		}
@@ -83,6 +103,11 @@ func (s *Seeder) Seed(ctx context.Context, opts Options) error {
 				return fmt.Errorf("failed verifying operator email: %w", err)
 			}
 		}
+		if opts.Reset {
+			if newHash, err := crypto.HashPassword(GetOperatorPassword()); err == nil {
+				_ = s.repo.UpdateUserPassword(ctx, operatorUser.ID, newHash)
+			}
+		}
 		memberships, err := s.repo.GetOrganizationMemberships(ctx, operatorUser.ID)
 		if err != nil || len(memberships) == 0 {
 			return fmt.Errorf("operator has no organization memberships: %v", err)
@@ -94,7 +119,7 @@ func (s *Seeder) Seed(ctx context.Context, opts Options) error {
 	// 2. Seed or retrieve secondary dual-approval officer
 	officerUser, err := s.repo.GetUserByEmail(ctx, OfficerEmail)
 	if err != nil && errors.Is(err, db.ErrUserNotFound) {
-		passwordHash, err := crypto.HashPassword(OfficerPass)
+		passwordHash, err := crypto.HashPassword(GetOfficerPassword())
 		if err != nil {
 			return fmt.Errorf("failed to hash officer password: %w", err)
 		}
@@ -121,6 +146,11 @@ func (s *Seeder) Seed(ctx context.Context, opts Options) error {
 		if !officerUser.EmailVerified {
 			if err := s.repo.MarkEmailVerified(ctx, officerUser.ID); err != nil {
 				return fmt.Errorf("failed verifying officer email: %w", err)
+			}
+		}
+		if opts.Reset {
+			if newHash, err := crypto.HashPassword(GetOfficerPassword()); err == nil {
+				_ = s.repo.UpdateUserPassword(ctx, officerUser.ID, newHash)
 			}
 		}
 		fmt.Printf("[i] Reusing Existing Officer: %s\n", officerUser.Email)

@@ -93,10 +93,10 @@ What an evaluator or judge can genuinely reproduce locally:
 | :--- | :--- | :--- | :--- | :---: |
 | **One-Command Offline Stack** | `docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d` | Docker & Docker Compose only | Builds Go API, Next.js, launches Postgres 16, Mailpit, runs idempotent seeder, sets `NEXT_PUBLIC_DEMO_MODE=true` | **`PASS` (Verified in CI Job 5 & Compose specs)** |
 | **Judge Health Probe** | `curl -s http://localhost:8080/readyz` | Stack running | Returns `{"database":"connected","paypal_creds_available":false,"paypal_env":"sandbox","status":"ready"}` | **`PASS`** |
-| **Seeded Operator Auth** | `operator@claimbridge.internal` / `OperatorPass123!` | Stack running | Issues `HttpOnly` session cookie, enters `/app` dashboard | **`PASS`** |
+| **Seeded Operator Auth** | `operator@claimbridge.internal` / `[DEMO_OPERATOR_PASSWORD]` | Stack running | Issues `HttpOnly` session cookie, enters `/app` dashboard | **`PASS`** |
 | **High-Value Payout Intake** | Navigate to `/app/payouts/new`, amount `$350.00` | Authenticated | Displays blue UI preview: `DUAL-CUSTODY MANDATED (Amount > $250.00)`; creates case in `AWAITING_APPROVAL` | **`PASS`** |
 | **Self-Approval Prevention** | Click "Approve Operation" as creator | Logged in as operator | Returns HTTP 403 `ERR_SELF_APPROVAL_FORBIDDEN`; operation remains in `AWAITING_APPROVAL` | **`PASS`** |
-| **Distinct Officer Approval** | Log in as `officer@claimbridge.internal` / `OfficerPass123!` | Case pending | Approves operation; status transitions to `APPROVED` draft (not auto-submitted) | **`PASS`** |
+| **Distinct Officer Approval** | Log in as `officer@claimbridge.internal` / `[DEMO_OFFICER_PASSWORD]` | Case pending | Approves operation; status transitions to `APPROVED` draft (not auto-submitted) | **`PASS`** |
 | **Synthetic Provenance Banner** | Open `DEMO-W9821` | Stack running | Displays amber banner: `SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION` | **`PASS`** |
 | **Mutation Button Guards** | Inspect Submit, Sync, Cancel on `DEMO-W9821` | Stack running | Buttons disabled in UI; raw HTTP mutations rejected fail-closed with HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN` | **`PASS`** |
 | **Offline Investigation Evidence** | Scroll to AI Investigation card on `DEMO-W9821` | Stack running | Displays pre-seeded findings citing verified snapshot `SIMULATED-DEMO-BATCH-W9821` | **`PASS`** |

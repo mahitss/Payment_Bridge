@@ -108,7 +108,8 @@ async function run() {
 
     // Fill credentials (without logging password value)
     await emailField.fill('operator@claimbridge.internal');
-    await passField.fill('OperatorPass123!');
+    const opPassword = process.env.DEMO_OPERATOR_PASSWORD || 'ClaimBridge-Op-2026!Eval';
+    await passField.fill(opPassword);
     await submitBtn.click();
 
     // Assert redirection to authenticated dashboard

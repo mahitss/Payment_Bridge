@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { DEMO_OPERATOR_PASSWORD, DEMO_OFFICER_PASSWORD } from "./test-credentials";
 
 test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", () => {
   const caseRef = `TEST-E2E-${Date.now()}`;
@@ -9,7 +10,7 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     // 1. Log in as operator
     await page.goto("/login");
     await page.fill("#email", "operator@claimbridge.internal");
-    await page.fill("#password", "OperatorPass123!");
+    await page.fill("#password", DEMO_OPERATOR_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/app/);
 
@@ -63,7 +64,7 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     // 1. Log in as officer
     await page.goto("/login");
     await page.fill("#email", "officer@claimbridge.internal");
-    await page.fill("#password", "OfficerPass123!");
+    await page.fill("#password", DEMO_OFFICER_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/app/);
 
@@ -110,7 +111,7 @@ test.describe.serial("D. Policy Enforcement and Separation of Duties Workflow", 
     // Log in as officer
     await page.goto("/login");
     await page.fill("#email", "officer@claimbridge.internal");
-    await page.fill("#password", "OfficerPass123!");
+    await page.fill("#password", DEMO_OFFICER_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/app/, { timeout: 10000 });
 

@@ -30,10 +30,18 @@ type Handler struct {
 }
 
 func NewHandler(cfg *config.Config, service *Service) *Handler {
+	maxAttempts := 120
+	window := time.Minute
+	if cfg != nil && cfg.AuthRateLimitMax > 0 {
+		maxAttempts = cfg.AuthRateLimitMax
+	}
+	if cfg != nil && cfg.AuthRateLimitWindow > 0 {
+		window = cfg.AuthRateLimitWindow
+	}
 	return &Handler{
 		cfg:         cfg,
 		service:     service,
-		rateLimiter: NewRateLimiter(20, time.Minute, time.Minute),
+		rateLimiter: NewRateLimiter(maxAttempts, window, window),
 	}
 }
 

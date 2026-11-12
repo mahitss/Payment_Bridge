@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
+import { DEMO_OPERATOR_PASSWORD } from "./test-credentials";
 
 test.describe("Mission 025: AI Investigation Runtime Transparency & UX Polish", () => {
   test.beforeEach(async ({ page }) => {
     // Log in as operator
     await page.goto("/login");
     await page.fill("#email", "operator@claimbridge.internal");
-    await page.fill("#password", "OperatorPass123!");
+    await page.fill("#password", DEMO_OPERATOR_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/app/);
   });

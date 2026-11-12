@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
 import { execSync } from "child_process";
+import { DEMO_OPERATOR_PASSWORD, DEMO_OFFICER_PASSWORD } from "./test-credentials";
 
 test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", () => {
   test("records complete offline evaluator demo walkthrough (1080p)", async ({
@@ -70,7 +71,7 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
 
       // Sign in as operator
       await page.fill("#email", "operator@claimbridge.internal");
-      await page.fill("#password", "OperatorPass123!");
+      await page.fill("#password", DEMO_OPERATOR_PASSWORD);
       await page.waitForTimeout(3000); // 3s pause on filled login
       await page.click('button[type="submit"]');
 
@@ -138,7 +139,7 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
 
       // Sign in as distinct compliance officer
       await page.fill("#email", "officer@claimbridge.internal");
-      await page.fill("#password", "OfficerPass123!");
+      await page.fill("#password", DEMO_OFFICER_PASSWORD);
       await page.waitForTimeout(3000); // 3s pause on officer login
       await page.click('button[type="submit"]');
       await expect(page).toHaveURL(/\/app/);

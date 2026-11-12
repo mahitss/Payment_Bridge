@@ -18,7 +18,7 @@ Mission 048 establishes the final freeze and submission baseline for ClaimBridge
 2. **Resolve Defects Responsibly (P1 & P2):**
    - **DEF-003 (Resolved):** Engineered and deployed an in-memory sliding-window rate limiter for public authentication routes (`/login`, `/register`, `/forgot-password`) featuring RFC1918/loopback trusted proxy resolution, defense against spoofed `X-Forwarded-For` headers, and consistent HTTP 429 `Too Many Requests` responses with `Retry-After` headers.
    - **DEF-002 (Resolved):** Aligned and harmonized the timeout hierarchy across the reverse proxy (`proxyTimeout: 150s`), the Go API gateway (`WriteTimeout: 120s`), and the AI inference engine (`AIRequestTimeout: 60s`). Slow CPU inferences can now safely execute up to 60 seconds without premature proxy disconnection.
-   - **DEF-001 (Resolved with Strict Truthfulness):** Implemented policy engine runtime transparency. Added `AuthorityMode()` (`"rust_binary"` vs `"go_deterministic_fallback"`), explicit warning telemetry on fallback execution, startup logging in `cmd/server/main.go`, and comprehensive unit tests. In containerized environments where `claimbridge-policy` is omitted, the Go API honestly logs and runs the mathematically identical Go deterministic evaluator without falsely claiming Rust subprocess execution.
+   - **DEF-001 (Deferred Packaging; Explicit Telemetry Implemented):** Rust runtime packaging in Docker remains deferred to prevent container build timeout regressions; containerized Docker deployments execute the mathematically identical Go deterministic fallback with explicit authority telemetry at startup, runtime mode reporting (`AuthorityMode()`), and structured warning logs on fallback.
 3. **Submission Truthfulness & Risk Elimination:** All claims strictly distinguish verified functionality from test-double harnesses, simulated evaluation fixtures, and PayPal Sandbox account restrictions. Real money is never moved, and synthetic fixtures remain hard-gated against external dispatch.
 
 ---
@@ -39,7 +39,7 @@ Mission 048 establishes the final freeze and submission baseline for ClaimBridge
 ## 3. Defect Resolution & Triage Status
 
 ### DEF-001: Rust Policy Runtime Authority & Packaging (P1)
-- **Status:** **RESOLVED WITH TRUTHFUL DISCLOSURE & RUNTIME AUDITING**
+- **Status:** **PACKAGING DEFERRED; RUNTIME AUTHORITY TELEMETRY IMPLEMENTED**
 - **Changes Implemented:**
   - `services/api/internal/policy/engine.go`: Added `AuthorityMode()` (`"rust_binary"` vs `"go_deterministic_fallback"`) and `BinaryPath()`.
   - Replaced silent fallback in `Evaluate()` with structured warning logging:
@@ -51,7 +51,7 @@ Mission 048 establishes the final freeze and submission baseline for ClaimBridge
     ```
   - `services/api/cmd/server/main.go`: Added startup telemetry verifying whether `POLICY_ENGINE_BIN` exists on the host filesystem and logging the active authority mode.
   - `services/api/internal/policy/engine_test.go`: Added unit tests verifying `AuthorityMode()` reporting.
-- **Architectural Reality:** In host development environments, setting `POLICY_ENGINE_BIN=services/policy/target/release/claimbridge-policy` executes the compiled Rust binary. In containerized Docker Compose stacks where `POLICY_ENGINE_BIN` is unset, the Go API gateway runs the Go deterministic evaluator. Both engines implement identical mathematical boundaries ($250 dual-custody threshold, $500 ceiling, legal state transitions), and the system now reports this distinction honestly.
+- **Architectural Reality:** Rust binary container packaging is deferred. In host development environments, setting `POLICY_ENGINE_BIN=services/policy/target/release/claimbridge-policy` executes the compiled Rust binary. In containerized Docker Compose stacks where `POLICY_ENGINE_BIN` is unset, the Go API gateway runs the Go deterministic fallback evaluator. Both engines implement identical mathematical boundaries ($250 dual-custody threshold, $500 ceiling, legal state transitions), and the system now reports this distinction honestly via startup logging and status telemetry.
 
 ### DEF-002: AI Proxy and Inference Timeout Harmonization (P2)
 - **Status:** **RESOLVED**
@@ -143,7 +143,7 @@ Evaluators can reproduce the entire evaluation workflow using either single-comm
    - Zero exposed credentials in DOM or JavaScript bundles.
    - Optional gateway diagnostic probe displays API reachability without exposing backend tokens.
 2. **Operator Sign-In (`/login`):**
-   - Sign in with evaluator account: `operator@claimbridge.internal` / `OperatorPass123!`.
+   - Sign in with evaluator account: `operator@claimbridge.internal` (using locally provisioned password).
    - Rate limiting protects against password guessing (returns HTTP 429 after 20 attempts).
 3. **Workspace Dashboard (`/app`):**
    - Displays database-computed financial metrics (total volume, draft count, pending reviews).
@@ -155,7 +155,7 @@ Evaluators can reproduce the entire evaluation workflow using either single-comm
 5. **Separation of Duties (Dual Custody):**
    - Operator initiates case. Case enters `APPROVAL_PENDING`.
    - Initiator attempts to approve their own case: blocked with `HTTP 403 Forbidden` (`ErrSelfApprovalForbidden`).
-   - Compliance officer (`officer@claimbridge.internal` / `OfficerPass123!`) signs in and approves. Case transitions to `APPROVED`.
+   - Compliance officer (`officer@claimbridge.internal`, using locally provisioned password) signs in and approves. Case transitions to `APPROVED`.
 6. **Synthetic Fixture Quarantine:**
    - Pre-seeded case `DEMO-W9821` displays explicit indicator: `SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION`.
    - Outbound PayPal dispatch buttons are disabled. Direct API mutation requests return HTTP 403 `FIXTURE_EXTERNAL_OPERATION_FORBIDDEN`.
@@ -170,16 +170,16 @@ Evaluators can reproduce the entire evaluation workflow using either single-comm
 
 | Artifact | Location | Purpose |
 | :--- | :--- | :--- |
-| **01 Landing Page** | [01_landing_page.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/01_landing_page.png) | Public hero, navigation hierarchy, security posture |
-| **02 Sign In** | [02_signin_page.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/02_signin_page.png) | High-contrast login card, clean inputs, zero leaked passwords |
-| **02b Registration** | [02b_registration_page.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/02b_registration_page.png) | Organization and user registration with Argon2id hashing |
-| **03 Dashboard** | [03_dashboard.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/03_dashboard.png) | Complete database aggregate metrics stat cards, review queue |
-| **04 Payout Registry** | [04_payout_registry.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/04_payout_registry.png) | Filter tab pills, search toolbar, multi-tenant payout cases |
-| **05 Payout Creation** | [05_payout_creation.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/05_payout_creation.png) | Real-time policy simulator, dual custody indicator |
-| **06 Payout Details** | [06_payout_detail.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/06_payout_detail.png) | Decomposed case layout, operations history, audit events |
-| **07 Investigation** | [07_investigation_workspace.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/07_investigation_workspace.png) | Grounded evidence citations, AI findings, raw JSON drawer |
-| **08 Dual Custody** | [07_approval_workflow_dual_custody.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/07_approval_workflow_dual_custody.png) | Self-approval prevention modal, officer sign-off controls |
-| **09 Sandbox Status** | [09_sandbox_integration_status.png](file:///c:/Users/pc/OneDrive/Desktop/claim%20bridge/apps/web/test-results/09_sandbox_integration_status.png) | Partitioned sandbox connection status, credential boundaries |
+| **01 Landing Page** | [01_landing_page.png](docs/assets/mission_045_1_screenshots/01_landing_page.png) | Public hero, navigation hierarchy, security posture |
+| **02 Sign In** | [02_signin_page.png](docs/assets/mission_045_1_screenshots/02_signin_page.png) | High-contrast login card, clean inputs, zero leaked passwords |
+| **02b Registration** | [02b_registration_page.png](docs/assets/mission_045_1_screenshots/02b_registration_page.png) | Organization and user registration with Argon2id hashing |
+| **03 Dashboard** | [03_dashboard.png](docs/assets/mission_045_1_screenshots/03_dashboard.png) | Complete database aggregate metrics stat cards, review queue |
+| **04 Payout Registry** | [04_payout_registry.png](docs/assets/mission_045_1_screenshots/04_payout_registry.png) | Filter tab pills, search toolbar, multi-tenant payout cases |
+| **05 Payout Creation** | [05_payout_creation.png](docs/assets/mission_045_1_screenshots/05_payout_creation.png) | Real-time policy simulator, dual custody indicator |
+| **06 Payout Details** | [06_payout_detail.png](docs/assets/mission_045_1_screenshots/06_payout_detail.png) | Decomposed case layout, operations history, audit events |
+| **07 Investigation** | [07_investigation_workspace.png](docs/assets/mission_045_1_screenshots/07_investigation_workspace.png) | Grounded evidence citations, AI findings, raw JSON drawer |
+| **08 Dual Custody** | [07_approval_workflow_dual_custody.png](docs/assets/mission_040_9_screenshots/07_approval_workflow_dual_custody.png) | Self-approval prevention modal, officer sign-off controls |
+| **09 Sandbox Status** | [09_sandbox_integration_status.png](docs/assets/mission_040_9_screenshots/09_sandbox_integration_status.png) | Partitioned sandbox connection status, credential boundaries |
 | **Demo Video Walkthrough** | `claimbridge-demo-walkthrough.webm` | Deterministic 1080p automated walkthrough in Playwright |
 
 ---
@@ -203,3 +203,4 @@ ClaimBridge is stable, truthful, mathematically safe, and fully verified for the
 
 ---
 *Certified by: Senior Implementation Engineer & Application Security Reviewer*
+

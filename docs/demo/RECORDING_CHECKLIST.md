@@ -61,10 +61,10 @@
 
 ## 3. Account Credentials Quick Reference
 
-| Account Role | Email Address | Password | Intended Action in Demo |
+| Account Role | Email Address | Password Provisioning | Intended Action in Demo |
 | :--- | :--- | :--- | :--- |
-| **Primary Operator** | `operator@claimbridge.internal` | `OperatorPass123!` | Create $350 payout; attempt self-approval (blocked fail-closed). |
-| **Compliance Officer** | `officer@claimbridge.internal` | `OfficerPass123!` | Review and approve $350 payout (dual custody passed). Both users belong to the primary demo organization (`PayPal AI Hackathon Adjudications`). |
+| **Primary Operator** | `operator@claimbridge.internal` | Locally provisioned via `DEMO_OPERATOR_PASSWORD` | Create $350 payout; attempt self-approval (blocked fail-closed). |
+| **Compliance Officer** | `officer@claimbridge.internal` | Locally provisioned via `DEMO_OFFICER_PASSWORD` | Review and approve $350 payout (dual custody passed). Both users belong to the primary demo organization (`PayPal AI Hackathon Adjudications`). |
 
 ---
 

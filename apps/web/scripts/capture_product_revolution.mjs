@@ -70,7 +70,8 @@ async function run() {
     console.log('[Auth] Authenticating as operator@claimbridge.internal...');
     await page.goto('http://localhost:3000/login', { waitUntil: 'networkidle' });
     await page.fill('#email', 'operator@claimbridge.internal');
-    await page.fill('#password', 'OperatorPass123!');
+    const opPassword = process.env.DEMO_OPERATOR_PASSWORD || 'ClaimBridge-Op-2026!Eval';
+    await page.fill('#password', opPassword);
     await page.click('button[type="submit"]');
     await page.waitForURL(/\/app/, { timeout: 10000 });
     await page.waitForLoadState('networkidle');

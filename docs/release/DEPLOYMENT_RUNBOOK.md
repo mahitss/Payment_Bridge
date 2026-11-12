@@ -44,8 +44,8 @@ docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml
 - **Mailpit Web UI (Inspect emails):** `http://localhost:8025`
 
 ### 2.3 Evaluator Demo Accounts
-- **Lead Operator:** `operator@claimbridge.internal` / `OperatorPass123!`
-- **Compliance Officer:** `officer@claimbridge.internal` / `OfficerPass123!`
+- **Lead Operator:** `operator@claimbridge.internal` (password configured locally via `DEMO_OPERATOR_PASSWORD` or seeder output)
+- **Compliance Officer:** `officer@claimbridge.internal` (password configured locally via `DEMO_OFFICER_PASSWORD` or seeder output)
 
 ### 2.4 Safe Teardown & Data Preservation
 ```bash

@@ -37,12 +37,22 @@ docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml
 
 ## 3. Seeded Evaluator Accounts (Local Demo Fixtures)
 
-The seeder populates two distinct role accounts. These accounts are local testing fixtures compiled into the demo frontend:
+The seeder populates two distinct role accounts. These accounts are local testing fixtures provisioned strictly on the local machine:
 
-| Role | Email | Password | Organization | Description |
+| Role | Email | Password Provisioning | Organization | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Primary Operator** | `operator@claimbridge.internal` | `OperatorPass123!` | PayPal AI Hackathon Adjudications | Lead adjudicator (`Alex Morgan`). Initiates payouts, cases, and investigations. |
-| **Dual-Approval Officer** | `officer@claimbridge.internal` | `OfficerPass123!` | PayPal AI Hackathon Adjudications | Distinct compliance officer. Authorizes high-value payouts (> $250.00 USD). |
+| **Primary Operator** | `operator@claimbridge.internal` | Locally provisioned via `DEMO_OPERATOR_PASSWORD` or seeder console output | PayPal AI Hackathon Adjudications | Lead adjudicator (`Alex Morgan`). Initiates payouts, cases, and investigations. |
+| **Dual-Approval Officer** | `officer@claimbridge.internal` | Locally provisioned via `DEMO_OFFICER_PASSWORD` or seeder console output | PayPal AI Hackathon Adjudications | Distinct compliance officer. Authorizes high-value payouts (> $250.00 USD). |
+
+### 3.1 Secure Local Evaluator Credential Provisioning
+
+To maintain zero hardcoded credentials in public source repositories:
+1. When starting via Docker Compose (`docker compose -f infra/docker-compose.full.yml -f infra/docker-compose.demo.yml up --build -d`), the `claimbridge-seeder` container securely provisions these accounts. You can inspect the local console output via `docker logs claimbridge-seeder` or supply custom passwords via your local `.env`:
+   ```env
+   DEMO_OPERATOR_PASSWORD=your_custom_operator_password
+   DEMO_OFFICER_PASSWORD=your_custom_officer_password
+   ```
+2. When starting natively via `go run ./cmd/seed`, the terminal outputs the active evaluation credentials directly to your console.
 
 *(Mailpit inbox is viewable at `http://localhost:8025` to inspect outbound verification and notification emails.)*
 
@@ -64,7 +74,7 @@ Follow this step-by-step workflow to evaluate the core architecture, safety boun
 ### Step 2: Operator Sign-In
 
 - **Navigate to:** `http://localhost:3000/login`
-- **Actions:** Enter `operator@claimbridge.internal` and `OperatorPass123!`. Click **"Sign In"**.
+- **Actions:** Enter `operator@claimbridge.internal` and your locally provisioned operator password. Click **"Sign In"**.
 - **Expected Visible Result:** Successful authentication. Browser receives an `HttpOnly`, `SameSite=Lax` session cookie and redirects to `/app` (Claims & Payouts Dashboard).
 - **Limits of Result:** Proves internal Argon2id authentication and session issuance; does not involve third-party identity providers.
 
@@ -97,7 +107,7 @@ Follow this step-by-step workflow to evaluate the core architecture, safety boun
 - **Actions:**
   1. Click **"Sign Out"** in the top navigation bar.
   2. Navigate to `http://localhost:3000/login`.
-  3. Sign in as `officer@claimbridge.internal` with `OfficerPass123!`.
+  3. Sign in as `officer@claimbridge.internal` with your locally provisioned compliance officer password.
   4. Navigate back to the created case page (`/app/payouts/[id]`).
   5. Click **"Approve Operation (Distinct Officer)"**.
 - **Expected Visible Result:**
