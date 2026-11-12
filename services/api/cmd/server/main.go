@@ -119,6 +119,20 @@ func main() {
 
 	// 6. Initialize Policy Engine
 	policyEngine := policy.NewEngine(cfg.PolicyEngineBinaryPath)
+	if cfg.PolicyEngineBinaryPath != "" {
+		if _, statErr := os.Stat(cfg.PolicyEngineBinaryPath); statErr == nil {
+			slog.Info("Initialized deterministic policy engine with Rust binary authority",
+				slog.String("binary_path", cfg.PolicyEngineBinaryPath),
+			)
+		} else {
+			slog.Warn("POLICY_ENGINE_BIN configured but binary not found on filesystem; using deterministic Go evaluator",
+				slog.String("configured_path", cfg.PolicyEngineBinaryPath),
+				slog.String("error", statErr.Error()),
+			)
+		}
+	} else {
+		slog.Info("No POLICY_ENGINE_BIN configured; using native deterministic Go policy evaluator")
+	}
 
 	// 7. Initialize PayPal Sandbox Client
 	paypalClient, err := paypal.NewClient(cfg, nil)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -23,26 +24,43 @@ const (
 
 // Handler handles all HTTP requests for authentication and session lifecycle.
 type Handler struct {
-	cfg     *config.Config
-	service *Service
+	cfg         *config.Config
+	service     *Service
+	rateLimiter *RateLimiter
 }
 
 func NewHandler(cfg *config.Config, service *Service) *Handler {
 	return &Handler{
-		cfg:     cfg,
-		service: service,
+		cfg:         cfg,
+		service:     service,
+		rateLimiter: NewRateLimiter(20, time.Minute, time.Minute),
 	}
+}
+
+// SetRateLimiter configures a custom rate limiter (e.g. for testing).
+func (h *Handler) SetRateLimiter(rl *RateLimiter) {
+	h.rateLimiter = rl
 }
 
 // RegisterRoutes binds authentication routes to a ServeMux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/auth/register", h.handleRegister)
-	mux.HandleFunc("POST /api/v1/auth/verify-email", h.handleVerifyEmail)
-	mux.HandleFunc("POST /api/v1/auth/login", h.handleLogin)
-	mux.HandleFunc("POST /api/v1/auth/logout", h.handleLogout)
-	mux.HandleFunc("POST /api/v1/auth/forgot-password", h.handleForgotPassword)
-	mux.HandleFunc("POST /api/v1/auth/reset-password", h.handleResetPassword)
-	mux.HandleFunc("GET /api/v1/auth/me", h.handleMe)
+	if h.rateLimiter != nil {
+		mux.HandleFunc("POST /api/v1/auth/register", h.rateLimiter.Middleware("register", h.handleRegister))
+		mux.HandleFunc("POST /api/v1/auth/verify-email", h.handleVerifyEmail)
+		mux.HandleFunc("POST /api/v1/auth/login", h.rateLimiter.Middleware("login", h.handleLogin))
+		mux.HandleFunc("POST /api/v1/auth/logout", h.handleLogout)
+		mux.HandleFunc("POST /api/v1/auth/forgot-password", h.rateLimiter.Middleware("forgot-password", h.handleForgotPassword))
+		mux.HandleFunc("POST /api/v1/auth/reset-password", h.handleResetPassword)
+		mux.HandleFunc("GET /api/v1/auth/me", h.handleMe)
+	} else {
+		mux.HandleFunc("POST /api/v1/auth/register", h.handleRegister)
+		mux.HandleFunc("POST /api/v1/auth/verify-email", h.handleVerifyEmail)
+		mux.HandleFunc("POST /api/v1/auth/login", h.handleLogin)
+		mux.HandleFunc("POST /api/v1/auth/logout", h.handleLogout)
+		mux.HandleFunc("POST /api/v1/auth/forgot-password", h.handleForgotPassword)
+		mux.HandleFunc("POST /api/v1/auth/reset-password", h.handleResetPassword)
+		mux.HandleFunc("GET /api/v1/auth/me", h.handleMe)
+	}
 }
 
 func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +71,7 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := extractClientIP(r)
+	ip := h.extractClientIP(r)
 	ua := r.UserAgent()
 
 	out, err := h.service.Register(r.Context(), input, ip, ua)
@@ -80,7 +98,7 @@ func (h *Handler) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := extractClientIP(r)
+	ip := h.extractClientIP(r)
 	ua := r.UserAgent()
 
 	if err := h.service.VerifyEmail(r.Context(), input, ip, ua); err != nil {
@@ -108,7 +126,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := extractClientIP(r)
+	ip := h.extractClientIP(r)
 	ua := r.UserAgent()
 
 	out, err := h.service.Login(r.Context(), input, ip, ua)
@@ -143,7 +161,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	token := ExtractSessionToken(r, h.cfg.SessionCookieName)
 	if token != "" {
-		ip := extractClientIP(r)
+		ip := h.extractClientIP(r)
 		ua := r.UserAgent()
 		_ = h.service.Logout(r.Context(), token, ip, ua)
 	}
@@ -160,7 +178,7 @@ func (h *Handler) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := extractClientIP(r)
+	ip := h.extractClientIP(r)
 	ua := r.UserAgent()
 
 	_ = h.service.ForgotPassword(r.Context(), input, ip, ua)
@@ -179,7 +197,7 @@ func (h *Handler) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := extractClientIP(r)
+	ip := h.extractClientIP(r)
 	ua := r.UserAgent()
 
 	if err := h.service.ResetPassword(r.Context(), input, ip, ua); err != nil {
@@ -336,12 +354,24 @@ func ExtractSessionToken(r *http.Request, cookieName string) string {
 	return ""
 }
 
-func extractClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ips := strings.Split(xff, ",")
-		return strings.TrimSpace(ips[0])
+func (h *Handler) extractClientIP(r *http.Request) string {
+	if h.rateLimiter != nil {
+		return h.rateLimiter.ExtractClientIP(r)
 	}
-	return r.RemoteAddr
+	return extractClientIP(r)
+}
+
+func extractClientIP(r *http.Request) string {
+	rawHost := r.RemoteAddr
+	host, _, err := net.SplitHostPort(rawHost)
+	if err != nil {
+		host = rawHost
+	}
+	// For backward-compatibility with tests using simple strings
+	if host == "" {
+		host = r.RemoteAddr
+	}
+	return host
 }
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {

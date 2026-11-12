@@ -79,3 +79,21 @@ func TestEngine_Evaluate_EscalatedForDualApproval(t *testing.T) {
 		t.Errorf("expected RequiresDualApproval true, got false")
 	}
 }
+
+func TestEngine_AuthorityMode(t *testing.T) {
+	fallbackEng := NewEngine("")
+	if fallbackEng.AuthorityMode() != "go_deterministic_fallback" {
+		t.Errorf("expected go_deterministic_fallback, got %s", fallbackEng.AuthorityMode())
+	}
+	if fallbackEng.BinaryPath() != "" {
+		t.Errorf("expected empty binary path, got %s", fallbackEng.BinaryPath())
+	}
+
+	binaryEng := NewEngine("/usr/local/bin/claimbridge-policy")
+	if binaryEng.AuthorityMode() != "rust_binary" {
+		t.Errorf("expected rust_binary, got %s", binaryEng.AuthorityMode())
+	}
+	if binaryEng.BinaryPath() != "/usr/local/bin/claimbridge-policy" {
+		t.Errorf("expected /usr/local/bin/claimbridge-policy, got %s", binaryEng.BinaryPath())
+	}
+}

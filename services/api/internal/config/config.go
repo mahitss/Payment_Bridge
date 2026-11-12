@@ -146,7 +146,7 @@ func LoadFromEnv() (*Config, error) {
 		AIBaseURL:              strings.TrimRight(getEnv("AI_BASE_URL", "http://127.0.0.1:11434"), "/"),
 		AIModel:                getEnv("AI_MODEL", "llama3.2"),
 		AIAPIKey:               os.Getenv("AI_API_KEY"),
-		AIRequestTimeout:       time.Duration(getEnvInt("AI_REQUEST_TIMEOUT_SECONDS", 30)) * time.Second,
+		AIRequestTimeout:       time.Duration(getEnvInt("AI_REQUEST_TIMEOUT_SECONDS", 60)) * time.Second,
 		AIMaxOutputTokens:        getEnvInt("AI_MAX_OUTPUT_TOKENS", 2048),
 		AIContextSize:            aiContextSize,
 		WebhookRecoveryInterval:  time.Duration(getEnvInt("WEBHOOK_RECOVERY_INTERVAL_SECONDS", 30)) * time.Second,

@@ -108,6 +108,9 @@ claim-bridge/
 11. **Integer Minor Unit Currency**: Money is calculated, compared, and persisted exclusively in integer minor units (cents) to avoid floating-point rounding hazards.
 12. **Multi-Tenant Data Isolation**: Every case, operation, investigation, and audit event is hard-isolated by organization ID across database indexes, foreign keys, and service boundaries.
 13. **Synthetic Fixture Provenance & Mutation Guard**: All demo fixtures are isolated via explicit `is_synthetic_fixture` markers, unmistakable identifiers (`SIMULATED-DEMO-...`), and server-side guards blocking external PayPal API dispatch. Safe reset purges only synthetic records without deleting non-demo data.
+14. **Authentication Rate Limiting & Trusted Proxy Defense**: Sensitive public authentication endpoints (`/api/v1/auth/login`, `/register`, `/forgot-password`) enforce bounded sliding-window rate limiting with trusted proxy CIDR resolution. Connections from untrusted direct clients ignore spoofed `X-Forwarded-For` headers, returning consistent HTTP 429 `Too Many Requests` with `Retry-After` headers.
+15. **Harmonized Timeout Hierarchy**: Timeouts across the reverse proxy, API gateway, and LLM inference engine are hierarchically ordered (`AIRequestTimeout: 60s` < Go HTTP `WriteTimeout: 120s` < Next.js reverse-proxy `proxyTimeout: 150s`), preventing premature proxy disconnections during CPU-bound model inference.
+16. **Deterministic Policy Authority & Runtime Transparency**: In local development, the Go API invokes the compiled Rust policy binary (`claimbridge-policy`) via `POLICY_ENGINE_BIN`. When running without a separate Rust binary installation, the system falls back to the mathematically identical Go deterministic evaluator with transparent startup logging and runtime status telemetry.
 
 ---
 
@@ -280,7 +283,8 @@ ClaimBridge enforces a zero-trust factual policy distinguishing simulated mock t
 - **Authoritative Verification Matrix:** See [`docs/submission/VERIFICATION_MATRIX.md`](docs/submission/VERIFICATION_MATRIX.md) for full mapping of requirements to source files, exact tests, evidence tiers, and local reproduction steps.
 - **Judge Offline Evaluation Runbook:** See [`docs/submission/JUDGE_RUNBOOK.md`](docs/submission/JUDGE_RUNBOOK.md) for a single-command evaluator launch guide, seeded credentials, step-by-step walkthrough expectations, and safe cleanup commands.
 - **Continuous Integration Baseline:** Verified green build on `main` branch across all 6 jobs in GitHub Actions:
-  - **Authoritative Main Release Baseline:** [Run 42698544776](https://github.com/mahitss/Payment_Bridge/actions/runs/42698544776) on commit `4c1e5dd1cf70ac88a8692fe9f108da4cd0e57af9` (Post-PR #28 Merge, 6/6 jobs green, SUCCESS).
+  - **Authoritative Main Release Baseline:** [Run 43083880216](https://github.com/mahitss/Payment_Bridge/actions/runs/43083880216) on commit `915d9337beba2a8e6b1ee8030b4ff0c2f9bab1f9` (6/6 jobs green, SUCCESS).
+  - **Prior Main Release Baseline:** [Run 42698544776](https://github.com/mahitss/Payment_Bridge/actions/runs/42698544776) on commit `4c1e5dd1cf70ac88a8692fe9f108da4cd0e57af9` (6/6 jobs green, SUCCESS).
   - **Release Candidate Verification (PR #28):** [Run 42695179236](https://github.com/mahitss/Payment_Bridge/actions/runs/42695179236) on commit `b83cfb2` (6/6 jobs green, SUCCESS).
   - **Historical CI Baselines (Reference Only):** Validation Run [40119075389](https://github.com/mahitss/Payment_Bridge/actions/runs/40119075389) on commit `b681c87`, Feature Branch Run [40119057661](https://github.com/mahitss/Payment_Bridge/actions/runs/40119057661) on commit `7fbd031`, Audited Source Run [39600293507](https://github.com/mahitss/Payment_Bridge/actions/runs/39600293507) on commit `c6a261a`, and Historical Validation Run [39633059170](https://github.com/mahitss/Payment_Bridge/actions/runs/39633059170) on commit `9b0b6c7`.
   - **Verified Capabilities:**
