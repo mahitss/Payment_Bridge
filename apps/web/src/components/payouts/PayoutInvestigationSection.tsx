@@ -25,6 +25,7 @@ import {
   formatInferenceDuration,
   formatElapsedTimer,
   formatDate,
+  formatEvidenceReference,
 } from "@/lib/payouts";
 import { Button, Badge, Card, CardHeader, CardTitle, CardContent } from "@/components/ui";
 
@@ -420,7 +421,8 @@ export function PayoutInvestigationSection({
                                 aria-label={`Inspect evidence reference ${refId}`}
                                 data-testid={`evidence-chip-${refId}`}
                               >
-                                {refId}
+                                <span>{formatEvidenceReference(refId)}</span>
+                                <span className="sr-only">({refId})</span>
                               </button>
                             ))}
                           </div>

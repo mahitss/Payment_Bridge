@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"claimbridge/services/api/internal/ai"
 	"claimbridge/services/api/internal/auth"
 	"claimbridge/services/api/internal/config"
 	"claimbridge/services/api/internal/db"
@@ -69,6 +70,13 @@ func (h *Handler) handleCreateInvestigation(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		if errors.Is(err, ErrCaseNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "payout case not found"})
+			return
+		}
+		if errors.Is(err, ai.ErrAITimeout) {
+			writeJSON(w, http.StatusGatewayTimeout, map[string]string{
+				"error": "Investigation timed out before completion. Please retry or reduce case complexity.",
+				"code":  "AI_TIMEOUT",
+			})
 			return
 		}
 		if errors.Is(err, ErrAIUnavailable) {

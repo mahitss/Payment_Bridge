@@ -338,6 +338,10 @@ export default function PayoutCaseDetailPage() {
           setInvestigationError(
             "Investigation assistant is currently offline or unreachable. Core payout operations remain fully functional."
           );
+        } else if (res.status === 504 || data?.code === "AI_TIMEOUT") {
+          setInvestigationError(
+            "Investigation timed out before completion. The model may be under heavy load; please retry."
+          );
         } else {
           setInvestigationError(
             data.error || "Investigation assistant is currently offline or unreachable."

@@ -5,7 +5,7 @@ const nextConfig = {
   poweredByHeader: false,
   output: "standalone",
   experimental: {
-    proxyTimeout: 150_000,
+    proxyTimeout: 300_000,
   },
   async rewrites() {
     return [

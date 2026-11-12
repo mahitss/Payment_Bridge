@@ -343,19 +343,23 @@ export default function Home() {
         {/* Product Preview Showcase: Genuine Operational Interface */}
         <section aria-label="Operational Product Preview" className="max-w-5xl mx-auto">
           <div className="rounded-2xl border border-slate-200/90 bg-white shadow-lg overflow-hidden">
-            {/* Mock Header Bar */}
-            <div className="border-b border-slate-100 bg-slate-900 px-5 py-3.5 text-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-                </div>
-                <span className="text-xs font-mono text-slate-400">claimbridge.internal/app/payouts/DEMO-W9821</span>
+            {/* Enterprise Application Header Bar */}
+            <div className="border-b border-slate-800 bg-slate-950 px-5 py-3 text-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
+                <span className="text-slate-400">Workspace</span>
+                <span className="text-slate-600">/</span>
+                <span className="text-slate-400">Payouts</span>
+                <span className="text-slate-600">/</span>
+                <span className="font-mono text-blue-400 font-semibold">CB-2026-09821</span>
               </div>
-              <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                Active Adjudication
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  INVESTIGATION ACTIVE
+                </span>
+                <span className="hidden sm:inline-flex text-[11px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                  Priority: Standard
+                </span>
+              </div>
             </div>
 
             {/* Showcase Body: 3-Pillar Architecture */}
@@ -380,16 +384,16 @@ export default function Home() {
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>Batch Correlation:</span>
-                    <span className="font-mono text-slate-800 text-[11px]">CB-BATCH-W9821</span>
+                    <span className="font-mono text-slate-800 text-[11px]">CB-BATCH-09821</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>PayPal Debug ID:</span>
-                    <span className="font-mono text-slate-800 text-[11px]">SANDBOX-PAYPAL-W9821</span>
+                    <span className="font-mono text-slate-800 text-[11px]">SANDBOX-PAYPAL-09821</span>
                   </div>
                 </div>
                 <div className="p-2.5 rounded-lg bg-white border border-slate-200 text-[11px] text-slate-600 space-y-1 font-mono">
                   <div className="text-slate-500 text-[10px] uppercase">Grounded Hash Ref</div>
-                  <div className="text-blue-700 font-semibold truncate">EVID-W9821-PAYPAL-STATUS-SNAPSHOT-01</div>
+                  <div className="text-blue-700 font-semibold truncate">EVD-PAYPAL-STATUS-09821</div>
                 </div>
               </div>
 

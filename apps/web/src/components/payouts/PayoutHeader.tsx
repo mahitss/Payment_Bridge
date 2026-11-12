@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { ArrowLeft, RefreshCw, Sparkles } from "lucide-react";
-import { PayoutCase } from "@/lib/payouts";
+import { PayoutCase, formatCaseReference } from "@/lib/payouts";
 import { Button, Badge } from "@/components/ui";
 
 export interface PayoutHeaderProps {
@@ -58,7 +58,8 @@ export function PayoutHeader({ pCase, loading, onRefresh }: PayoutHeaderProps) {
         <div className="space-y-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-mono">
-              {pCase.reference}
+              {formatCaseReference(pCase.reference)}
+              <span className="sr-only">({pCase.reference})</span>
             </h1>
 
             <Badge
@@ -66,12 +67,12 @@ export function PayoutHeader({ pCase, loading, onRefresh }: PayoutHeaderProps) {
                 pCase.status === "COMPLETED"
                   ? "success"
                   : pCase.status === "SUBMITTED"
-                  ? "info"
-                  : pCase.status === "CANCELLED"
-                  ? "danger"
-                  : pCase.status === "FAILED"
-                  ? "danger"
-                  : "neutral"
+                    ? "info"
+                    : pCase.status === "CANCELLED"
+                      ? "danger"
+                      : pCase.status === "FAILED"
+                        ? "danger"
+                        : "neutral"
               }
               size="sm"
               dot

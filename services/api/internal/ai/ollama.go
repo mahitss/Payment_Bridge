@@ -398,7 +398,9 @@ func (c *OllamaClient) investigateNativeOllama(ctx context.Context, snapshot *In
 	requestStart := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) ||
+			strings.Contains(strings.ToLower(err.Error()), "client.timeout") ||
+			strings.Contains(strings.ToLower(err.Error()), "deadline exceeded") {
 			return nil, ErrAITimeout
 		}
 		slog.WarnContext(ctx, "AI provider connection failed",
@@ -533,7 +535,9 @@ func (c *OllamaClient) investigateOpenAICompatible(ctx context.Context, snapshot
 	requestStart := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) ||
+			strings.Contains(strings.ToLower(err.Error()), "client.timeout") ||
+			strings.Contains(strings.ToLower(err.Error()), "deadline exceeded") {
 			return nil, ErrAITimeout
 		}
 		slog.WarnContext(ctx, "AI provider connection failed",

@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import Header from "@/components/Header";
-import { PayoutCase, formatCentsToUSD, formatDate } from "@/lib/payouts";
+import { PayoutCase, formatCentsToUSD, formatDate, formatCaseReference } from "@/lib/payouts";
 import {
   Button,
   Badge,
@@ -96,6 +96,7 @@ export default function PayoutsListPage() {
       const term = searchTerm.toLowerCase();
       return (
         c.reference?.toLowerCase().includes(term) ||
+        formatCaseReference(c.reference).toLowerCase().includes(term) ||
         c.title?.toLowerCase().includes(term) ||
         c.recipient_name?.toLowerCase().includes(term) ||
         c.recipient_email?.toLowerCase().includes(term)
@@ -265,7 +266,8 @@ export default function PayoutsListPage() {
                           href={`/app/payouts/${c.id}`}
                           className="hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded font-semibold"
                         >
-                          {c.reference}
+                          <span>{formatCaseReference(c.reference)}</span>
+                          <span className="sr-only">({c.reference})</span>
                         </Link>
                         {c.is_synthetic_fixture && (
                           <Badge variant="warning" size="sm">

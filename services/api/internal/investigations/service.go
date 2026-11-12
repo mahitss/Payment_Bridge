@@ -263,6 +263,9 @@ func (s *Service) InvestigatePayoutCase(ctx context.Context, orgID, caseID, requ
 		if errors.Is(err, ai.ErrInvalidEvidenceRef) {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidEvidenceReference, err.Error())
 		}
+		if errors.Is(err, ai.ErrAITimeout) {
+			return nil, ai.ErrAITimeout
+		}
 		if errors.Is(err, ai.ErrAIUnavailable) {
 			return nil, ErrAIUnavailable
 		}
