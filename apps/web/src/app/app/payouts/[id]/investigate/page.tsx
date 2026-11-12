@@ -174,6 +174,10 @@ export default function PayoutInvestigationPage() {
           setInvestigationError(
             "Investigation assistant is currently offline or unreachable. Core payout operations remain functional."
           );
+        } else if (data.code === "AI_TIMEOUT") {
+          setInvestigationError(
+            "Investigation timed out before completion. The model may be under heavy load; please retry."
+          );
         } else if (data.code === "INVALID_EVIDENCE_REFERENCE") {
           setInvestigationError(
             "AI safety validation triggered: Model output cited ungrounded or fabricated identifiers and was rejected."
