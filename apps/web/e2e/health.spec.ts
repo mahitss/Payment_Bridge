@@ -14,9 +14,10 @@ test.describe("A. Application Startup, Health, and Landing Page Truthfulness", (
     const releaseBadge = page.locator("text=Verified Release");
     await expect(releaseBadge).not.toBeVisible();
 
-    // Must display honest Sandbox Prototype badge
-    const prototypeBadge = page.locator("text=Sandbox Prototype");
-    await expect(prototypeBadge).toBeVisible();
+    // Must display honest PayPal Sandbox Environment badge and conceal prototype labels
+    const sandboxBadge = page.getByText("PayPal Sandbox Environment", { exact: true });
+    await expect(sandboxBadge).toBeVisible();
+    await expect(page.locator("text=Sandbox Prototype")).not.toBeVisible();
 
     // Must describe truth-grounded architecture without unconditional verification claims
     await expect(

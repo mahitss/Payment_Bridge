@@ -35,8 +35,8 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       await expect(page).toHaveTitle(/ClaimBridge/i);
       await expect(page.locator("h1")).toContainText("ClaimBridge");
 
-      // Verify honest Sandbox Prototype branding and architectural value proposition
-      await expect(page.locator("text=Sandbox Prototype")).toBeVisible();
+      // Verify honest PayPal Sandbox Environment branding and architectural value proposition
+      await expect(page.getByText("PayPal Sandbox Environment", { exact: true })).toBeVisible();
       await expect(
         page.locator("text=using provider status records, evidence-grounded AI explanations")
       ).toBeVisible();
@@ -192,7 +192,7 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       // Locate seeded fixture DEMO-W9821
       const fixtureRow = page.locator("tr", { hasText: "DEMO-W9821" });
       await expect(fixtureRow).toBeVisible({ timeout: 10000 });
-      await expect(fixtureRow.locator("text=SIMULATED")).toBeVisible();
+      await expect(fixtureRow.locator("text=SAMPLE RECORD")).toBeVisible();
       await page.waitForTimeout(6000); // 6s pause distinguishing fixtures in table
 
       // Open DEMO-W9821 detail page
@@ -201,28 +201,28 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       await expect(page).toHaveURL(/\/app\/payouts\/.+/, { timeout: 10000 });
 
       // Verify prominent synthetic alert banner
-      const banner = page.locator("text=SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION");
+      const banner = page.locator("text=Sample Record (PayPal Sandbox Safeguard)");
       await expect(banner.first()).toBeVisible({ timeout: 10000 });
       await expect(
-        page.locator("text=This case and its operations are local evaluation fixtures.").first()
+        page.locator("text=This case is an isolated sample record.").first()
       ).toBeVisible();
-      await expect(page.locator("text=SIMULATED FIXTURE").first()).toBeVisible();
+      await expect(page.locator("text=SAMPLE RECORD").first()).toBeVisible();
 
       // Verify external mutation controls are safely disabled on synthetic fixtures
       const syncButton = page.getByRole("button", { name: "Sync with PayPal" });
       if (await syncButton.isVisible()) {
         await expect(syncButton).toBeDisabled();
-        await expect(syncButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
+        await expect(syncButton).toHaveAttribute("title", "Disabled: Sample Record (External mutation disabled)");
       }
       const submitButton = page.getByRole("button", { name: "Submit to PayPal Sandbox" });
       if (await submitButton.isVisible()) {
         await expect(submitButton).toBeDisabled();
-        await expect(submitButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
+        await expect(submitButton).toHaveAttribute("title", "Disabled: Sample Record (External mutation disabled)");
       }
       const cancelButton = page.getByRole("button", { name: "Cancel Payout" });
       if (await cancelButton.isVisible()) {
         await expect(cancelButton).toBeDisabled();
-        await expect(cancelButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
+        await expect(cancelButton).toHaveAttribute("title", "Disabled: Sample Record (External mutation disabled)");
       }
       await page.waitForTimeout(18000); // 18s pause explaining provenance banner and mutation guards
 
@@ -235,8 +235,8 @@ test.describe.serial("G. Deterministic Offline Walkthrough and Demo Recording", 
       await expect(aiEngine.first()).toBeVisible({ timeout: 10000 });
       await aiEngine.first().scrollIntoViewIfNeeded();
 
-      // Verify Simulated Evaluation Fixture indicator
-      await expect(aiEngine.locator("text=Simulated Evaluation Fixture").first()).toBeVisible();
+      // Verify Sample Record indicator
+      await expect(aiEngine.locator("text=Sample Record").first()).toBeVisible();
 
       // Verify pre-seeded synthetic findings
       const preSeededFinding = page.locator(

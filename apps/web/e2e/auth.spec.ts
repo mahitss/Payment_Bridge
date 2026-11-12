@@ -59,19 +59,15 @@ test.describe("B. Authentication and Demo Accounts", () => {
     await expect(page.locator("header")).toContainText("PayPal AI Hackathon Adjudications");
   });
 
-  test("evaluator banner appears on landing page when demo mode is enabled", async ({
+  test("public landing page strictly conceals internal evaluator fixture banner and accounts", async ({
     page,
   }) => {
     await page.goto("/");
 
-    // When NEXT_PUBLIC_DEMO_MODE=true is configured:
+    // Evaluator fixture panel and account email display must be absent from public landing page
     const demoBanner = page.locator("text=Local Evaluation Fixtures (Demo Mode Enabled)");
-    const isVisible = await demoBanner.isVisible();
-
-    if (isVisible) {
-      await expect(page.locator("text=operator@claimbridge.internal")).toBeVisible();
-      await expect(page.locator("text=officer@claimbridge.internal")).toBeVisible();
-    }
-    // Note: If NEXT_PUBLIC_DEMO_MODE is not true, banner is absent as required by specification.
+    await expect(demoBanner).not.toBeVisible();
+    await expect(page.locator("text=operator@claimbridge.internal")).not.toBeVisible();
+    await expect(page.locator("text=officer@claimbridge.internal")).not.toBeVisible();
   });
 });

@@ -21,6 +21,10 @@ import {
   UserCheck,
   ChevronRight,
   Scale,
+  History,
+  ExternalLink,
+  ShieldAlert,
+  Layers,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
@@ -67,14 +71,14 @@ export default function Home() {
             setProbeState({
               gateway: "online",
               sandbox: "authenticated",
-              message: "API Gateway is live and healthy. PayPal Sandbox OAuth2 authentication verified with official endpoint.",
+              message: "API Gateway is operational. PayPal Sandbox OAuth2 authentication verified with official endpoint.",
               timestamp: timeStr,
             });
           } else {
             setProbeState({
               gateway: "online",
               sandbox: "unknown",
-              message: "API Gateway is live, but PayPal Sandbox status response was incomplete, malformed, or contradictory.",
+              message: "API Gateway is operational, but PayPal Sandbox status response was incomplete or unexpected.",
               timestamp: timeStr,
             });
           }
@@ -84,21 +88,21 @@ export default function Home() {
             setProbeState({
               gateway: "online",
               sandbox: "blocked",
-              message: "API Gateway is live and healthy. PayPal Sandbox is unconfigured/blocked (PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET unset in .env).",
+              message: "API Gateway is operational. PayPal Sandbox credentials are not configured in local environment.",
               timestamp: timeStr,
             });
           } else if (errStr.includes("Invalid credentials") || sandboxRes.status === 401) {
             setProbeState({
               gateway: "online",
               sandbox: "rejected",
-              message: "API Gateway is live, but PayPal Sandbox rejected credentials with 401 Unauthorized.",
+              message: "API Gateway is operational, but PayPal Sandbox rejected credentials with 401 Unauthorized.",
               timestamp: timeStr,
             });
           } else {
             setProbeState({
               gateway: "online",
               sandbox: "error",
-              message: `API Gateway is live, but PayPal Sandbox returned provider error (HTTP ${sandboxRes.status}).`,
+              message: `API Gateway is operational; PayPal Sandbox returned status HTTP ${sandboxRes.status}.`,
               timestamp: timeStr,
             });
           }
@@ -107,7 +111,7 @@ export default function Home() {
         setProbeState({
           gateway: "online",
           sandbox: "unreachable",
-          message: "API Gateway is live, but could not query sandbox route.",
+          message: "API Gateway is operational, but could not reach sandbox status route.",
           timestamp: timeStr,
         });
       }
@@ -115,7 +119,7 @@ export default function Home() {
       setProbeState({
         gateway: "offline",
         sandbox: "unreachable",
-        message: "API Gateway is offline. Start the service via 'go run ./cmd/server' in services/api.",
+        message: "API Gateway is unreachable. Start the backend service via 'go run ./cmd/server' in services/api.",
         timestamp: timeStr,
       });
     } finally {
@@ -134,7 +138,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="flex items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg p-1"
+              className="flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg p-1"
             >
               <span className="p-1.5 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30">
                 <ShieldCheck className="w-5 h-5" aria-hidden="true" />
@@ -145,7 +149,7 @@ export default function Home() {
             <span className="hidden sm:inline-block h-4 w-px bg-slate-800" aria-hidden="true" />
 
             <span className="inline-flex items-center text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              Sandbox Prototype
+              PayPal Sandbox Environment
             </span>
           </div>
 
@@ -153,7 +157,7 @@ export default function Home() {
             <button
               onClick={checkGatewayHealth}
               disabled={loading}
-              className="min-h-[38px] px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="min-h-[38px] px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
               aria-label="Probe Gateway Health"
             >
               <Server className="w-3.5 h-3.5 text-blue-400" aria-hidden="true" />
@@ -163,7 +167,7 @@ export default function Home() {
             {!authLoading && user ? (
               <Link
                 href="/app"
-                className="min-h-[38px] px-4 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1.5 shadow-sm focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="min-h-[38px] px-4 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1.5 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 <User className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Enter Workspace</span>
@@ -173,14 +177,14 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <Link
                   href="/login"
-                  className="min-h-[38px] px-3.5 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="min-h-[38px] px-3.5 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
                   <LogIn className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
                   <span>Sign In</span>
                 </Link>
                 <Link
                   href="/register"
-                  className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1.5 shadow-sm focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition flex items-center gap-1.5 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
                   <UserPlus className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Create Account</span>
@@ -211,7 +215,7 @@ export default function Home() {
                 <span className="text-[10px] text-slate-500 font-mono">{probeState.timestamp}</span>
                 <button
                   onClick={() => setProbeState(null)}
-                  className="text-xs text-slate-500 hover:text-slate-800 transition"
+                  className="text-xs text-slate-500 hover:text-slate-800 transition focus-visible:outline-none focus-visible:underline"
                 >
                   Dismiss
                 </button>
@@ -269,63 +273,26 @@ export default function Home() {
           </div>
         )}
 
-        {/* Local Evaluation Fixtures (Demo Mode Enabled) */}
-        {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
-          <aside
-            aria-label="Demo Evaluator Fixtures"
-            className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 shadow-sm"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-600 text-white">
-                    DEMO
-                  </span>
-                  <h2 className="text-sm font-semibold text-slate-900">
-                    Local Evaluation Fixtures (Demo Mode Enabled)
-                  </h2>
-                </div>
-                <p className="text-xs text-slate-600">
-                  Evaluator seed accounts are pre-configured for dual-custody verification:
-                </p>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700 font-mono pt-1">
-                  <div>
-                    <span className="font-semibold text-slate-900">operator@claimbridge.internal</span>
-                    <span className="text-slate-500 font-sans ml-1.5">(Lead Operator)</span>
-                  </div>
-                  <div>
-                    <span className="font-semibold text-slate-900">officer@claimbridge.internal</span>
-                    <span className="text-slate-500 font-sans ml-1.5">(Compliance Officer)</span>
-                  </div>
-                </div>
-              </div>
-              <div className="text-[11px] text-slate-500 bg-white/80 border border-slate-200/80 rounded px-2.5 py-1.5 self-start sm:self-center">
-                Passwords provisioned via secure environment or seed config. Not rendered in client markup.
-              </div>
-            </div>
-          </aside>
-        )}
-
         {/* Hero Section */}
-        <section className="text-center max-w-3xl mx-auto space-y-6 pt-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium">
+        <section className="text-center max-w-4xl mx-auto space-y-6 pt-2">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
             <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Enterprise Financial Operations Platform</span>
+            <span>Financial Operations &amp; Compliance Platform</span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-slate-900 leading-[1.15]">
             <span className="text-blue-600 block sm:inline">ClaimBridge:</span> Autonomous Payout Investigation &amp; Controlled Financial Resolution
           </h1>
 
-          <p className="text-base sm:text-lg text-slate-600 leading-relaxed max-w-2xl mx-auto">
+          <p className="text-base sm:text-lg text-slate-600 leading-relaxed max-w-3xl mx-auto">
             ClaimBridge helps payout operators investigate unresolved payouts using provider status records, evidence-grounded AI explanations, and deterministic safety policy enforcement.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 pt-2">
             {!authLoading && user ? (
               <Link
                 href="/app"
-                className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2 shadow-sm"
+                className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
               >
                 <span>Enter Workspace</span>
                 <ArrowRight className="w-4 h-4" aria-hidden="true" />
@@ -334,34 +301,176 @@ export default function Home() {
               <>
                 <Link
                   href="/login"
-                  className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2 shadow-sm"
+                  className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                 >
                   <span>Enter Workspace</span>
                   <ArrowRight className="w-4 h-4" aria-hidden="true" />
                 </Link>
                 <Link
                   href="/register"
-                  className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-lg bg-white hover:bg-slate-50 text-slate-800 font-semibold text-sm border border-slate-200 shadow-sm transition flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-lg bg-white hover:bg-slate-50 text-slate-800 font-semibold text-sm border border-slate-200 shadow-sm transition flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
                 >
                   <span>Create Account</span>
                 </Link>
               </>
             )}
           </div>
+
+          {/* Institutional Trust Indicators */}
+          <div className="pt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-500 font-medium">
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+              PayPal Sandbox REST OAuth2
+            </span>
+            <span className="hidden sm:inline text-slate-300">•</span>
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+              Deterministic Fail-Closed Policy
+            </span>
+            <span className="hidden sm:inline text-slate-300">•</span>
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+              Mandatory Dual Custody &gt; $250
+            </span>
+            <span className="hidden sm:inline text-slate-300">•</span>
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
+              Tenant-Isolated Audit Trail
+            </span>
+          </div>
         </section>
 
-        {/* 5-Step Workflow Section */}
-        <section className="space-y-8">
+        {/* Product Preview Showcase: Genuine Operational Interface */}
+        <section aria-label="Operational Product Preview" className="max-w-5xl mx-auto">
+          <div className="rounded-2xl border border-slate-200/90 bg-white shadow-lg overflow-hidden">
+            {/* Mock Header Bar */}
+            <div className="border-b border-slate-100 bg-slate-900 px-5 py-3.5 text-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+                </div>
+                <span className="text-xs font-mono text-slate-400">claimbridge.internal/app/payouts/DEMO-W9821</span>
+              </div>
+              <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                Active Adjudication
+              </span>
+            </div>
+
+            {/* Showcase Body: 3-Pillar Architecture */}
+            <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* Pillar 1: Evidence Resolution */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileCheck className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Provider Evidence
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
+                    UNCLAIMED
+                  </span>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between text-slate-600">
+                    <span>Target Amount:</span>
+                    <span className="font-mono font-bold text-slate-900">$185.00 USD</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Batch Correlation:</span>
+                    <span className="font-mono text-slate-800 text-[11px]">CB-BATCH-W9821</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>PayPal Debug ID:</span>
+                    <span className="font-mono text-slate-800 text-[11px]">SANDBOX-PAYPAL-W9821</span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-white border border-slate-200 text-[11px] text-slate-600 space-y-1 font-mono">
+                  <div className="text-slate-500 text-[10px] uppercase">Grounded Hash Ref</div>
+                  <div className="text-blue-700 font-semibold truncate">EVID-W9821-PAYPAL-STATUS-SNAPSHOT-01</div>
+                </div>
+              </div>
+
+              {/* Pillar 2: AI Triage Recommendations */}
+              <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Brain className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      AI Triage Engine
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-semibold">
+                    Confidence: HIGH
+                  </span>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Payout transfer remains in UNCLAIMED status at provider. Cancellation and reissue recommended once identity is verified.
+                </p>
+                <div className="p-2.5 rounded-lg bg-white border border-blue-200/80 text-[11px] text-slate-700 space-y-1">
+                  <div className="flex items-center gap-1.5 text-amber-700 font-semibold">
+                    <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Independent Review Mandated</span>
+                  </div>
+                  <div className="text-slate-500 text-[10px]">
+                    AI output does not possess execution authority; human approval required.
+                  </div>
+                </div>
+              </div>
+
+              {/* Pillar 3: Deterministic Financial Policy */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Scale className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Deterministic Policy
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
+                    Enforced
+                  </span>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Ceiling Check (&le; $500):</span>
+                    <span className="font-semibold text-emerald-700 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      Passed ($185.00)
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Dual Custody (&gt; $250):</span>
+                    <span className="font-semibold text-slate-800">Single Officer</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Self-Approval Guard:</span>
+                    <span className="font-semibold text-emerald-700">Blocked Fail-Closed</span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-white border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                  <div className="text-slate-500 text-[10px] uppercase font-mono">Governance Rule</div>
+                  <div className="text-slate-800 font-semibold">RULE-PAYPAL-CANCEL-UNCLAIMED-ONLY</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 6-Stage Resolution Workflow Section */}
+        <section className="space-y-8" aria-labelledby="workflow-heading">
           <div className="text-center space-y-2">
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+            <h2 id="workflow-heading" className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               Grounded End-to-End Investigation Workflow
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
-              Every payout operation passes through five rigorous stages to eliminate ambiguity, enforce dual custody, and ensure provable compliance.
+              Every payout operation passes through six disciplined stages to eliminate ambiguity, enforce dual custody, and maintain complete auditability.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Step 1 */}
             <div className="p-5 rounded-xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-3">
               <div className="space-y-2">
@@ -430,11 +539,11 @@ export default function Home() {
                 </div>
                 <h3 className="text-sm font-semibold text-slate-900">Deterministic Policy</h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Rust policy engine enforces fail-closed ceilings, dual-custody thresholds, and integer-cent precision.
+                  Deterministic policy engine enforces fail-closed ceilings, dual-custody thresholds, and integer-cent precision.
                 </p>
               </div>
               <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 font-mono">
-                Fail-Closed Rust
+                Fail-Closed Controls
               </div>
             </div>
 
@@ -456,13 +565,32 @@ export default function Home() {
                 Dual Custody Enforced
               </div>
             </div>
+
+            {/* Step 6 */}
+            <div className="p-5 rounded-xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold font-mono">
+                    06
+                  </span>
+                  <History className="w-4 h-4 text-slate-400" aria-hidden="true" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">Complete Audit Trail</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Record complete lifecycle history with immutable cryptographic hashes and timestamped operator signatures.
+                </p>
+              </div>
+              <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 font-mono">
+                Immutable Ledger
+              </div>
+            </div>
           </div>
         </section>
 
         {/* Financial Trust & Safeguards Section */}
-        <section className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm space-y-6">
+        <section className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm space-y-6" aria-labelledby="safeguards-heading">
           <div className="max-w-2xl">
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+            <h2 id="safeguards-heading" className="text-xl font-bold text-slate-900 tracking-tight">
               Institutional Financial Safeguards
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
@@ -477,7 +605,7 @@ export default function Home() {
                 <span>Deterministic Safety</span>
               </div>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Rust policy engine enforces a hard fail-closed $500 disbursement ceiling and verified risk thresholds with zero AI bypass.
+                Deterministic policy engine enforces a hard fail-closed $500 disbursement ceiling and verified risk thresholds with zero AI bypass.
               </p>
             </div>
 
@@ -523,7 +651,7 @@ export default function Home() {
             <span>• Financial Operations Platform</span>
           </div>
           <div className="text-[11px] text-slate-400">
-            Evaluation Build • Strict Financial Controls Enforced
+            PayPal Sandbox Environment • Multi-Tenant Financial Controls
           </div>
         </div>
       </footer>

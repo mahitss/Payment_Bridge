@@ -11,7 +11,7 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     await expect(page).toHaveURL(/\/app/);
   });
 
-  test("seeded synthetic fixture DEMO-W9821 is listed with SIMULATED badge", async ({
+  test("seeded synthetic fixture DEMO-W9821 is listed with SAMPLE RECORD badge", async ({
     page,
   }) => {
     await page.goto("/app/payouts");
@@ -20,8 +20,8 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     const fixtureRow = page.locator("tr", { hasText: "DEMO-W9821" });
     await expect(fixtureRow).toBeVisible({ timeout: 10000 });
 
-    // Must have SIMULATED badge
-    await expect(fixtureRow.locator("text=SIMULATED")).toBeVisible();
+    // Must have SAMPLE RECORD badge
+    await expect(fixtureRow.locator("text=SAMPLE RECORD")).toBeVisible();
   });
 
   test("synthetic fixture detail page displays prominent provenance banner and disables external controls", async ({
@@ -36,34 +36,34 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     await expect(page).toHaveURL(/\/app\/payouts\/.+/, { timeout: 15000 });
 
     // Verify prominent provenance alert banner
-    const banner = page.locator("text=SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION");
+    const banner = page.locator("text=Sample Record (PayPal Sandbox Safeguard)");
     await expect(banner).toBeVisible({ timeout: 10000 });
 
     // Verify explanation text
     await expect(
-      page.locator("text=This case and its operations are local evaluation fixtures.")
+      page.locator("text=This case is an isolated sample record.").first()
     ).toBeVisible();
 
-    // Verify SIMULATED FIXTURE badge next to reference
-    await expect(page.locator("text=SIMULATED FIXTURE")).toBeVisible();
+    // Verify SAMPLE RECORD badge next to reference
+    await expect(page.locator("text=SAMPLE RECORD").first()).toBeVisible();
 
     // Verify external controls are disabled for synthetic fixtures
     const syncButton = page.getByRole("button", { name: "Sync with PayPal" });
     if (await syncButton.isVisible()) {
       await expect(syncButton).toBeDisabled();
-      await expect(syncButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
+      await expect(syncButton).toHaveAttribute("title", "Disabled: Sample Record (External mutation disabled)");
     }
 
     const submitButton = page.getByRole("button", { name: "Submit to PayPal Sandbox" });
     if (await submitButton.isVisible()) {
       await expect(submitButton).toBeDisabled();
-      await expect(submitButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
+      await expect(submitButton).toHaveAttribute("title", "Disabled: Sample Record (External mutation disabled)");
     }
 
     const cancelButton = page.getByRole("button", { name: "Cancel Payout" });
     if (await cancelButton.isVisible()) {
       await expect(cancelButton).toBeDisabled();
-      await expect(cancelButton).toHaveAttribute("title", "Disabled: Synthetic Demo Fixture");
+      await expect(cancelButton).toHaveAttribute("title", "Disabled: Sample Record (External mutation disabled)");
     }
   });
 
@@ -76,10 +76,10 @@ test.describe("C. Synthetic Fixture Integrity and Offline Inspection", () => {
     await fixtureLink.click();
     await expect(page).toHaveURL(/\/app\/payouts\/.+/, { timeout: 15000 });
 
-    // Investigation engine card should have the Simulated Evaluation Fixture indicator
+    // Investigation engine card should have the Sample Record indicator
     const aiEngine = page.locator("section", { hasText: "AI Payout Investigation Engine" });
     await expect(aiEngine).toBeVisible({ timeout: 10000 });
-    await expect(aiEngine.locator("text=Simulated Evaluation Fixture")).toBeVisible();
+    await expect(aiEngine.locator("text=Sample Record").first()).toBeVisible();
 
     // Verify pre-seeded investigation details are displayed
     // The seeder seeds a synthetic investigation with finding "Simulated scenario: recipient has not claimed the transfer within the observation window."

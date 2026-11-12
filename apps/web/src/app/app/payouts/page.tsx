@@ -269,7 +269,7 @@ export default function PayoutsListPage() {
                         </Link>
                         {c.is_synthetic_fixture && (
                           <Badge variant="warning" size="sm">
-                            SIMULATED
+                            SAMPLE RECORD
                           </Badge>
                         )}
                       </div>

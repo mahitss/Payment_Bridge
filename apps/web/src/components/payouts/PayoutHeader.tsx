@@ -48,9 +48,9 @@ export function PayoutHeader({ pCase, loading, onRefresh }: PayoutHeaderProps) {
       </div>
 
       {pCase.is_synthetic_fixture && (
-        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2.5">
-          <span className="font-bold">SIMULATED DEMO DATA — NOT A LIVE PAYPAL TRANSACTION: </span>
-          <span>This case and its operations are local evaluation fixtures. External provider calls are prevented to maintain safety.</span>
+        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex items-center gap-2.5 shadow-sm">
+          <span className="font-semibold">Sample Record (PayPal Sandbox Safeguard): </span>
+          <span>This case is an isolated sample record. External financial mutations are disabled to maintain environment integrity.</span>
         </div>
       )}
 
@@ -81,7 +81,7 @@ export function PayoutHeader({ pCase, loading, onRefresh }: PayoutHeaderProps) {
 
             {pCase.is_synthetic_fixture && (
               <Badge variant="warning" size="sm">
-                SIMULATED FIXTURE
+                SAMPLE RECORD
               </Badge>
             )}
 
